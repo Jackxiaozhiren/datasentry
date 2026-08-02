@@ -17,8 +17,11 @@ from datasentry_core.connectors.errors import (
     UnsafeSqlError,
     UnsupportedFormatError,
 )
+from datasentry_core.connectors.jsonl import JsonlConnector
+from datasentry_core.connectors.parquet import ParquetConnector
 from datasentry_core.connectors.registry import ConnectorRegistry, default_registry
 from datasentry_core.connectors.spec import DataSourceSpec, DataSourceType
+from datasentry_core.connectors.xlsx import XlsxConnector
 
 __all__ = [
     "ColumnInfo",
@@ -32,10 +35,13 @@ __all__ = [
     "DataSourceType",
     "FingerprintMode",
     "FrameBatch",
+    "JsonlConnector",
     "LoadWarning",
+    "ParquetConnector",
     "SamplingMethod",
     "SchemaInfo",
     "UnsafeSqlError",
     "UnsupportedFormatError",
+    "XlsxConnector",
     "default_registry",
 ]

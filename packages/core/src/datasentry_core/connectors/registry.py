@@ -5,7 +5,10 @@ from __future__ import annotations
 from datasentry_core.connectors.base import DataConnector, DataHandle
 from datasentry_core.connectors.csv import CsvConnector
 from datasentry_core.connectors.errors import UnsupportedFormatError
+from datasentry_core.connectors.jsonl import JsonlConnector
+from datasentry_core.connectors.parquet import ParquetConnector
 from datasentry_core.connectors.spec import DataSourceSpec
+from datasentry_core.connectors.xlsx import XlsxConnector
 
 
 class ConnectorRegistry:
@@ -41,7 +44,10 @@ class ConnectorRegistry:
 
 
 def default_registry() -> ConnectorRegistry:
-    """默认注册表：MVP 连接器集合。"""
+    """默认注册表：MVP 文件型连接器集合（数据库型归 V1，ADR-019）。"""
     registry = ConnectorRegistry()
     registry.register(CsvConnector())
+    registry.register(ParquetConnector())
+    registry.register(JsonlConnector())
+    registry.register(XlsxConnector())
     return registry

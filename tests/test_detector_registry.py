@@ -141,7 +141,12 @@ class TestDetectorRegistry:
 
     def test_default_registry_not_contaminated(self) -> None:
         """默认连接器注册表（函数工厂）不受测试污染：仅含内置连接器。"""
-        assert [c.connector_id for c in default_registry().list()] == ["csv"]
+        assert [c.connector_id for c in default_registry().list()] == [
+            "csv",
+            "parquet",
+            "jsonl",
+            "xlsx",
+        ]
 
 
 def make_fake(detector_id: str) -> FakeDetector:

@@ -284,6 +284,39 @@
 
 ---
 
+## ADR-019：多格式文件连接器的读取语义（7.1 文件型三件套）
+
+- **状态**：Accepted（2026-08-02）
+- **决策**：
+  1. 新增 Parquet/JSONL/XLSX 三个连接器（7.1 六种数据源中的文件型；
+     SQLITE/POSTGRESQL/DUCKDB 数据库型归 V1——需连接级沙箱与凭据
+     管理，MVP 不做）。
+  2. `connectors/file_based.py` 共享基类：schema（DESCRIBE 视图）/
+     read_sample/sql_aggregate/count_rows/fingerprint/warnings
+     （公式注入扫描，11.7）/close。**CSV 连接器不重构**（编码探测/
+     分隔符嗅探等专属逻辑已稳定，避免回归）。
+  3. Parquet：duckdb `read_parquet` 注册视图（SQL pushdown 统一入口）+
+     pyarrow `ParquetFile.iter_batches` 流式批读（warnings 扫描路径）。
+  4. JSONL：`read_json_auto(format='newline_delimited')` 视图；
+     read_batches 用 LIMIT/OFFSET 分页（duckdb 无 JSONL 流式读接口，
+     1e6 行画像预算内重复扫描可接受，Step 20 基准验证）。
+  5. XLSX：openpyxl `data_only=False`——公式单元格返回**公式文本**
+     （公式注入前缀可被 warnings 检测，电子表格场景价值最高）；
+     公式计算结果的缓存读取归 V1。混合类型列（int/str 混排）
+     自动推断失败时回退全字符串（`str(value) if value is not None
+     else None`，不炸表）；sheet（名称/索引）与 header_row 可配。
+  6. SDK `scan_file()` 按扩展名推断 source_type
+     （.csv/.tsv/.parquet/.pq/.jsonl/.ndjson/.xlsx）；未知格式抛
+     FileNotFoundError（与文件不存在同一语义，CLI 退出码 4）。
+- **理由**：XLSX 是数据质量工具的日常输入（业务人员导出）；Parquet
+  是湖仓标准格式；JSONL 是日志/事件流标准。三个连接器共享基类避免
+  三份 schema/抽样/指纹重复实现。
+- **影响**：default_registry() 4 个连接器（原 1 个）；新增依赖
+  openpyxl（core）；mypy overrides 补 openpyxl（无类型存根）；
+  旧断言更新（PARQUET 从「不支持」变「支持」）。
+
+---
+
 ## 待定（Proposed）
 
 | 编号 | 议题 | 状态 |

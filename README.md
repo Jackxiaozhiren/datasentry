@@ -105,13 +105,23 @@ make lint && make type && make test
 - `detectors/runner.py` 新增 `run_scan()`：完整扫描入口，组装 `ScanRun`（fingerprint/ReproducibilityInfo/issues_count/任一检测器失败→status=failed）
 - ADR-012 偏差记录：scan_runs.fingerprint 冗余 JSON 列（草案经 dataset_versions 关联，MVP 无版本写路径）
 
-## CLI / SDK 闭环（Step 10，22-23 章）
+## CLI / SDK 闭环（Step 10/18，22-23 章）
 
 - `src/datasentry/`：SDK 客户端 + CLI（`datasentry` 命令已注册到 PATH，`uv sync` 安装）
 - SDK（23.1）：`DataSentry(project=...)` 工作区门面 —— `scan_file`（导入→扫描→评分→落库）、`list_issues`（--severity 过滤）、`get_scan`/`get_detector_runs`、`export_report`；构造即确保 `.datasentry/` 目录与 `.gitignore` 条目（ADR-010）
 - CLI（22.1）：`init` / `scan` / `issues list|show` / `report export` / `contract validate`；全局 `--project` / `--format text|json` / `--seed` / `--version`
 - JSON envelope：`{"ok", "command", "data", "warnings", "llm_usage"}`；退出码 0 成功 / 2 配置错误 / 3 执行错误 / 4 数据源不可用（1 保留质量门禁）
 - 检测器类型收窄：字符串类检测器（missing token/placeholder 等）经 `supports()` + `string_columns()` 限定，数值列不再触发 `trim()` Binder 错误
+
+## 多格式文件连接器（Step 18，7.1 + ADR-019）
+
+- `connectors/file_based.py`：`FileDataHandle` 共享基类（schema/read_sample/sql_aggregate/count_rows/fingerprint/warnings 公式注入扫描/close）；CSV 连接器保持独立（专属编码探测/分隔符嗅探，不重构）
+- `connectors/parquet.py`：duckdb `read_parquet` 视图 + pyarrow `ParquetFile.iter_batches` 流式批读
+- `connectors/jsonl.py`：duckdb `read_json_auto(format='newline_delimited')` 视图；read_batches 用 LIMIT/OFFSET 分页（1e6 行预算内）
+- `connectors/xlsx.py`：openpyxl 读取（`data_only=False`——公式单元格返回公式文本，公式注入可检测；计算结果缓存归 V1）→ pyarrow 表注册；混合类型列自动推断失败回退全字符串（int/str 混排不炸）；sheet/header_row 可配（默认首个 sheet、第 0 行）
+- `default_registry()`：CSV + Parquet + JSONL + XLSX；数据库型（SQLITE/POSTGRESQL/DUCKDB）归 V1
+- SDK `scan_file()` 按扩展名自动推断：`.csv/.tsv`、`.parquet/.pq`、`.jsonl/.ndjson`、`.xlsx`；未知格式抛 FileNotFoundError（format 语义）
+- 新增依赖 openpyxl（core 包）；mypy overrides 补 openpyxl（无类型存根）
 
 ## 质量总分引擎（Step 11，27 章 + ADR-013）
 

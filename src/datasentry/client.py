@@ -14,7 +14,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from datasentry_core.connectors import CsvConnector, DataSourceSpec, DataSourceType
+from datasentry_core.connectors import (
+    DataSourceSpec,
+    DataSourceType,
+    default_registry,
+)
 from datasentry_core.detectors import DetectionContext, DetectorRegistry
 from datasentry_core.detectors.initial import register_default_detectors
 from datasentry_core.detectors.runner import ScanRunner
@@ -26,6 +30,22 @@ from datasentry_core.reporting import build_report
 from datasentry_core.storage import MetadataStore
 
 _SEVERITY_ORDER = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO]
+
+# 文件扩展名 → 数据源类型（Step 18：scan_file 自动推断，覆盖 CSV/Parquet/JSONL/XLSX）
+_EXT_TO_SOURCE_TYPE: dict[str, DataSourceType] = {
+    ".csv": DataSourceType.CSV,
+    ".tsv": DataSourceType.CSV,
+    ".parquet": DataSourceType.PARQUET,
+    ".pq": DataSourceType.PARQUET,
+    ".jsonl": DataSourceType.JSONL,
+    ".ndjson": DataSourceType.JSONL,
+    ".xlsx": DataSourceType.XLSX,
+}
+
+
+def _source_type_for_path(path: Path) -> DataSourceType | None:
+    """按扩展名推断数据源类型，未知返回 None。"""
+    return _EXT_TO_SOURCE_TYPE.get(path.suffix.lower())
 
 
 class DataSentry:
@@ -84,13 +104,18 @@ class DataSentry:
         source_path = Path(path).expanduser()
         if not source_path.is_file():
             raise FileNotFoundError(f"data source not found: {source_path}")
+        source_type = _source_type_for_path(source_path)
+        if source_type is None:
+            raise FileNotFoundError(
+                f"unsupported data source format: {source_path.suffix or '(no extension)'}"
+            )
         dataset_id = dataset_id or source_path.stem
         spec = DataSourceSpec(
-            source_type=DataSourceType.CSV,
+            source_type=source_type,
             path=source_path,
             options={"dataset_id": dataset_id},
         )
-        handle = CsvConnector().open(spec)
+        handle = default_registry().open(spec)
         try:
             context = DetectionContext(
                 dataset_id=dataset_id,

@@ -9,6 +9,7 @@ dependencies = [
     "duckdb>=1.0",
     "pyarrow>=16.0",
     "charset-normalizer>=3.3",
+    "openpyxl>=3.1",
 ]
 
 [build-system]
