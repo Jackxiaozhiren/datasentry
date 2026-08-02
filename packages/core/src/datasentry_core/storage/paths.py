@@ -40,3 +40,8 @@ def project_db_path(workspace: Path) -> Path:
 def project_reports_dir(workspace: Path) -> Path:
     """项目报告目录：<workspace>/.datasentry/reports（26 章报告导出默认落点）。"""
     return project_data_dir(workspace) / "reports"
+
+
+def project_repairs_dir(workspace: Path) -> Path:
+    """项目修复副本目录：<workspace>/.datasentry/repairs（15 章修复产物，ADR-020）。"""
+    return project_data_dir(workspace) / "repairs"

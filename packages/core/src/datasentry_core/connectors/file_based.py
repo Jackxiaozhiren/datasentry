@@ -25,7 +25,7 @@ from datasentry_core.connectors.base import (
     SchemaInfo,
 )
 from datasentry_core.connectors.errors import DataSourceNotFoundError
-from datasentry_core.connectors.spec import DataSourceSpec
+from datasentry_core.connectors.spec import DataSourceSpec, DataSourceType
 from datasentry_core.engine import DuckDBExecutor
 from datasentry_core.models.enums import Severity
 from datasentry_core.models.fingerprint import DatasetFingerprint
@@ -62,6 +62,14 @@ class FileDataHandle:
         self._schema_info: SchemaInfo | None = None
         self._warnings: list[LoadWarning] | None = None
         self._closed = False
+
+    @property
+    def source_type(self) -> DataSourceType:
+        return self._spec.source_type
+
+    @property
+    def source_path(self) -> Path | None:
+        return self._path
 
     # ---- 子类契约 ------------------------------------------------------
 

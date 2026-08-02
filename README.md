@@ -167,3 +167,13 @@ make lint && make type && make test
   `spelling_variant`（distinct 值 ≤500 采样，lower+去分隔符归一化后同一逻辑值的不同原值 ≥2 对且合计占比 ≥0.001，LOW）、`fullwidth_character`（全角字母数字 U+FF10-19/FF21-3A/FF41-5A 混入，LOW）、`mojibake_character`（U+FFFD 替换符，编码损坏标志，LOW）、`invalid_numeric`（列名含 price/amount/count/qty 等数值特征、物理 VARCHAR，非数值文本占比 ≥0.01 且 ≥2 行，MEDIUM；date/time 列名特征豁免）
 - duckdb RE2 不支持 `\u` 转义：unicode 码位用 `\x{HHHH}`（Go 语法）——`[\x{FF10}-\x{FF19}]` 正确匹配全角数字
 - 融合：4 个 issue_type → `string_format` family（VALIDITY）；检测器计数 32 → 36（M4 ≥20 保持）
+
+## 修复引擎 MVP（Step 19，12.5/15 章子集 + ADR-020）
+
+- `repair/engine.py`：闭环 propose → preview → apply → rollback（W11 修复闭环）
+- 只支持确定性、值级操作（ADR-020 边界）：`leading_or_trailing_whitespace`→TRIM、`inconsistent_case`→NORMALIZE_CASE、`suspicious_missing_token`→REPLACE_MISSING_TOKEN（11 种缺失占位符→NULL）、`invalid_date`/`impossible_date`→SET_NULL（ISO 日期格式+解析双校验）、`iqr_outlier`/`percentile_outlier`/`modified_zscore`→CLIP_VALUE（evidence 的 lower/upper 边界，需单列）；impute/map_category 等推断类归 V1（伪造数据风险）
+- 融合家族化后的 Issue：原始类型在 `detector_ids`（与 issue_type 同名），按可修复优先级挑选
+- `preview`：临时副本 + 同检测器重跑 → `rule_failures_before/after`、`rows_changed_ratio`、`null_delta`/`unique_delta`、前 10 行 `changed_examples`
+- `apply`：原文件永不变，产物在 `<workspace>/.datasentry/repairs/`——修复副本 `<run_id><ext>` + before artifact `<run_id>.before<ext>`；`rollback` = artifact 全量重建 `<run_id>.rolled_back<ext>`（operation log 仅前 500 条样本，回滚不依赖）
+- 格式回写按源类型：parquet / jsonl / xlsx / csv；`DataHandle` 协议新增 `source_type`/`source_path` 只读属性；`RepairProposal` 新增 `issue_type` 字段（修复目标类型，规则重跑用）
+- 检测器计数保持 36；测试 306 → 313（新增 tests/test_repair_engine.py 7 例：提案映射/预览/应用+回滚指纹一致/CLIP 边界）

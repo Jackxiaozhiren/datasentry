@@ -103,6 +103,14 @@ class CsvDataHandle:
         self._warnings: list[LoadWarning] | None = None
         self._closed = False
 
+    @property
+    def source_type(self) -> DataSourceType:
+        return self._spec.source_type
+
+    @property
+    def source_path(self) -> Path | None:
+        return self._path
+
     def _ensure_view(self) -> None:
         """注册只读 view。注意：duckdb 默认将空字符串视为 NULL，
         pyarrow 读取路径保留空字符串——两路径语义差异在检测器层统一（Step 6 文档约定）。"""

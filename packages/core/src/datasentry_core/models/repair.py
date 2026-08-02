@@ -21,6 +21,7 @@ class RepairProposal(BaseModel):
 
     proposal_id: str
     issue_id: str
+    issue_type: str = ""
     operation: RepairOperation
     target_columns: list[str]
     target_row_ids: list[str] | None = None

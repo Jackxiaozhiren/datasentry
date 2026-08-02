@@ -317,6 +317,45 @@
 
 ---
 
+## ADR-020：修复引擎 MVP 的操作边界与回滚语义（15 章）
+
+- **状态**：Accepted（2026-08-02）
+- **决策**：
+  1. MVP 只支持**确定性、值级**修复操作（12.5 章第 8 类中的
+     5 类）：TRIM_WHITESPACE / NORMALIZE_CASE /
+     REPLACE_MISSING_TOKEN / SET_NULL / CLIP_VALUE。**推断类操作
+     归 V1**（impute 的均值/中位数填充、map_category 的类别合并——
+     伪造数据风险，C-04 契约引擎归 V1 同构）。
+  2. Issue → 操作映射按**检测器级 issue_type**（
+     leading_or_trailing_whitespace 等）。融合家族化后原始类型
+     在 `Issue.detector_ids`，propose 按优先级挑选首个可修复的；
+     `RepairProposal.issue_type` 新增字段承载该原始类型（规则重跑
+     目标，`RepairProposal.issue_id` 不携带类型信息）。
+  3. CLIP_VALUE 仅当 evidence 提供 lower/upper 边界（IQR 等数值
+     离群证据）且**单列**时提案——多列离群各列边界不同，MVP
+     不支持异构参数。
+  4. 原文件**永不修改**；修复产物在 `<workspace>/.datasentry/repairs/`：
+     修复副本 `<run_id><ext>` + before artifact `<run_id>.before<ext>`
+     （源文件完整副本，非 diff）。
+  5. **回滚 = artifact 全量重建** `<run_id>.rolled_back<ext>`。
+     RepairOperationRecord（行级 before/after）仅存前 500 条样本
+     （日志与展示用），**不依赖 operation log 回滚**——全量重建
+     消除了部分回滚的补丁顺序问题。
+  6. `rule_failures_before/after` = 在原始/修复副本上重跑同一检测器
+     的候选数（preview 用临时目录副本，无副作用）。
+  7. `DataHandle` 协议新增 `source_type`/`source_path` 只读属性
+     （CSV 与 file_based 基类实现），供引擎按源类型写回与定位
+     before artifact。
+- **理由**：确定性操作可预览、可审计、零歧义；推断类操作在无
+  契约引擎（C-04/V1）约束时等于替用户做猜测。原文件不可变 +
+  artifact 全量重建保证回滚是精确的「时间倒流」。
+- **影响**：新增 `repair/` 包与 `storage/paths.project_repairs_dir()`；
+  8/15 章的 8 类修复中 5 类落地，其余（cast_type/set_null 已含、
+  map_category/impute）V1；CLI 侧接入（`ds repair` 命令）归
+  Step 后续/报告集成。
+
+---
+
 ## 待定（Proposed）
 
 | 编号 | 议题 | 状态 |

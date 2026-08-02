@@ -6,12 +6,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any, Literal, Protocol
 
 import pyarrow as pa
 from pydantic import BaseModel, ConfigDict, Field
 
-from datasentry_core.connectors.spec import DataSourceSpec
+from datasentry_core.connectors.spec import DataSourceSpec, DataSourceType
 from datasentry_core.models.enums import Severity
 from datasentry_core.models.fingerprint import DatasetFingerprint
 
@@ -75,6 +76,11 @@ class LoadWarning(BaseModel):
 
 class DataHandle(Protocol):
     """打开后的数据句柄（49.1）。连接器不持有分析逻辑。"""
+
+    @property
+    def source_type(self) -> DataSourceType: ...
+    @property
+    def source_path(self) -> Path | None: ...
 
     def schema(self) -> SchemaInfo: ...
     def read_batches(self, batch_size: int = 65536) -> Iterator[FrameBatch]: ...
