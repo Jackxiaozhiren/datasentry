@@ -22,6 +22,7 @@ from datasentry_core.models.enums import Severity
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.quality import QualityScore
 from datasentry_core.models.scan import DetectorRun, ScanConfig, ScanRun
+from datasentry_core.reporting import build_report
 from datasentry_core.storage import MetadataStore
 
 _SEVERITY_ORDER = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO]
@@ -49,6 +50,13 @@ class DataSentry:
     @property
     def db_path(self) -> Path:
         return self._store.db_path
+
+    @property
+    def reports_dir(self) -> Path:
+        """报告导出默认目录：<workspace>/.datasentry/reports（ADR-010）。"""
+        from datasentry_core.storage.paths import project_reports_dir
+
+        return project_reports_dir(self._workspace)
 
     def _ensure_gitignore(self) -> None:
         """ADR-010：工作区打开即确保 .gitignore 含 .datasentry/ 条目（防元数据入库）。"""
@@ -137,16 +145,16 @@ class DataSentry:
         return scan.quality_score
 
     def export_report(self, scan_run_id: str) -> dict:
-        """22.1 report export（JSON 报告）：scan + detector_runs + issues + quality。"""
+        """26.2 规范 JSON 报告：报告头 + scan + detector_runs + issues + quality。"""
         scan = self.get_scan(scan_run_id)
         if scan is None:
             raise KeyError(f"scan run not found: {scan_run_id}")
-        runs = [r.model_dump(mode="json") for r in self.get_detector_runs(scan_run_id)]
-        issues = [i.model_dump(mode="json") for i in self._store.get_issues(scan_run_id)]
-        quality = scan.quality_score.model_dump(mode="json") if scan.quality_score else None
-        return {
-            "scan": scan.model_dump(mode="json"),
-            "detector_runs": runs,
-            "issues": issues,
-            "quality": quality,
-        }
+        runs = self.get_detector_runs(scan_run_id)
+        issues = self._store.get_issues(scan_run_id)
+        return build_report(
+            scan,
+            runs,
+            issues,
+            scan.quality_score,
+            generated_at=scan.finished_at or None,
+        )

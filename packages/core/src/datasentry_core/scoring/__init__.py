@@ -1,4 +1,4 @@
-"""评分引擎（Step 8/11）：Priority Score 与质量总分计算。"""
+"""评分引擎（Step 8/11/12）：Priority Score、质量总分与质量门禁。"""
 
 from datasentry_core.scoring.engine import (
     WEIGHTS,
@@ -6,6 +6,7 @@ from datasentry_core.scoring.engine import (
     ScoreResult,
     ScoringEngine,
 )
+from datasentry_core.scoring.gate import GateResult, QualityGateEvaluator
 from datasentry_core.scoring.quality import DIMENSION_WEIGHTS, SCORE_VERSION, QualityScoreEngine
 from datasentry_core.scoring.weights import (
     CRITICALITY_WEIGHTS,
@@ -19,6 +20,8 @@ __all__ = [
     "SCORE_VERSION",
     "SEVERITY_WEIGHTS",
     "WEIGHTS",
+    "GateResult",
+    "QualityGateEvaluator",
     "QualityScoreEngine",
     "ScoreBreakdown",
     "ScoreResult",

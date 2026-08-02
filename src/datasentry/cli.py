@@ -1,9 +1,10 @@
 """DataSentry CLI（22 章 MVP 子集）。
 
-命令：init / scan / issues list / issues show / report export / score / contract validate
+命令：init / scan（--fail-on 门禁）/ issues list|show / report export（--as）/
+score / contract validate
 全局选项：--project / --format text|json / --seed / --version
 JSON 统一 envelope（22.1）：{"ok", "command", "data", "warnings", "llm_usage"}
-退出码：0 成功；2 配置错误；3 执行错误；4 数据源不可用
+退出码：0 成功；1 质量门禁失败；2 配置错误；3 执行错误；4 数据源不可用
 """
 
 from __future__ import annotations
@@ -15,11 +16,13 @@ from pathlib import Path
 
 from datasentry import __version__
 from datasentry.client import DataSentry
+from datasentry_core.models.enums import Severity
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.scan import ScanConfig
+from datasentry_core.scoring.gate import GateResult, QualityGateEvaluator
 
 EXIT_OK = 0
-EXIT_GATE_FAILED = 1  # validate --fail-on 质量门禁（V1 契约引擎）
+EXIT_GATE_FAILED = 1  # scan --fail-on 质量门禁（22 章场景 C）
 EXIT_CONFIG = 2
 EXIT_ERROR = 3
 EXIT_SOURCE_UNAVAILABLE = 4
@@ -67,7 +70,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
 
 def _cmd_scan(args: argparse.Namespace) -> int:
-    """22.1 scan：导入 → 扫描 → 评分 → 落库；数据源缺失退出码 4。"""
+    """22.1 scan：导入 → 扫描 → 评分 → 落库；数据源缺失退出码 4；门禁失败退出码 1。"""
     client = DataSentry(args.project)
     config = ScanConfig(detectors=args.detector or None, seed=args.seed)
     try:
@@ -85,8 +88,26 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         "detector_runs": len(runs),
         "quality_score": scan_run.quality_score.overall if scan_run.quality_score else None,
     }
+    if args.fail_on is not None:
+        gate_result = _evaluate_gate(issues, args)
+        gate_data = gate_result.model_dump()
+        gate_data["failed_count"] = gate_result.failed_count
+        summary["gate"] = gate_data
+        _emit(_envelope("scan", summary), args.format)
+        return EXIT_GATE_FAILED if not gate_result.passed else EXIT_OK
     _emit(_envelope("scan", summary), args.format)
     return EXIT_OK
+
+
+def _evaluate_gate(issues: list[Issue], args: argparse.Namespace) -> GateResult:
+    """22 章场景 C：scan --fail-on SEV [--max-failure-ratio R] → 质量门禁。"""
+    from datasentry_core.models.contract import QualityGate
+
+    gate = QualityGate(
+        fail_on=[Severity(args.fail_on)],
+        maximum_failed_rows_ratio=args.max_failure_ratio,
+    )
+    return QualityGateEvaluator().evaluate(issues, gate)
 
 
 def _cmd_issues_list(args: argparse.Namespace) -> int:
@@ -123,15 +144,35 @@ def _cmd_issues_show(args: argparse.Namespace) -> int:
 
 
 def _cmd_report_export(args: argparse.Namespace) -> int:
-    """22.1 report export：JSON 报告（HTML 归 V1）。"""
+    """22.1 report export：JSON/Markdown/HTML 报告（26 章），输出文件路径。"""
     client = DataSentry(args.project)
     try:
         report = client.export_report(args.run_id)
     except KeyError as exc:
         _emit(_envelope("report export", {"error": str(exc)}), args.format)
         return EXIT_CONFIG
-    _emit(_envelope("report export", report), args.format)
+    if args.as_format == "json":
+        content = json.dumps(report, ensure_ascii=False, indent=2)
+    elif args.as_format == "markdown":
+        from datasentry_core.reporting.markdown import render_markdown
+
+        content = render_markdown(report)
+    else:
+        from datasentry_core.reporting.html import render_html
+
+        content = render_html(report)
+    path = _report_output_path(client, args, args.as_format)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    _emit(_envelope("report export", {"path": str(path), "format": args.as_format}), args.format)
     return EXIT_OK
+
+
+def _report_output_path(client: DataSentry, args: argparse.Namespace, fmt: str) -> Path:
+    """默认落点 <project>/.datasentry/reports/<run_id>.<ext>（ADR-010），--output 可覆盖。"""
+    if args.output:
+        return Path(args.output).expanduser()
+    return client.reports_dir / f"{args.run_id}.{fmt}"
 
 
 def _cmd_score(args: argparse.Namespace) -> int:
@@ -207,6 +248,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan.add_argument(
         "--detector", action="append", default=None, help="detector whitelist (repeatable)"
     )
+    p_scan.add_argument(
+        "--fail-on",
+        type=str,
+        default=None,
+        choices=["info", "low", "medium", "high", "critical"],
+        help="quality gate: fail (exit 1) on issues at this severity (22 章场景 C)",
+    )
+    p_scan.add_argument(
+        "--max-failure-ratio",
+        type=float,
+        default=0.01,
+        help="quality gate: max affected row ratio (default: 0.01)",
+    )
     p_scan.set_defaults(func=_cmd_scan)
 
     p_issues = sub.add_parser("issues", help="issue queries")
@@ -221,8 +275,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_report = sub.add_parser("report", help="report export")
     report_sub = p_report.add_subparsers(dest="report_cmd", required=True)
-    p_export = report_sub.add_parser("export", help="export scan report (JSON)")
+    p_export = report_sub.add_parser("export", help="export scan report (26 章)")
     p_export.add_argument("run_id", type=str)
+    p_export.add_argument(
+        "--as",
+        dest="as_format",
+        type=str,
+        default="json",
+        choices=["json", "markdown", "html"],
+        help="report format (json|markdown|html, default: json)",
+    )
+    p_export.add_argument(
+        "--output", type=str, default=None, help="output path (default: .datasentry/reports/)"
+    )
     p_export.set_defaults(func=_cmd_report_export)
 
     p_score = sub.add_parser("score", help="quality score (27 章)")

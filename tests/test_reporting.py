@@ -1,0 +1,189 @@
+"""Step 12 报告引擎测试（26 章 + ADR-014：报告头、格式渲染、自包含、转义）。"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+from datasentry_core import __version__
+from datasentry_core.models.enums import QualityDimension, Severity
+from datasentry_core.models.issue import Issue
+from datasentry_core.models.quality import QualityScore
+from datasentry_core.models.scan import DetectorRun, ReproducibilityInfo, ScanConfig, ScanRun
+from datasentry_core.reporting import (
+    CRITICAL_FINDINGS_LIMIT,
+    HTML_SECTIONS,
+    REPORT_SCHEMA_VERSION,
+    build_report,
+    critical_findings,
+)
+from datasentry_core.reporting.html import render_html
+from datasentry_core.reporting.markdown import render_markdown
+
+
+def _scan() -> ScanRun:
+    return ScanRun(
+        id="scan_abc",
+        dataset_id="orders",
+        status="completed",
+        config=ScanConfig(),
+        fingerprint={
+            "dataset_id": "orders",
+            "fingerprint_type": "full",
+            "schema_hash": "h1",
+            "row_count": 100,
+            "column_count": 2,
+            "column_signature": [["id", "BIGINT"], ["email", "VARCHAR"]],
+        },
+        issues_count={s: 0 for s in Severity},
+        started_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
+        reproducibility=ReproducibilityInfo(
+            datasentry_version=__version__,
+            detector_versions={"numeric_outlier": "1.0.0"},
+            seed=42,
+            scanned_at=datetime.now(UTC),
+        ),
+    )
+
+
+def _runs() -> list[DetectorRun]:
+    return [
+        DetectorRun(
+            id="dr_1",
+            scan_run_id="scan_abc",
+            detector_id="numeric_outlier",
+            detector_version="1.0.0",
+            status="completed",
+            rows_scanned=100,
+            duration_ms=5,
+            issues_candidates=1,
+        )
+    ]
+
+
+def _issues() -> list[Issue]:
+    return [
+        Issue(
+            id="iss_1",
+            scan_run_id="scan_abc",
+            issue_type="numeric_outlier",
+            title="Outlier in amount",
+            dataset_id="orders",
+            columns=["amount"],
+            quality_dimensions=[QualityDimension.VALIDITY],
+            severity=Severity.HIGH,
+            confidence=0.9,
+            priority_score=78.5,
+            affected_count=2,
+            affected_ratio=0.02,
+            detector_ids=["numeric_outlier"],
+        ),
+        Issue(
+            id="iss_2",
+            scan_run_id="scan_abc",
+            issue_type="uniqueness_violation",
+            title="Duplicate rows",
+            dataset_id="orders",
+            columns=["id"],
+            quality_dimensions=[QualityDimension.UNIQUENESS],
+            severity=Severity.CRITICAL,
+            confidence=0.95,
+            priority_score=95.0,
+            affected_count=1,
+            affected_ratio=0.01,
+            detector_ids=["uniqueness_violation"],
+        ),
+    ]
+
+
+def _quality() -> QualityScore:
+    return QualityScore(
+        overall=88.2,
+        dimensions={"validity": 76.6, "uniqueness": 100.0},
+        weights={"validity": 0.5, "uniqueness": 0.5},
+        calculation_notes="dimension = 100 * (1 - ...)",
+        dimension_contributions={"validity": {"iss_1": 0.375}},
+    )
+
+
+def _report() -> dict:
+    return build_report(_scan(), _runs(), _issues(), _quality(), generated_at=datetime(2026, 8, 2))
+
+
+class TestReportContract:
+    def test_header_262(self) -> None:
+        report = _report()
+        assert report["report_schema_version"] == REPORT_SCHEMA_VERSION == "1.0"
+        assert report["datasentry_version"] == __version__
+        assert report["scan_run_id"] == "scan_abc"
+        assert report["generated_at"].startswith("2026-08-02")
+        assert report["reproducible"] is True
+        assert report["llm_used"] is False
+
+    def test_json_consumable_structure(self) -> None:
+        report = _report()
+        assert report["scan"]["id"] == "scan_abc"
+        assert len(report["detector_runs"]) == 1
+        assert len(report["issues"]) == 2
+        assert report["quality"]["overall"] == 88.2
+
+    def test_critical_findings_ordering_and_limit(self) -> None:
+        report = _report()
+        findings = critical_findings(report)
+        assert len(findings) <= CRITICAL_FINDINGS_LIMIT
+        assert findings[0]["id"] == "iss_2"  # critical 优先于 high
+        assert [i["severity"] for i in findings] == ["critical", "high"]
+
+
+class TestMarkdown:
+    def test_sections_and_tables(self) -> None:
+        md = render_markdown(_report())
+        assert md.startswith("# DataSentry Data Quality Report")
+        assert "## Executive Summary" in md
+        assert "## Quality Score" in md and "| Dimension | Score | Weight |" in md
+        assert "## Issue Breakdown" in md
+        assert "## Critical Findings" in md
+        assert "**critical**" in md or "[critical]" in md
+        assert "## Reproducibility" in md
+
+    def test_cell_escaping(self) -> None:
+        report = _report()
+        report["issues"][0]["title"] = "a|b\nc"
+        md = render_markdown(report)
+        assert "a\\|b c" in md
+        assert "\n| a|b" not in md
+
+
+class TestHtml:
+    def test_self_contained_single_file(self) -> None:
+        html = render_html(_report())
+        assert html.startswith("<!DOCTYPE html>")
+        assert "DataSentry Data Quality Report" in html
+        assert "<link" not in html and "<script" not in html  # 内嵌 CSS，无外部资源
+        assert "<style>" in html
+
+    def test_quality_score_bar_and_tooltip(self) -> None:
+        html = render_html(_report())
+        assert 'class="score-bar"' in html
+        assert "score_version" in html
+        assert "iss_1" in html and "0.3750" in html  # 27.3 悬停扣分构成
+
+    def test_html_escapes_issue_content(self) -> None:
+        report = _report()
+        report["issues"][0]["title"] = "<script>alert(1)</script>"
+        html = render_html(report)
+        assert "<script>alert(1)</script>" not in html
+        assert "&lt;script&gt;" in html
+
+    def test_sections_anchors(self) -> None:
+        html = render_html(_report())
+        for section in HTML_SECTIONS:
+            assert f'id="{section}"' in html
+
+
+class TestReportWithNoQuality:
+    def test_unscored_report(self) -> None:
+        report = build_report(_scan(), _runs(), _issues(), None)
+        assert report["quality"] is None
+        assert "not scored" in render_markdown(report)
+        assert "not scored" in render_html(report)

@@ -65,7 +65,21 @@ class TestClient:
         client = DataSentry(project=workspace)
         scan, runs, issues = client.scan_file(sample_csv)
         report = client.export_report(scan.id)
-        assert set(report) == {"scan", "detector_runs", "issues", "quality"}
+        assert set(report) == {
+            "report_schema_version",
+            "datasentry_version",
+            "scan_run_id",
+            "generated_at",
+            "reproducible",
+            "llm_used",
+            "scan",
+            "detector_runs",
+            "issues",
+            "quality",
+        }
+        assert report["report_schema_version"] == "1.0"
+        assert report["scan_run_id"] == scan.id
+        assert report["reproducible"] is True and report["llm_used"] is False
         assert len(report["detector_runs"]) == len(runs)
         assert len(report["issues"]) == len(issues)
         assert report["scan"]["id"] == scan.id
@@ -147,8 +161,37 @@ class TestCli:
         code = main(["--project", str(workspace), "--format", "json", "report", "export", scan_id])
         assert code == 0
         payload = json.loads(capsys.readouterr().out)
-        assert payload["data"]["scan"]["id"] == scan_id
-        assert "issues" in payload["data"]
+        assert payload["data"]["format"] == "json"
+        assert payload["data"]["path"].endswith(".json")
+        assert Path(payload["data"]["path"]).is_file()
+        content = json.loads(Path(payload["data"]["path"]).read_text(encoding="utf-8"))
+        assert content["report_schema_version"] == "1.0"
+        assert content["scan"]["id"] == scan_id
+        assert "issues" in content
+
+    def test_report_export_html(self, sample_csv: Path, workspace: Path, capsys) -> None:
+        main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
+        scan_id = json.loads(capsys.readouterr().out)["data"]["scan_run_id"]
+        out = workspace / "out.html"
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "report",
+                "export",
+                scan_id,
+                "--as",
+                "html",
+                "--output",
+                str(out),
+            ]
+        )
+        assert code == 0
+        html = out.read_text(encoding="utf-8")
+        assert html.startswith("<!DOCTYPE html>")
+        assert "score-bar" in html and "executive_summary" in html
+        assert "<link" not in html and "<script" not in html  # 自包含单文件
+        assert "DataSentry Data Quality Report" in html
 
     def test_report_export_missing_exit_2(self, workspace: Path, capsys) -> None:
         code = main(["--project", str(workspace), "report", "export", "nope"])
@@ -168,6 +211,41 @@ class TestCli:
     def test_score_missing_exit_2(self, workspace: Path, capsys) -> None:
         code = main(["--project", str(workspace), "score", "nope"])
         assert code == 2
+
+    def test_scan_gate_fail_exit_1(self, sample_csv: Path, workspace: Path, capsys) -> None:
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "scan",
+                str(sample_csv),
+                "--fail-on",
+                "medium",
+            ]
+        )
+        assert code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["data"]["gate"]["passed"] is False
+        assert payload["data"]["gate"]["failed_count"] > 0
+
+    def test_scan_gate_pass_exit_0(self, sample_csv: Path, workspace: Path, capsys) -> None:
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "scan",
+                str(sample_csv),
+                "--fail-on",
+                "critical",
+            ]
+        )
+        assert code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["data"]["gate"]["passed"] is True
 
     def test_contract_validate_ok(self, workspace: Path, capsys) -> None:
         contract = workspace / "c.yaml"

@@ -35,3 +35,8 @@ def project_data_dir(workspace: Path) -> Path:
 def project_db_path(workspace: Path) -> Path:
     """项目元数据库：<workspace>/.datasentry/metadata.db。"""
     return project_data_dir(workspace) / "metadata.db"
+
+
+def project_reports_dir(workspace: Path) -> Path:
+    """项目报告目录：<workspace>/.datasentry/reports（26 章报告导出默认落点）。"""
+    return project_data_dir(workspace) / "reports"

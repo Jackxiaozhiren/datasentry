@@ -127,6 +127,30 @@
 - **影响**：`scoring/quality.py` 为唯一实现；`QualityScore` 模型增 `dimension_contributions`
   （27.3「该维度由哪些 Issue 扣分」悬停数据，JSON 列向后兼容）。
 
+## ADR-014：报告引擎与质量门禁 MVP 归一（26/22 章）
+
+- **状态**：Accepted（2026-08-02）
+- **决策**：
+  1. 26.2 报告头（`report_schema_version`/`datasentry_version`/`scan_run_id`/`generated_at`/
+     `reproducible`/`llm_used`）为所有格式共享；`build_report()` 为 JSON 机器契约唯一构造点，
+     CLI `report export --as json` 与 SDK `export_report()` 输出同一结构（无差异消费）。
+  2. 报告格式参数命名 `--as {json,markdown,html}`（规格 `--format` 与全局输出 envelope
+     `--format text|json` 冲突，取工程化命名，ADR 记录偏差）；默认落点
+     `<workspace>/.datasentry/reports/<run_id>.<ext>`（ADR-010），`--output` 可覆盖。
+  3. HTML 为自包含单文件（内嵌 CSS、无外部资源），MVP 渲染 8 节
+     （26 章 12 节中 Drift/Suggested Rules/Repair History 归 V1；
+     Column Profiles 并入 Dataset Overview 列签名区）。
+  4. 质量门禁（22 章场景 C）在扫描结果上求值：`scan --fail-on SEV --max-failure-ratio R`，
+     失败退出码 1（`EXIT_GATE_FAILED`）；`fail_on` 为精确严重度集合（非「及以上」），
+     `maximum_failed_rows_ratio` 用失败项 `affected_ratio` 的最大值作上限近似
+     （行可能同属多个 Issue，求和会重复计数）；契约规则执行与 `require_repair_validation`
+     归 V1（ADR-004）——设为 True 时门禁显式失败而非静默忽略。
+  5. `reproducible=True`（MVP 确定性检测器 + 无 LLM 调用，报告头声明）。
+- **理由**：26 章输出契约与 22 章退出码均已定稿，需归一「envelope --format vs 报告格式」
+  与「无契约规则时门禁依据」两处空隙。
+- **影响**：`reporting/`（build_report + markdown/html 纯函数渲染）与 `scoring/gate.py`
+  为唯一实现；`export_report()` 返回结构升级为 26.2 规范（含报告头）。
+
 ---
 
 ## 待定（Proposed）
