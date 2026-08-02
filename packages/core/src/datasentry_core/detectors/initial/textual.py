@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import ClassVar
 
 from datasentry_core.detectors.base import DetectionContext
-from datasentry_core.detectors.initial.common import (
+from datasentry_core.detectors.common import (
     DetectorBase,
     make_candidate,
     make_evidence,
@@ -258,7 +258,7 @@ class InvalidEmailDetector(DetectorBase):
 
 def quote_re(pattern: str) -> str:
     """正则字面量（SQL 单引号转义）。"""
-    from datasentry_core.detectors.initial.common import quote_literal
+    from datasentry_core.detectors.common import quote_literal
 
     return quote_literal(pattern)
 

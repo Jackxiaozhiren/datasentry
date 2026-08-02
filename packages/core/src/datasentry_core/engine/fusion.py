@@ -44,6 +44,7 @@ FAMILY_MAP: Mapping[str, str] = {
     "invalid_url": "string_format",
     "invalid_ip": "string_format",
     "suspicious_formula_injection": "string_format",
+    "cross_field_violation": "cross_field_constraint",
 }
 
 FAMILY_DIMENSIONS: Mapping[str, QualityDimension] = {
@@ -52,6 +53,7 @@ FAMILY_DIMENSIONS: Mapping[str, QualityDimension] = {
     "uniqueness": QualityDimension.UNIQUENESS,
     "categorical_anomaly": QualityDimension.VALIDITY,
     "string_format": QualityDimension.VALIDITY,
+    "cross_field_constraint": QualityDimension.VALIDITY,
 }
 
 FAMILY_TITLES: Mapping[str, str] = {
@@ -60,6 +62,7 @@ FAMILY_TITLES: Mapping[str, str] = {
     "uniqueness": "Duplicate values",
     "categorical_anomaly": "Categorical anomaly",
     "string_format": "String format issue",
+    "cross_field_constraint": "Cross-field rule violation",
 }
 
 

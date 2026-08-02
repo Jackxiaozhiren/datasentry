@@ -96,7 +96,7 @@ def _detect(detector, ctx) -> list:
 class TestRegistryIntegration:
     def test_all_initial_detectors_registered(self, registry: DetectorRegistry) -> None:
         ids = [d.detector_id for d in registry.list()]
-        assert len(ids) == 21
+        assert len(ids) == 22
         assert "excessive_null_rate" in ids
         assert "suspicious_formula_injection" in ids
         assert "percentile_outlier" in ids
@@ -105,6 +105,7 @@ class TestRegistryIntegration:
         assert "invalid_url" in ids
         assert "invalid_ip" in ids
         assert "inconsistent_case" in ids
+        assert "cross_field_rule" in ids
 
     def test_metadata_shape(self, registry: DetectorRegistry) -> None:
         for d in registry.list():

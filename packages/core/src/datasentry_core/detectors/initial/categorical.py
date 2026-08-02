@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import ClassVar
 
 from datasentry_core.detectors.base import DetectionContext
-from datasentry_core.detectors.initial.common import (
+from datasentry_core.detectors.common import (
     DetectorBase,
     make_candidate,
     make_evidence,

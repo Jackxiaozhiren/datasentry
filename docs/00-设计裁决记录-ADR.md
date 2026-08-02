@@ -153,6 +153,38 @@
 
 ---
 
+## ADR-015：跨字段规则检测器的安全表达式求值（11.10 读操作子集）
+
+- **状态**：Accepted（2026-08-02）
+- **决策**：
+  1. MVP 表达式 DSL 为 **Python eval 模式子集**（`ast.parse(mode="eval")`）；
+     SQL 表达式 / YAML 契约 DSL 归 V1（ADR-004）。列名须为合法 Python 标识符方可绑定。
+  2. `detectors/safe_eval.py` 三重防护（规格 11.10 约束 2）：
+     节点类型显式白名单（字面量/名称/比较/布尔/算术/三元/`in`/`is`；语句、
+     赋值、lambda、推导式、属性读取除白名单方法外一律拒绝）；
+     Name 黑名单（eval/exec/open/__import__/getattr/subprocess 等 21 项）；
+     Call 目标白名单（8 个内置函数 + str 读方法 15 个）；
+     `eval` 注入 `__builtins__={}` 仅暴露白名单函数。
+  3. 超时 10s（SIGALRM/ITIMER_REAL，规格约束 3）；纯表达式不可循环，
+     超时仅作纵深防御。
+  4. 缓存以表达式 SHA-256 前 16 位为键（规格约束 4）：AST 编译缓存 +
+     行级结果缓存（上限 1e6 条目，超限清空）。
+  5. None 语义：参与运算的行返回「不适用」（跳过），不算违规
+     （缺失值归缺失检测器，避免双重计数）。
+  6. 内置规则按列名语义对自动绑定（前缀式，与规格示例一致）：
+     `{name}_start|begin|from <= {name}_end|finish|to`、
+     `{name}_min|lower <= {name}_max|upper`；仅同类型族（数值/日期）配对；
+     每规则一条 Issue，行级证据前 20 行。
+  7. 性能：MVP 行级 Python 求值（`ROW_NUMBER()` SQL 下推取数）；
+     全量下推/抽样路径归 V1。
+- **理由**：11.10 为 MVP 表唯一未实现的「引擎类」检测器，且是 V1 契约引擎
+  规则执行的种子（契约规则可复用同一求值器与 family）。
+- **影响**：新增 `cross_field_constraint` Issue family（VALIDITY）；
+  检测器计数 22；`initial/common.py` 提升为 `detectors/common.py`
+  （消除 cross_field ↔ initial 循环导入）。
+
+---
+
 ## 待定（Proposed）
 
 | 编号 | 议题 | 状态 |
