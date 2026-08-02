@@ -13,7 +13,7 @@ from __future__ import annotations
 import sqlite3
 
 #: 当前 schema 版本（PRAGMA user_version）
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA_DDL = """
 PRAGMA journal_mode = WAL;
@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS evidence (
 CREATE TABLE IF NOT EXISTS repair_proposals (
     proposal_id          TEXT PRIMARY KEY,
     issue_id             TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+    issue_type           TEXT NOT NULL DEFAULT '',
     operation            TEXT NOT NULL,
     target_columns       TEXT NOT NULL,
     target_row_ids       TEXT,
@@ -164,6 +165,7 @@ CREATE TABLE IF NOT EXISTS repair_proposals (
 CREATE TABLE IF NOT EXISTS repair_runs (
     id                  TEXT PRIMARY KEY,
     dataset_id          TEXT NOT NULL REFERENCES datasets(id) ON DELETE CASCADE,
+    proposal_id         TEXT,
     fingerprint_before  TEXT NOT NULL,
     fingerprint_after   TEXT,
     operations          TEXT NOT NULL,
@@ -304,8 +306,6 @@ PLACEHOLDER_TABLES = (
     "data_sources",
     "dataset_versions",
     "dataset_fingerprints",
-    "repair_proposals",
-    "repair_runs",
     "validation_results",
     "contracts",
     "rules",
@@ -318,6 +318,16 @@ PLACEHOLDER_TABLES = (
 )
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    """幂等补列：存在则跳过（调用方负责保证 ddl 不含 NOT NULL 且默认兼容）。"""
+    exists = any(
+        row[1] == column
+        for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+    )
+    if not exists:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+
 def migrate(conn: sqlite3.Connection) -> None:
     """幂等迁移到 SCHEMA_VERSION；高于当前版本抛异常（防止旧代码打开新库）。"""
     conn.executescript(_SCHEMA_DDL)
@@ -326,5 +336,11 @@ def migrate(conn: sqlite3.Connection) -> None:
         raise RuntimeError(
             f"metadata db schema version {version} is newer than supported {SCHEMA_VERSION}"
         )
+    # v1 → v2：repair 表转正（从占位移除），补 issue_type / proposal_id 列
+    if version < 2:
+        _ensure_column(
+            conn, "repair_proposals", "issue_type", "issue_type TEXT NOT NULL DEFAULT ''"
+        )
+        _ensure_column(conn, "repair_runs", "proposal_id", "proposal_id TEXT")
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()

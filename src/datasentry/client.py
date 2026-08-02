@@ -25,7 +25,9 @@ from datasentry_core.detectors.runner import ScanRunner
 from datasentry_core.models.enums import Severity
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.quality import QualityScore
+from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
 from datasentry_core.models.scan import DetectorRun, ScanConfig, ScanRun
+from datasentry_core.repair import RepairEngine
 from datasentry_core.reporting import build_report
 from datasentry_core.storage import MetadataStore
 
@@ -183,3 +185,99 @@ class DataSentry:
             scan.quality_score,
             generated_at=scan.finished_at or None,
         )
+
+    # ---- 修复（Step 21，15 章 / ADR-020） --------------------------------
+
+    def repair_open(self, source_path: str | Path) -> DetectionContext:
+        """打开数据源句柄供修复引擎使用（源路径由 CLI 显式传入）。"""
+        path = Path(source_path).expanduser()
+        source_type = _source_type_for_path(path)
+        if source_type is None:
+            raise FileNotFoundError(
+                f"unsupported data source format: {path.suffix or '(no extension)'}"
+            )
+        spec = DataSourceSpec(
+            source_type=source_type,
+            path=path,
+            options={"dataset_id": path.stem},
+        )
+        handle = default_registry().open(spec)
+        return DetectionContext(
+            dataset_id=path.stem,
+            table_name=None,
+            columns=handle.schema().column_names,
+            handle=handle,
+        )
+
+    def repair_propose(
+        self,
+        issue_id: str,
+        source_path: str | Path,
+    ) -> RepairProposal | None:
+        """Issue → 修复提案；不支持的 issue 返回 None（并落库提案）。"""
+        issue = self._store.get_issue_by_id(issue_id)
+        if issue is None:
+            raise KeyError(f"issue not found: {issue_id}")
+        context = self.repair_open(source_path)
+        try:
+            proposal = RepairEngine().propose(issue, context)
+        finally:
+            context.handle.close()
+        if proposal is not None:
+            self._store.save_repair_proposal(proposal)
+        return proposal
+
+    def repair_preview(
+        self,
+        issue_id: str,
+        source_path: str | Path,
+    ) -> tuple[RepairProposal, RepairPreview] | None:
+        """提案 + 预览（统计面板 + 规则重跑前后）。"""
+        issue = self._store.get_issue_by_id(issue_id)
+        if issue is None:
+            raise KeyError(f"issue not found: {issue_id}")
+        context = self.repair_open(source_path)
+        try:
+            engine = RepairEngine()
+            proposal = engine.propose(issue, context)
+            if proposal is None:
+                return None
+            preview = engine.preview(proposal, context, self._registry())
+        finally:
+            context.handle.close()
+        return proposal, preview
+
+    def repair_apply(
+        self,
+        issue_id: str,
+        source_path: str | Path,
+        *,
+        workspace: Path | None = None,
+    ) -> RepairRun:
+        """应用修复：写修复副本 + before artifact + 落库 run。"""
+        issue = self._store.get_issue_by_id(issue_id)
+        if issue is None:
+            raise KeyError(f"issue not found: {issue_id}")
+        context = self.repair_open(source_path)
+        try:
+            engine = RepairEngine()
+            proposal = engine.propose(issue, context)
+            if proposal is None:
+                raise ValueError(f"no repair proposal for issue: {issue_id} ({issue.issue_type})")
+            run = engine.apply(proposal, context, workspace or self.workspace)
+        finally:
+            context.handle.close()
+        self._store.save_repair_run(run)
+        return run
+
+    def repair_rollback(self, run_id: str) -> RepairRun:
+        """回滚：读库中的 run，重建 rolled_back 副本，更新 run 状态。"""
+        run = self._store.get_repair_run(run_id)
+        if run is None:
+            raise KeyError(f"repair run not found: {run_id}")
+        rolled = RepairEngine().rollback(run, self.workspace)
+        self._store.save_repair_run(rolled)
+        return rolled
+
+    def list_repair_runs(self) -> list[RepairRun]:
+        return self._store.list_repair_runs()

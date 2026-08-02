@@ -15,9 +15,15 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from datasentry_core.models.enums import Severity
+from datasentry_core.models.enums import (
+    RepairOperation,
+    RepairProposalStatus,
+    RepairRunStatus,
+    Severity,
+)
 from datasentry_core.models.evidence import Evidence, utcnow
 from datasentry_core.models.issue import Issue
+from datasentry_core.models.repair import RepairProposal, RepairRun
 from datasentry_core.models.scan import DetectorRun, ScanRun
 from datasentry_core.storage.paths import project_db_path
 from datasentry_core.storage.schema import migrate
@@ -244,6 +250,99 @@ class MetadataStore:
             issue.evidence = evidence_map.get(issue.id, [])
         return issues
 
+    # ---- 修复持久化（Step 21，15 章） ------------------------------------
+
+    def save_repair_proposal(self, proposal: RepairProposal) -> None:
+        """保存修复提案（proposal 转正，repair_proposals 表移出占位）。"""
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO repair_proposals (
+                    proposal_id, issue_id, issue_type, operation, target_columns,
+                    target_row_ids, parameters, rationale, evidence_ids, risk_level,
+                    reversibility, estimated_rows_changed, preconditions, postconditions,
+                    status, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    proposal.proposal_id,
+                    proposal.issue_id,
+                    proposal.issue_type,
+                    proposal.operation.value,
+                    json.dumps(proposal.target_columns),
+                    json.dumps(proposal.target_row_ids) if proposal.target_row_ids else None,
+                    json.dumps(proposal.parameters),
+                    proposal.rationale,
+                    json.dumps(proposal.evidence_ids),
+                    proposal.risk_level.value,
+                    proposal.reversibility,
+                    proposal.estimated_rows_changed,
+                    json.dumps(proposal.preconditions),
+                    json.dumps(proposal.postconditions),
+                    proposal.status.value,
+                    _iso(proposal.created_at),
+                ),
+            )
+
+    def get_repair_proposal(self, proposal_id: str) -> RepairProposal | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM repair_proposals WHERE proposal_id = ?", (proposal_id,)
+            ).fetchone()
+        return self._repair_proposal_from_row(row) if row else None
+
+    def save_repair_run(self, run: RepairRun) -> None:
+        """保存一次修复执行（repair_runs 表转正）。"""
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO repair_runs (
+                    id, dataset_id, proposal_id, fingerprint_before, fingerprint_after,
+                    operations, approved_by, approval_kind, approved_at, status,
+                    rollback_artifact, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run.id,
+                    run.dataset_id,
+                    run.proposal_id,
+                    run.fingerprint_before,
+                    run.fingerprint_after,
+                    json.dumps([op.model_dump() for op in run.operations], default=str),
+                    run.approved_by,
+                    run.approval_kind,
+                    _iso(run.approved_at) if run.approved_at else None,
+                    run.status.value,
+                    run.rollback_artifact,
+                    _iso(run.created_at),
+                ),
+            )
+
+    def get_repair_run(self, run_id: str) -> RepairRun | None:
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM repair_runs WHERE id = ?", (run_id,)).fetchone()
+        return self._repair_run_from_row(row) if row else None
+
+    def list_repair_runs(self) -> list[RepairRun]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM repair_runs ORDER BY rowid DESC", ()
+            ).fetchall()
+        return [self._repair_run_from_row(r) for r in rows]
+
+    def get_issue_by_id(self, issue_id: str) -> Issue | None:
+        """跨扫描查找 Issue（附 evidence）。"""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM issues WHERE id = ? ORDER BY priority_score DESC LIMIT 1",
+                (issue_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        issue = self._issue_from_row(row)
+        issue.evidence = self._load_evidence([issue]).get(issue.id, [])
+        return issue
+
     # ---- 内部 ----------------------------------------------------------
 
     def _ensure_project(self) -> None:
@@ -339,4 +438,48 @@ class MetadataStore:
             status=IssueStatus(d["status"]),
             created_at=datetime.fromisoformat(d["created_at"]),
             evidence=[],  # get_issues 内补
+        )
+
+    def _repair_proposal_from_row(self, row: sqlite3.Row) -> RepairProposal:
+        from datasentry_core.models.repair import RepairProposal
+
+        d = dict(row)
+        return RepairProposal(
+            proposal_id=d["proposal_id"],
+            issue_id=d["issue_id"],
+            issue_type=d["issue_type"],
+            operation=RepairOperation(d["operation"]),
+            target_columns=json.loads(d["target_columns"]),
+            target_row_ids=json.loads(d["target_row_ids"]) if d["target_row_ids"] else None,
+            parameters=json.loads(d["parameters"]),
+            rationale=d["rationale"],
+            evidence_ids=json.loads(d["evidence_ids"]),
+            risk_level=d["risk_level"],
+            reversibility=d["reversibility"],
+            estimated_rows_changed=d["estimated_rows_changed"],
+            preconditions=json.loads(d["preconditions"]),
+            postconditions=json.loads(d["postconditions"]) if d["postconditions"] else [],
+            status=RepairProposalStatus(d["status"]),
+            created_at=datetime.fromisoformat(d["created_at"]),
+        )
+
+    def _repair_run_from_row(self, row: sqlite3.Row) -> RepairRun:
+        from datasentry_core.models.repair import RepairOperationRecord, RepairRun
+
+        d = dict(row)
+        return RepairRun(
+            id=d["id"],
+            dataset_id=d["dataset_id"],
+            proposal_id=d["proposal_id"],
+            fingerprint_before=d["fingerprint_before"],
+            fingerprint_after=d["fingerprint_after"],
+            operations=[
+                RepairOperationRecord.model_validate(op) for op in json.loads(d["operations"])
+            ],
+            approved_by=d["approved_by"],
+            approval_kind=d["approval_kind"],
+            approved_at=(datetime.fromisoformat(d["approved_at"]) if d["approved_at"] else None),
+            status=RepairRunStatus(d["status"]),
+            rollback_artifact=d["rollback_artifact"],
+            created_at=datetime.fromisoformat(d["created_at"]),
         )

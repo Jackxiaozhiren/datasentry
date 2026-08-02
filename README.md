@@ -184,3 +184,11 @@ make lint && make type && make test
 - 实测（Apple Silicon 开发机）：画像 0.6s、数值异常 1.7s、全量扫描（36 检测器+融合+评分）24.9s、JSONL 流式读 3.2s/1e6 行——全部 PASS(优化档)
 - 双档判定（ADR-021）：验收下限仅时间（画像/全量扫描 ≤60s @1e6）；峰值内存增量 677MB 超优化目标 146MB（duckdb 聚合常驻缓冲），不阻塞验收、记入 W10 性能打磨跟踪
 - 基准含数据流式生成（不驻留 Python 列表）+ 空表预热基线，`ru_maxrss` 增量衡量数据相关内存
+
+## 修复引擎 CLI/SDK 接入（Step 21，12.5 章持久化闭环）
+
+- schema v2：`repair_proposals` 表转正并新增 `issue_type` 列（v1→v2 幂等迁移，`_ensure_column` 按 `PRAGMA table_info` 索引判断）、`repair_runs` 新增 `proposal_id` 列（apply 关联提案）
+- `store.py`：`save_repair_proposal`/`get_repair_proposal`/`save_repair_run`/`get_repair_run`/`list_repair_runs`/`get_issue_by_id` + 反序列化 helpers（RepairProposal/RepairRun 与 engine 模型字段对齐）
+- SDK 门面 `client.py`：`repair_open`（按路径后缀推断 CSV/JSONL/Parquet/XLSX）→ `repair_propose`（落库提案）→ `repair_preview` → `repair_apply`（落库 run + 回滚产物）→ `repair_rollback` → `list_repair_runs`
+- CLI：`datasentry repair` 子命令组 propose / preview / apply / rollback / list（`--file` 或 `--issue_id` 定位），执行期错误统一退出码 3
+- 测试 313 → 324：新增 tests/test_repair_cli.py 11 例（SDK 提案落库核对、preview 规则降为 0、apply→rollback 副本存在、未映射 issue 拒绝提案、CLI 全链路）

@@ -223,6 +223,138 @@ def _cmd_contract_validate(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_repair_propose(args: argparse.Namespace) -> int:
+    """15 章：issue → 修复提案。"""
+    client = DataSentry(args.project)
+    try:
+        proposal = client.repair_propose(args.issue_id, args.file)
+    except (KeyError, ValueError) as exc:
+        _emit(_envelope("repair propose", {"error": str(exc)}), args.format)
+        return EXIT_CONFIG
+    if proposal is None:
+        _emit(_envelope("repair propose", {"proposed": False}), args.format)
+        return EXIT_OK
+    _emit(
+        _envelope(
+            "repair propose",
+            {
+                "proposed": True,
+                "proposal_id": proposal.proposal_id,
+                "issue_id": proposal.issue_id,
+                "issue_type": proposal.issue_type,
+                "operation": proposal.operation.value,
+                "target_columns": proposal.target_columns,
+                "estimated_rows_changed": proposal.estimated_rows_changed,
+                "rationale": proposal.rationale,
+            },
+        ),
+        args.format,
+    )
+    return EXIT_OK
+
+
+def _cmd_repair_preview(args: argparse.Namespace) -> int:
+    """15.6：提案统计面板 + 规则重跑前后对比。"""
+    client = DataSentry(args.project)
+    try:
+        result = client.repair_preview(args.issue_id, args.file)
+    except (KeyError, ValueError) as exc:
+        _emit(_envelope("repair preview", {"error": str(exc)}), args.format)
+        return EXIT_CONFIG
+    if result is None:
+        _emit(_envelope("repair preview", {"previewed": False}), args.format)
+        return EXIT_OK
+    proposal, preview = result
+    data = {
+        "previewed": True,
+        "proposal_id": proposal.proposal_id,
+        "issue_type": proposal.issue_type,
+        "operation": proposal.operation.value,
+        "rows_changed": preview.rows_changed,
+        "rows_changed_ratio": preview.rows_changed_ratio,
+        "rule_failures_before": preview.rule_failures_before,
+        "rule_failures_after": preview.rule_failures_after,
+        "null_delta": preview.null_delta,
+        "unique_delta": preview.unique_delta,
+        "changed_examples": [
+            {
+                "column": ex.column,
+                "before": ex.before,
+                "after": ex.after,
+            }
+            for ex in preview.changed_examples
+        ],
+    }
+    _emit(_envelope("repair preview", data), args.format)
+    return EXIT_OK
+
+
+def _cmd_repair_apply(args: argparse.Namespace) -> int:
+    """15.7：应用修复（副本写入 + before artifact + 落库）。"""
+    client = DataSentry(args.project)
+    try:
+        run = client.repair_apply(args.issue_id, args.file)
+    except (KeyError, ValueError, FileNotFoundError) as exc:
+        _emit(_envelope("repair apply", {"error": str(exc)}), args.format)
+        return EXIT_ERROR
+    _emit(
+        _envelope(
+            "repair apply",
+            {
+                "applied": True,
+                "run_id": run.id,
+                "proposal_id": run.proposal_id,
+                "fingerprint_before": run.fingerprint_before,
+                "fingerprint_after": run.fingerprint_after,
+                "changed": run.fingerprint_before != run.fingerprint_after,
+                "rollback_artifact": run.rollback_artifact,
+            },
+        ),
+        args.format,
+    )
+    return EXIT_OK
+
+
+def _cmd_repair_rollback(args: argparse.Namespace) -> int:
+    """15.7：回滚（artifact 全量重建 + 状态更新）。"""
+    client = DataSentry(args.project)
+    try:
+        run = client.repair_rollback(args.run_id)
+    except (KeyError, ValueError, FileNotFoundError) as exc:
+        _emit(_envelope("repair rollback", {"error": str(exc)}), args.format)
+        return EXIT_ERROR
+    _emit(
+        _envelope(
+            "repair rollback",
+            {"rolled_back": True, "run_id": run.id, "status": run.status.value},
+        ),
+        args.format,
+    )
+    return EXIT_OK
+
+
+def _cmd_repair_list(args: argparse.Namespace) -> int:
+    """列出修复执行记录。"""
+    client = DataSentry(args.project)
+    runs = client.list_repair_runs()
+    data = {
+        "runs": [
+            {
+                "id": r.id,
+                "proposal_id": r.proposal_id,
+                "dataset_id": r.dataset_id,
+                "status": r.status.value,
+                "fingerprint_before": r.fingerprint_before,
+                "fingerprint_after": r.fingerprint_after,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in runs
+        ]
+    }
+    _emit(_envelope("repair list", data), args.format)
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="datasentry",
@@ -299,6 +431,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_validate = contract_sub.add_parser("validate", help="validate contract YAML format")
     p_validate.add_argument("path", type=str)
     p_validate.set_defaults(func=_cmd_contract_validate)
+
+    p_repair = sub.add_parser(
+        "repair", help="repair engine (15 章, ADR-020; propose→preview→apply→rollback)"
+    )
+    repair_sub = p_repair.add_subparsers(dest="repair_cmd", required=True)
+    p_propose = repair_sub.add_parser("propose", help="issue → repair proposal")
+    p_propose.add_argument("issue_id", type=str)
+    p_propose.add_argument("--file", type=str, required=True, help="source data file")
+    p_propose.set_defaults(func=_cmd_repair_propose)
+    p_preview = repair_sub.add_parser("preview", help="proposal + preview panel (rule re-run)")
+    p_preview.add_argument("issue_id", type=str)
+    p_preview.add_argument("--file", type=str, required=True, help="source data file")
+    p_preview.set_defaults(func=_cmd_repair_preview)
+    p_apply = repair_sub.add_parser("apply", help="apply repair (copy + .before artifact)")
+    p_apply.add_argument("issue_id", type=str)
+    p_apply.add_argument("--file", type=str, required=True, help="source data file")
+    p_apply.set_defaults(func=_cmd_repair_apply)
+    p_rollback = repair_sub.add_parser("rollback", help="rollback a repair run")
+    p_rollback.add_argument("run_id", type=str)
+    p_rollback.set_defaults(func=_cmd_repair_rollback)
+    p_runs = repair_sub.add_parser("list", help="list repair runs")
+    p_runs.set_defaults(func=_cmd_repair_list)
     return parser
 
 
