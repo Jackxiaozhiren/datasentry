@@ -382,6 +382,22 @@
 
 ---
 
+## ADR-022：覆盖率门禁固化（37.5 阶段 4 / M8）
+
+- **状态**：Accepted（2026-08-02）
+- **决策**：`make test` 一律挂 `--cov=datasentry_core --cov-fail-under=85`；
+  覆盖率低于 85% 时退出码非 0，门禁即失败。
+- **理由**：M8（核心包覆盖率 ≥85%）在 Step 22 首次实测即达 95%，
+  但门禁未含覆盖率，后续回归无约束；固化后任何新代码必须在
+  `make check` 内同时满足 lint/type/test/coverage 四道门。
+- **影响**：`storage/paths.py`（73%）与 `connectors/file_based.py`
+  （80%）为达到门禁补齐测试，核心包总览 96.42%（3298 stmt）。
+  计数口径：tests/test_paths.py（三平台布局/override/expanduser）
+  + file_based 边界（path=None、sampled 指纹、警告缓存与截断、
+  抽样 fallback、close 后使用、抽象契约）。
+
+---
+
 ## 待定（Proposed）
 
 | 编号 | 议题 | 状态 |

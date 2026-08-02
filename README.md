@@ -5,7 +5,7 @@
 >
 > 一个以统计证据为基础、以 AI 为辅助、以人工审批为保障的数据质量检测与修复平台。
 
-**状态**：开发中（Step 12/20 — 报告引擎 + 质量门禁完成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
+**状态**：开发中（Step 22 — 覆盖率门禁固化，M8 ≥85% 达成 96.4%）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
 推进，一次一个实施步骤，每步执行 8 步法（设计决策 → 实现 → 测试 → 修复 → 文档 → 变更摘要）。
 
 ## 目录结构
@@ -192,3 +192,10 @@ make lint && make type && make test
 - SDK 门面 `client.py`：`repair_open`（按路径后缀推断 CSV/JSONL/Parquet/XLSX）→ `repair_propose`（落库提案）→ `repair_preview` → `repair_apply`（落库 run + 回滚产物）→ `repair_rollback` → `list_repair_runs`
 - CLI：`datasentry repair` 子命令组 propose / preview / apply / rollback / list（`--file` 或 `--issue_id` 定位），执行期错误统一退出码 3
 - 测试 313 → 324：新增 tests/test_repair_cli.py 11 例（SDK 提案落库核对、preview 规则降为 0、apply→rollback 副本存在、未映射 issue 拒绝提案、CLI 全链路）
+
+## 覆盖率门禁（Step 22，37.5 阶段 4 → M8）
+
+- `make test` 固化 `--cov=datasentry_core --cov-fail-under=85`（M8 ≥85% 进门禁，低于则退出码非 0）
+- 补齐薄弱模块：`storage/paths.py` 73% → 100%（新增 tests/test_paths.py：三平台布局 macos/linux/win32、XDG fallback、DATASENTRY_HOME override、expanduser）
+- `connectors/file_based.py` 80% → 97%（共享句柄边界：path None 抛错、`read_sample` none/time_based(带/不带 time_column)/n<1、sampled 指纹、警告列表缓存与 _WARNING_CAP 截断、close 后使用、抽象契约 NotImplementedError）
+- 核心包覆盖率 95% → **96.42%**（3298 stmt），测试 324 → 336；README 状态行更新为 Step 22

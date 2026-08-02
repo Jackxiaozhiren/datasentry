@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 from openpyxl import Workbook
 
 from datasentry_core.connectors import (
@@ -19,6 +20,8 @@ from datasentry_core.connectors import (
     XlsxConnector,
     default_registry,
 )
+from datasentry_core.connectors.errors import DataSourceNotFoundError
+from datasentry_core.connectors.file_based import FileDataHandle
 from datasentry_core.detectors import DetectionContext
 from datasentry_core.detectors.initial.missing import ExcessiveNullRateDetector
 
@@ -164,6 +167,120 @@ class TestXlsxConnector:
         try:
             assert handle.count_rows() == 2
             assert handle.schema().columns[0].physical_type.upper() == "VARCHAR"
+        finally:
+            handle.close()
+
+
+class TestFileHandleEdgeCases:
+    """FileDataHandle 共享实现未覆盖分支（Step 22 覆盖率补齐）。"""
+
+    def test_missing_path_raises(self, tmp_path: Path) -> None:
+        spec = DataSourceSpec(source_type=DataSourceType.PARQUET, path=None, options={})
+        with pytest.raises(DataSourceNotFoundError, match="requires a path"):
+            ParquetConnector().open(spec)
+
+    def test_read_sample_none_mode(self, tmp_path: Path) -> None:
+        p = tmp_path / "t.parquet"
+        _write_parquet(p)
+        spec = DataSourceSpec(source_type=DataSourceType.PARQUET, path=p, options={})
+        handle = ParquetConnector().open(spec)
+        try:
+            sample = handle.read_sample(2, method="none")
+            assert sample.table.num_rows == 2
+        finally:
+            handle.close()
+
+    def test_read_sample_time_based_without_column_falls_back(self, tmp_path: Path) -> None:
+        p = tmp_path / "t.parquet"
+        _write_parquet(p)
+        spec = DataSourceSpec(source_type=DataSourceType.PARQUET, path=p, options={})
+        handle = ParquetConnector().open(spec)
+        try:
+            sample = handle.read_sample(2, method="time_based")
+            assert sample.table.num_rows == 2
+        finally:
+            handle.close()
+
+    def test_read_sample_time_based_with_column(self, tmp_path: Path) -> None:
+        p = tmp_path / "t.parquet"
+        _write_parquet(p)
+        spec = DataSourceSpec(
+            source_type=DataSourceType.PARQUET,
+            path=p,
+            options={"time_column": "age"},
+        )
+        handle = ParquetConnector().open(spec)
+        try:
+            sample = handle.read_sample(2, method="time_based")
+            assert sample.table.num_rows == 2
+            assert sample.table.column("age").to_pylist() == [22, 25]
+        finally:
+            handle.close()
+
+    def test_read_sample_invalid_n(self, tmp_path: Path) -> None:
+        p = tmp_path / "t.parquet"
+        _write_parquet(p)
+        spec = DataSourceSpec(source_type=DataSourceType.PARQUET, path=p, options={})
+        handle = ParquetConnector().open(spec)
+        try:
+            with pytest.raises(ValueError, match="n must be >= 1"):
+                handle.read_sample(0)
+        finally:
+            handle.close()
+
+    def test_sampled_fingerprint(self, tmp_path: Path) -> None:
+        p = tmp_path / "t.parquet"
+        _write_parquet(p)
+        spec = DataSourceSpec(source_type=DataSourceType.PARQUET, path=p, options={})
+        handle = ParquetConnector().open(spec)
+        try:
+            fp = handle.fingerprint(mode="sampled")
+            assert fp.fingerprint_type == "sampled"
+            assert fp.file_sha256 is None
+            assert fp.content_sample_hash is not None
+        finally:
+            handle.close()
+
+    def test_warnings_cached_and_capped(self, tmp_path: Path) -> None:
+        p = tmp_path / "many.xlsx"
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["note"])
+        for i in range(120):
+            ws.append([f"=bad{i}"])
+        wb.save(p)
+        spec = DataSourceSpec(source_type=DataSourceType.XLSX, path=p, options={})
+        handle = XlsxConnector().open(spec)
+        try:
+            first = handle.warnings()
+            second = handle.warnings()
+            assert len(first) == len(second) == 100
+            assert first == second
+            assert all(w.row >= 0 for w in first)
+        finally:
+            handle.close()
+
+    def test_use_after_close_raises(self, tmp_path: Path) -> None:
+        p = tmp_path / "t.parquet"
+        _write_parquet(p)
+        spec = DataSourceSpec(source_type=DataSourceType.PARQUET, path=p, options={})
+        handle = ParquetConnector().open(spec)
+        handle.close()
+        with pytest.raises(ValueError, match="handle is closed"):
+            handle.count_rows()
+
+    def test_abstract_contract_not_implemented(self, tmp_path: Path) -> None:
+        p = tmp_path / "t.parquet"
+        _write_parquet(p)
+        spec = DataSourceSpec(source_type=DataSourceType.PARQUET, path=p, options={})
+        handle = FileDataHandle(spec)
+        try:
+            assert handle.source_type == DataSourceType.PARQUET
+            assert handle.source_path == p
+            with pytest.raises(NotImplementedError):
+                handle._ensure_view()
+            with pytest.raises(NotImplementedError):
+                next(handle.read_batches())
         finally:
             handle.close()
 

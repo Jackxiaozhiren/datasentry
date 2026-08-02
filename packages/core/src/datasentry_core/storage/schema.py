@@ -320,10 +320,7 @@ PLACEHOLDER_TABLES = (
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
     """幂等补列：存在则跳过（调用方负责保证 ddl 不含 NOT NULL 且默认兼容）。"""
-    exists = any(
-        row[1] == column
-        for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
-    )
+    exists = any(row[1] == column for row in conn.execute(f"PRAGMA table_info({table})").fetchall())
     if not exists:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 

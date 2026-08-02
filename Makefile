@@ -11,6 +11,6 @@ type:
 	uv run mypy packages/core/src/datasentry_core
 
 test:
-	uv run pytest
+	uv run pytest --cov=datasentry_core --cov-fail-under=85 --cov-report=term
 
 check: lint type test
