@@ -45,6 +45,12 @@ FAMILY_MAP: Mapping[str, str] = {
     "invalid_ip": "string_format",
     "suspicious_formula_injection": "string_format",
     "cross_field_violation": "cross_field_constraint",
+    "invalid_date": "datetime_anomaly",
+    "impossible_date": "datetime_anomaly",
+    "future_date": "datetime_anomaly",
+    "stale_date": "datetime_anomaly",
+    "mixed_date_format": "datetime_anomaly",
+    "duplicate_timestamp": "datetime_anomaly",
 }
 
 FAMILY_DIMENSIONS: Mapping[str, QualityDimension] = {
@@ -54,6 +60,7 @@ FAMILY_DIMENSIONS: Mapping[str, QualityDimension] = {
     "categorical_anomaly": QualityDimension.VALIDITY,
     "string_format": QualityDimension.VALIDITY,
     "cross_field_constraint": QualityDimension.VALIDITY,
+    "datetime_anomaly": QualityDimension.VALIDITY,
 }
 
 FAMILY_TITLES: Mapping[str, str] = {
@@ -63,6 +70,7 @@ FAMILY_TITLES: Mapping[str, str] = {
     "categorical_anomaly": "Categorical anomaly",
     "string_format": "String format issue",
     "cross_field_constraint": "Cross-field rule violation",
+    "datetime_anomaly": "Datetime anomaly",
 }
 
 

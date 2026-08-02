@@ -10,6 +10,7 @@ from datasentry_core.detectors.common import (
     make_candidate,
     make_evidence,
     quote_ident,
+    quote_re,
     string_columns,
 )
 from datasentry_core.models.detector import DetectorCapabilities, IssueCandidate
@@ -254,13 +255,6 @@ class InvalidEmailDetector(DetectorBase):
                     )
                 )
         return candidates
-
-
-def quote_re(pattern: str) -> str:
-    """正则字面量（SQL 单引号转义）。"""
-    from datasentry_core.detectors.common import quote_literal
-
-    return quote_literal(pattern)
 
 
 class InvalidPhoneDetector(DetectorBase):

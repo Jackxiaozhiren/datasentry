@@ -185,6 +185,37 @@
 
 ---
 
+## ADR-016：日期时间检测器族的判定边界（11.8 核心 P0 化）
+
+- **状态**：Accepted（2026-08-02）
+- **决策**：
+  1. 适用范围两类（`_TEMPORAL_TYPES = {DATE, TIMESTAMP, TIMESTAMPTZ}`，
+     TIME 排除——与日期比较会类型错误）＋字符串日期提示列
+     （列名含 date/dob/birth；**排除** timestamp/_at，created_at 等
+     审计时间戳不判格式非法）。
+  2. `future_date`/`stale_date` 仅作用于日期列（可直接比较）：
+     `> current_date + INTERVAL 1 DAY`、`< current_date − INTERVAL 365 DAY`；
+     stale 豁免列名 hints = birth/dob/founded/hire/established/historical/history。
+  3. `impossible_date` 判定 = `regexp_matches(ISO 模式) AND try_strptime(...) IS NULL`：
+     duckdb 的 `strptime` 对非法日期（2024-02-30）抛 ConversionException
+     而非返回 NULL，必须用 `try_strptime`（返回 NULL）。
+  4. `mixed_date_format` 按**行**计数（非 distinct），格式类
+     iso/slash/dot/compact/other，`len(set(values)) < 10` 跳过，
+     占比 > 0.02 且 ≥2 类才报（防孤立个例）。
+  5. `duplicate_timestamp` affected = Σ(c−1)（每组 >2 的重复计数），
+     上限 20 组行级证据。
+  6. 严重度：impossible HIGH（数据不可用）；invalid/duplicate MEDIUM；
+     future/stale/mixed LOW。
+- **理由**：11.8 为 P0 需求（C-13 核心列），日期是数据质量最高频问题域之一；
+  try_strptime 行为是 duckdb 实际语义的规避记录。
+- **影响**：新增 `datetime_anomaly` Issue family（VALIDITY）；
+  检测器计数 22 → 28（M4 ≥20 保持）；`common.py` 新增
+  `datetime_columns()`/`quote_re()`（textual.py 本地 quote_re 删除）。
+  已知边界：duckdb CSV 推断把可统一解析的混合格式列提升为 DATE，
+  mixed_date_format 仅对解析失败（VARCHAR 残留）的列触发。
+
+---
+
 ## 待定（Proposed）
 
 | 编号 | 议题 | 状态 |

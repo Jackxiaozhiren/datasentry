@@ -97,6 +97,12 @@ class TestFusion:
             ("invalid_ip", "string_format"),
             ("inconsistent_case", "categorical_anomaly"),
             ("cross_field_violation", "cross_field_constraint"),
+            ("invalid_date", "datetime_anomaly"),
+            ("impossible_date", "datetime_anomaly"),
+            ("future_date", "datetime_anomaly"),
+            ("stale_date", "datetime_anomaly"),
+            ("mixed_date_format", "datetime_anomaly"),
+            ("duplicate_timestamp", "datetime_anomaly"),
         ]
         for issue_type, family in cases:
             issues = engine.fuse([_candidate(issue_type, ["v"])], "s", 100)
@@ -199,7 +205,7 @@ class TestScanRunner:
         register_default_detectors(reg)
         runner = ScanRunner(reg)
         runs, issues = runner.run(scan_ctx, ScanConfig(), scan_run_id="scan_1")
-        assert len(runs) == 22
+        assert len(runs) == 28
         assert all(r.scan_run_id == "scan_1" for r in runs)
         assert all(r.detector_id for r in runs)
         assert all(r.duration_ms >= 0 for r in runs)

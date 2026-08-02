@@ -21,6 +21,11 @@ def quote_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def quote_re(pattern: str) -> str:
+    """正则字面量（SQL 单引号转义）。"""
+    return quote_literal(pattern)
+
+
 def make_evidence(
     detector_id: str,
     detector_version: str,
@@ -72,6 +77,8 @@ def make_candidate(
 
 
 _STRING_TYPES = frozenset({"VARCHAR", "CHAR", "TEXT", "BPCHAR"})
+# TIME 列不与 DATE/TIMESTAMP 互比（类型错误），MVP 不使用
+_TEMPORAL_TYPES = frozenset({"DATE", "TIMESTAMP", "TIMESTAMPTZ"})
 _NUMERIC_TYPES = frozenset(
     {
         "TINYINT",
@@ -103,6 +110,15 @@ def numeric_columns(context: DetectionContext) -> list[str]:
     """数值列名（按 schema 顺序）。"""
     return [
         c.name for c in context.handle.schema().columns if c.physical_type.upper() in _NUMERIC_TYPES
+    ]
+
+
+def datetime_columns(context: DetectionContext) -> list[str]:
+    """日期时间列名（物理类型 DATE/TIMESTAMP/TIME，按 schema 顺序）。"""
+    return [
+        c.name
+        for c in context.handle.schema().columns
+        if c.physical_type.upper() in _TEMPORAL_TYPES
     ]
 
 
