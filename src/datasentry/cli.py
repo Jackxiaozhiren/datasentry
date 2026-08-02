@@ -1,6 +1,6 @@
 """DataSentry CLI（22 章 MVP 子集）。
 
-命令：init / scan / issues list / issues show / report export / contract validate
+命令：init / scan / issues list / issues show / report export / score / contract validate
 全局选项：--project / --format text|json / --seed / --version
 JSON 统一 envelope（22.1）：{"ok", "command", "data", "warnings", "llm_usage"}
 退出码：0 成功；2 配置错误；3 执行错误；4 数据源不可用
@@ -83,6 +83,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         "issues_count": {k.value: v for k, v in scan_run.issues_count.items()},
         "total_issues": len(issues),
         "detector_runs": len(runs),
+        "quality_score": scan_run.quality_score.overall if scan_run.quality_score else None,
     }
     _emit(_envelope("scan", summary), args.format)
     return EXIT_OK
@@ -130,6 +131,30 @@ def _cmd_report_export(args: argparse.Namespace) -> int:
         _emit(_envelope("report export", {"error": str(exc)}), args.format)
         return EXIT_CONFIG
     _emit(_envelope("report export", report), args.format)
+    return EXIT_OK
+
+
+def _cmd_score(args: argparse.Namespace) -> int:
+    """27 章：质量总分展示（维度构成 + 权重 + 计算说明，27.3 可解释性）。"""
+    client = DataSentry(args.project)
+    try:
+        quality = client.quality_score(args.run_id)
+    except KeyError as exc:
+        _emit(_envelope("score", {"error": str(exc)}), args.format)
+        return EXIT_CONFIG
+    if quality is None:
+        _emit(_envelope("score", {"scored": False}), args.format)
+        return EXIT_OK
+    data = {"scored": True, "score": quality.model_dump(mode="json")}
+    if args.format == "text":
+        print(f"Overall quality score: {quality.overall}  (score_version={quality.score_version})")
+        for dim, value in quality.dimensions.items():
+            label = f"{dim:15s} {value!s:>6}"
+            weight = quality.weights.get(dim)
+            print(f"  {label}  weight={weight if weight is not None else '-'}")
+        print(f"  notes: {quality.calculation_notes}")
+        return EXIT_OK
+    _emit(_envelope("score", data), args.format)
     return EXIT_OK
 
 
@@ -199,6 +224,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_export = report_sub.add_parser("export", help="export scan report (JSON)")
     p_export.add_argument("run_id", type=str)
     p_export.set_defaults(func=_cmd_report_export)
+
+    p_score = sub.add_parser("score", help="quality score (27 章)")
+    p_score.add_argument("run_id", type=str)
+    p_score.set_defaults(func=_cmd_score)
 
     p_contract = sub.add_parser("contract", help="data contracts (V1 engine; MVP validates only)")
     contract_sub = p_contract.add_subparsers(dest="contract_cmd", required=True)

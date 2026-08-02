@@ -21,6 +21,7 @@ from datasentry_core.models.enums import Severity
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.scan import DetectorRun, ReproducibilityInfo, ScanConfig, ScanRun
 from datasentry_core.scoring import ScoringEngine
+from datasentry_core.scoring.quality import QualityScoreEngine
 
 
 def _count_by_severity(issues: list[Issue]) -> dict[Severity, int]:
@@ -36,6 +37,7 @@ class ScanRunner:
         self._registry = registry
         self._fusion = EvidenceFusionEngine()
         self._scoring = ScoringEngine()
+        self._quality = QualityScoreEngine()
 
     def run(
         self,
@@ -71,6 +73,19 @@ class ScanRunner:
         failed = [r for r in runs if r.status == "failed"]
         status: Literal["completed", "failed"] = "failed" if failed else "completed"
         error = "; ".join(f"{r.detector_id}: {r.error}" for r in failed) if failed else None
+        ran_dimensions = {
+            detector.quality_dimension
+            for detector, run in zip(
+                filter_by_config(self._registry.list_active(), config.detectors),
+                runs,
+                strict=True,
+            )
+            if run.status == "completed"
+        }
+        try:
+            quality_score = self._quality.score(issues, ran_dimensions=ran_dimensions)
+        except ValueError:  # 无任何检测器运行（空白名单）→ 未评分
+            quality_score = None
         scan_run = ScanRun(
             id=scan_run_id,
             dataset_id=context.dataset_id,
@@ -81,6 +96,7 @@ class ScanRunner:
             started_at=started_at,
             finished_at=datetime.now(UTC),
             error=error,
+            quality_score=quality_score,
             reproducibility=ReproducibilityInfo(
                 datasentry_version=__version__,
                 detector_versions={r.detector_id: r.detector_version for r in runs},

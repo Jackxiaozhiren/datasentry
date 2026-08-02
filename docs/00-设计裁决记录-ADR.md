@@ -107,6 +107,26 @@
 - **影响**：docs/04 草案按本 ADR 修订两处；`storage/schema.py` 的 `SCHEMA_VERSION` 为唯一版本号；
   字段兼容由模型单测守护（草案说明 4）。
 
+## ADR-013：质量总分实现归一（27.1 公式的工程化）
+
+- **状态**：Accepted（2026-08-02）
+- **决策**：
+  1. `severity_norm` 采用 `SEVERITY_WEIGHTS`（ADR-003），27.1 的 severity_norm 表废弃；
+     12.4 字段关键度权重（0.6/1.0/1.3/1.6）即 `CRITICALITY_WEIGHTS`。
+  2. `max_possible = 该维度 Issue 数 × 1.6`（12.4 critical 权重 × 最坏取值全 1.0），
+     即「critical 字段 100% 受影响」为单 Issue 的理论最坏影响 → NORMAL 字段维度得分下限 37.5，
+     critical 字段可至 0（保证字段关键程度参与扣分而非相消）。
+  3. 字段关键度 MVP 默认 NORMAL=1.0（与 Step 8 评分引擎一致；语义推断与 Contract 覆盖归 V1）；
+     覆盖调节（规则覆盖范围）MVP 固定 1.0，归 V1。
+  4. 无相关检测器运行的维度得分 None，不参与加权，权重重新归一化（27.1）；
+     Issue 标注多维度时对每个维度计分（MVP 检测器为单维度，防御性约定）。
+  5. 总分在扫描时计算并随 `ScanRun.quality_score` 落库（复用 schema 既有列），
+     历史报告保留原权重与 `score_version`（27.2 趋势重算归 V1 UI）。
+- **理由**：27.1 公式含三处需工程裁决的取值（severity_norm 口径、max_possible、覆盖调节）；
+  ADR-003 已定 severity 权重单一来源，max_possible 固定基准保证分数随字段关键度单调。
+- **影响**：`scoring/quality.py` 为唯一实现；`QualityScore` 模型增 `dimension_contributions`
+  （27.3「该维度由哪些 Issue 扣分」悬停数据，JSON 列向后兼容）。
+
 ---
 
 ## 待定（Proposed）

@@ -20,6 +20,7 @@ from datasentry_core.detectors.initial import register_default_detectors
 from datasentry_core.detectors.runner import ScanRunner
 from datasentry_core.models.enums import Severity
 from datasentry_core.models.issue import Issue
+from datasentry_core.models.quality import QualityScore
 from datasentry_core.models.scan import DetectorRun, ScanConfig, ScanRun
 from datasentry_core.storage import MetadataStore
 
@@ -128,11 +129,24 @@ class DataSentry:
     def get_detector_runs(self, scan_run_id: str) -> list[DetectorRun]:
         return self._store.get_detector_runs(scan_run_id)
 
+    def quality_score(self, scan_run_id: str) -> QualityScore | None:
+        """27 章：扫描时计算的质量总分（随 ScanRun 落库，历史保留原权重与 score_version）。"""
+        scan = self.get_scan(scan_run_id)
+        if scan is None:
+            raise KeyError(f"scan run not found: {scan_run_id}")
+        return scan.quality_score
+
     def export_report(self, scan_run_id: str) -> dict:
-        """22.1 report export（JSON 报告）：scan + detector_runs + issues 完整数据。"""
+        """22.1 report export（JSON 报告）：scan + detector_runs + issues + quality。"""
         scan = self.get_scan(scan_run_id)
         if scan is None:
             raise KeyError(f"scan run not found: {scan_run_id}")
         runs = [r.model_dump(mode="json") for r in self.get_detector_runs(scan_run_id)]
         issues = [i.model_dump(mode="json") for i in self._store.get_issues(scan_run_id)]
-        return {"scan": scan.model_dump(mode="json"), "detector_runs": runs, "issues": issues}
+        quality = scan.quality_score.model_dump(mode="json") if scan.quality_score else None
+        return {
+            "scan": scan.model_dump(mode="json"),
+            "detector_runs": runs,
+            "issues": issues,
+            "quality": quality,
+        }

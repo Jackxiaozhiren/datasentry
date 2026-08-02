@@ -12,6 +12,7 @@ from typing import ClassVar, Protocol, runtime_checkable
 
 from datasentry_core.connectors.base import DataHandle
 from datasentry_core.models.detector import DetectorMeta, IssueCandidate
+from datasentry_core.models.enums import QualityDimension
 from datasentry_core.models.profile import DatasetProfile
 from datasentry_core.models.scan import ScanConfig
 
@@ -47,6 +48,7 @@ class Detector(Protocol):
 
     detector_id: ClassVar[str]
     detector_version: ClassVar[str]
+    quality_dimension: ClassVar[QualityDimension]
 
     def supports(self, context: DetectionContext) -> bool: ...
 

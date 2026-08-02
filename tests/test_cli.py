@@ -65,12 +65,32 @@ class TestClient:
         client = DataSentry(project=workspace)
         scan, runs, issues = client.scan_file(sample_csv)
         report = client.export_report(scan.id)
-        assert set(report) == {"scan", "detector_runs", "issues"}
+        assert set(report) == {"scan", "detector_runs", "issues", "quality"}
         assert len(report["detector_runs"]) == len(runs)
         assert len(report["issues"]) == len(issues)
         assert report["scan"]["id"] == scan.id
+        assert report["quality"]["overall"] == scan.quality_score.overall
         with pytest.raises(KeyError):
             client.export_report("missing")
+        client.close()
+
+    def test_quality_score_after_scan(self, sample_csv: Path, workspace: Path) -> None:
+        client = DataSentry(project=workspace)
+        scan, _, _ = client.scan_file(sample_csv)
+        quality = client.quality_score(scan.id)
+        assert quality is not None
+        assert 0.0 <= quality.overall <= 100.0
+        assert set(quality.dimensions) == {
+            "completeness",
+            "validity",
+            "uniqueness",
+            "consistency",
+            "integrity",
+            "timeliness",
+        }
+        assert quality.dimensions["consistency"] is None  # MVP 无一致性检测器
+        with pytest.raises(KeyError):
+            client.quality_score("missing")
         client.close()
 
     def test_init_creates_gitignore_entry(self, workspace: Path) -> None:
@@ -103,6 +123,7 @@ class TestCli:
         assert payload["command"] == "scan"
         assert payload["data"]["status"] == "completed"
         assert payload["data"]["total_issues"] > 0
+        assert payload["data"]["quality_score"] is not None
         assert payload["llm_usage"] == {"calls": 0, "tokens": 0}
 
     def test_scan_missing_file_exit_4(self, workspace: Path, capsys) -> None:
@@ -131,6 +152,21 @@ class TestCli:
 
     def test_report_export_missing_exit_2(self, workspace: Path, capsys) -> None:
         code = main(["--project", str(workspace), "report", "export", "nope"])
+        assert code == 2
+
+    def test_score_json(self, sample_csv: Path, workspace: Path, capsys) -> None:
+        main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
+        scan_id = json.loads(capsys.readouterr().out)["data"]["scan_run_id"]
+        code = main(["--project", str(workspace), "--format", "json", "score", scan_id])
+        assert code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["command"] == "score"
+        assert payload["data"]["scored"] is True
+        assert payload["data"]["score"]["score_version"] == "1"
+        assert payload["data"]["score"]["dimensions"]["consistency"] is None
+
+    def test_score_missing_exit_2(self, workspace: Path, capsys) -> None:
+        code = main(["--project", str(workspace), "score", "nope"])
         assert code == 2
 
     def test_contract_validate_ok(self, workspace: Path, capsys) -> None:
