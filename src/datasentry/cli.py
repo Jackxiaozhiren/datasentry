@@ -12,7 +12,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, cast
 
 from datasentry import __version__
 from datasentry.client import DataSentry
@@ -35,7 +37,9 @@ _GLOBAL_EPILOG = """Global options:
 """
 
 
-def _envelope(command: str, data: dict, warnings: list[str] | None = None) -> dict:
+def _envelope(
+    command: str, data: dict[Any, Any], warnings: list[str] | None = None
+) -> dict[str, object]:
     return {
         "ok": True,
         "command": command,
@@ -45,7 +49,7 @@ def _envelope(command: str, data: dict, warnings: list[str] | None = None) -> di
     }
 
 
-def _emit(envelope: dict, fmt: str) -> None:
+def _emit(envelope: dict[str, object], fmt: str) -> None:
     if fmt == "json":
         print(json.dumps(envelope, ensure_ascii=False, indent=2))
     else:
@@ -463,7 +467,8 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:  # --version(0) / 用法错误(2) 由 argparse 直接退出
         return int(exc.code or EXIT_OK)
     try:
-        return args.func(args)
+        func = cast("Callable[[argparse.Namespace], int]", args.func)
+        return func(args)
     except KeyboardInterrupt:
         return EXIT_ERROR
     except Exception as exc:  # 执行期错误统一退出码 3

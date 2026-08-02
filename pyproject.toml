@@ -5,7 +5,12 @@ description = "An evidence-driven, local-first AI copilot for detecting, explain
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 authors = [{ name = "DataSentry Contributors" }]
-dependencies = ["datasentry-core>=0.1.0", "pyyaml>=6.0"]
+dependencies = [
+    "datasentry-core>=0.1.0",
+    "fastapi>=0.115",
+    "fastapi-cli>=0.0.5",
+    "pyyaml>=6.0",
+]
 
 [project.scripts]
 datasentry = "datasentry.cli:main"
@@ -24,6 +29,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.10",
     "hypothesis>=6.100",
+    "httpx>=0.27",
 ]
 
 [tool.uv.workspace]
@@ -69,4 +75,9 @@ ignore_missing_imports = true
 # openpyxl 无类型存根
 [[tool.mypy.overrides]]
 module = ["openpyxl"]
+ignore_missing_imports = true
+
+# pyyaml 无类型存根
+[[tool.mypy.overrides]]
+module = ["yaml"]
 ignore_missing_imports = true

@@ -161,6 +161,10 @@ class DataSentry:
     def get_scan(self, scan_run_id: str) -> ScanRun | None:
         return self._store.get_scan_run(scan_run_id)
 
+    def list_scan_runs(self) -> list[ScanRun]:
+        """ScanRun 列表（按创建时间降序）。"""
+        return self._store.list_scan_runs()
+
     def get_detector_runs(self, scan_run_id: str) -> list[DetectorRun]:
         return self._store.get_detector_runs(scan_run_id)
 
@@ -171,7 +175,7 @@ class DataSentry:
             raise KeyError(f"scan run not found: {scan_run_id}")
         return scan.quality_score
 
-    def export_report(self, scan_run_id: str) -> dict:
+    def export_report(self, scan_run_id: str) -> dict[str, object]:
         """26.2 规范 JSON 报告：报告头 + scan + detector_runs + issues + quality。"""
         scan = self.get_scan(scan_run_id)
         if scan is None:

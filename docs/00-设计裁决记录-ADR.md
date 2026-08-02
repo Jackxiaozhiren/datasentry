@@ -398,6 +398,29 @@
 
 ---
 
+## ADR-023：REST API 的单工作区门面与同步端点（22/23 章 HTTP 面）
+
+- **状态**：Accepted（2026-08-02）
+- **决策**：
+  1. `src/datasentry/api.py` 的 `create_app(project=None)` 绑定单个
+     `DataSentry` 实例（项目工作区门面），所有端点复用 CLI/SDK 同一条
+     导入→扫描→落库→修复闭环，不引入第二套领域逻辑；
+  2. MVP 只提供**同步端点**（FastAPI 默认并发已覆盖多数用法）；异步
+     Job 队列（任务提交 + 轮询状态）归 V1——MVP 扫描 ≤60s@1e6（ADR-021）
+     无需长任务基础设施；
+  3. 错误映射：FileNotFoundError/KeyError→404、ValueError→422、
+     其余→500，body 统一 `{"ok": false, "detail": ...}`；
+  4. 修复端点以 `source_path`（源文件路径）定位数据，`run_id` 仅作
+     业务锚定（与 CLI `repair` 子命令同语义，ADR-020）。
+- **理由**：MVP 划分（docs/03）将 REST API 列为 MVP，但闭环优先原则
+  （「导入→扫描→Issue→评分→报告」）已由 CLI/SDK 闭环实现；REST 面
+  是对同一闭环的 HTTP 暴露，同步模型避免为「秒级扫描」引入任务队列
+  的过度设计（与 ADR-004/R-OD-01 范围熔断一致）。
+- **影响**：新增依赖 fastapi/uvicorn（运行）、httpx（测试）；端点清单
+  13 个；`DataSentry` 新增 `list_scan_runs()`（此前仅 store 层有此方法）。
+
+---
+
 ## 待定（Proposed）
 
 | 编号 | 议题 | 状态 |

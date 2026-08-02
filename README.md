@@ -5,7 +5,7 @@
 >
 > 一个以统计证据为基础、以 AI 为辅助、以人工审批为保障的数据质量检测与修复平台。
 
-**状态**：开发中（Step 22 — 覆盖率门禁固化，M8 ≥85% 达成 96.4%）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
+**状态**：开发中（Step 23 — REST API 单工作区门面）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
 推进，一次一个实施步骤，每步执行 8 步法（设计决策 → 实现 → 测试 → 修复 → 文档 → 变更摘要）。
 
 ## 目录结构
@@ -199,3 +199,11 @@ make lint && make type && make test
 - 补齐薄弱模块：`storage/paths.py` 73% → 100%（新增 tests/test_paths.py：三平台布局 macos/linux/win32、XDG fallback、DATASENTRY_HOME override、expanduser）
 - `connectors/file_based.py` 80% → 97%（共享句柄边界：path None 抛错、`read_sample` none/time_based(带/不带 time_column)/n<1、sampled 指纹、警告列表缓存与 _WARNING_CAP 截断、close 后使用、抽象契约 NotImplementedError）
 - 核心包覆盖率 95% → **96.42%**（3298 stmt），测试 324 → 336；README 状态行更新为 Step 22
+
+## REST API（Step 23，22/23 章 HTTP 面 + ADR-023）
+
+- `src/datasentry/api.py`：`create_app(project=...)` 单工作区门面——绑定一个 `DataSentry`，全部端点复用 CLI/SDK 同一条扫描→落库→修复闭环（无第二套领域逻辑）
+- 13 个端点：`GET /health`、`POST /scans`（201 + ScanResponse）、`GET /scans`、`GET /scans/{run_id}`、`/issues`、`/report`（26 章规范 JSON）、`/score`（27 章总分）、`/issues`（severity 过滤）、修复组 `POST /scans/{run_id}/repairs/propose|preview|apply`、`POST /repairs/{run_id}/rollback`、`GET /repairs`
+- 同步端点 MVP（扫描 ≤60s@1e6 无需任务队列），异步 Job 归 V1（ADR-023）；错误映射 FileNotFoundError/KeyError→404、ValueError→422、其余→500，body 统一 `{"ok": false, "detail"}`
+- `DataSentry` 新增 `list_scan_runs()`（此前仅 store 层）；新依赖 fastapi/uvicorn（运行）、httpx（测试）；mypy 清理 src 层遗留（dict 泛型/cast/yaml 存根），全仓 68 文件 0 错误
+- 测试 336 → 345：tests/test_api.py 9 例（健康探针/全闭环扫描/404/评分/报告/修复 propose→apply→rollback/未映射提案 None）
