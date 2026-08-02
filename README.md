@@ -67,11 +67,11 @@ make lint && make type && make test
 - `Profiler`：单次聚合查询完成全部列统计（数值列 min/max/mean/std/q25/median/q75，字符串列 min/max，其余类型仅 min/max），列名/别名均做引号转义
 - 约定：空字符串经 duckdb 视图折叠为 NULL（null 统计含空串）；`unique_ratio = distinct / 非空值`；`top_categories` 限 distinct 2~1000 的列取前 10；`examples` 刻意留空（脱敏设施在 Step 15 之后提供）；画像预算 1e6 行 < 60s 由 Step 20 基准验证
 
-## 首批确定性检测器（Step 6/13/14/15，28 种，M4 ≥20 达成）
+## 首批确定性检测器（Step 6/13/14/15/16，32 种，M4 ≥20 达成）
 
 | 类别 | 检测器 |
 |------|--------|
-| 缺失（11.3） | excessive_null_rate（阈值 0.05，>0.3→HIGH）、suspicious_missing_token（N/A/null/- 等 11 种标记，>0.005） |
+| 缺失（11.3/11.4） | excessive_null_rate（阈值 0.05，>0.3→HIGH）、suspicious_missing_token（N/A/null/- 等 11 种标记，>0.005）、sudden_missingness（时间桶缺失率突变，绝对差 ≥0.2）、group_missingness（分组缺失率异常组）、conditional_missingness（A 缺失⟹B 缺失级联，覆盖率 ≥0.8）、correlated_missingness（双列缺失共现，覆盖率 ≥0.5） |
 | 唯一（11.4） | uniqueness_violation（GROUP BY 重复值，前 20 例证据） |
 | 类别（11.6） | suspicious_placeholder（test/xxx/foo 等 7 种，匹配即报）、rare_category（频数<5 且占比<0.001）、category_explosion（unique_ratio>0.9 且列名非标识符）、inconsistent_case（小写归一化后多形态） |
 | 文本（11.7） | leading_or_trailing_whitespace、repeated_whitespace、hidden_control_character、unusual_length（>1024）、invalid_email（仅列名含 email 特征）、invalid_phone（去非数字后长度∉[7,15]）、invalid_url（scheme:// 校验）、invalid_ip（IPv4 严格校验，zip 列豁免） |
@@ -141,3 +141,11 @@ make lint && make type && make test
 - 边界：duckdb CSV 推断会把可统一解析的混合格式列提升为 DATE（此时 mixed_date_format 不触发，由 invalid_date 覆盖其余）；`strptime` 对非法日期抛 ConversionException，检测器统一用 `try_strptime` 返回 NULL
 - 融合：6 个 issue_type → `datetime_anomaly` family（VALIDITY）；`common.py` 新增 `datetime_columns()`/`quote_re()` 供跨检测器复用（textual.py 本地 quote_re 已删除）
 - 检测器计数 22 → 28（M4 ≥20 保持）
+
+## 缺失模式检测器族（Step 16，11.4 + ADR-017）
+
+- `detectors/missingness.py`：4 个检测器，全部 SQL pushdown 单/双列聚合、列级统计证据——
+  `sudden_missingness`（时间桶缺失率突变：桶缺失率 ≥ max(0.2, 整体+0.2) 且桶样本 ≥10，桶粒度日→月→年自适应，MEDIUM）、`group_missingness`（按类别列分组后目标列缺失率异常组，同阈值，MEDIUM）、`conditional_missingness`（定向级联：A 缺失行中 B 缺失率 ≥0.8 且 A 缺失样本 ≥10，MEDIUM）、`correlated_missingness`（对称共现：双列同时缺失 ≥5 行且覆盖率 ≥0.5，LOW）
+- 阈值修正记录：相对 3× 在整体缺失率 >1/3 时永不触发，改用绝对差判定（ADR-017）；`min(a_null,b_null)` 为共现率分母（无 0 除）
+- 防组合爆炸预算：列对 ≤50（缺失率 ≥0.02 的列取前 15）、分组列 ≤10 × 目标列 ≤5、目标列 ≤5 × 时间列 ≤3
+- 融合：4 个 issue_type → `missingness` family（COMPLETENESS）；检测器计数 28 → 32（M4 ≥20 保持）
