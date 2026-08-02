@@ -1,0 +1,138 @@
+"""DataSentry SDK 客户端（23.1）：MVP 闭环 = 导入 → 扫描 → 落库 → 查询 → 报告。
+
+使用方式：
+    from datasentry import DataSentry
+
+    client = DataSentry(project="/path/to/workspace")  # 默认当前目录
+    scan, runs, issues = client.scan_file("data.csv")
+    print(scan.id, len(issues))
+    issues = client.list_issues(severity_at_least="high")
+    report = client.export_report(scan.id)
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from datasentry_core.connectors import CsvConnector, DataSourceSpec, DataSourceType
+from datasentry_core.detectors import DetectionContext, DetectorRegistry
+from datasentry_core.detectors.initial import register_default_detectors
+from datasentry_core.detectors.runner import ScanRunner
+from datasentry_core.models.enums import Severity
+from datasentry_core.models.issue import Issue
+from datasentry_core.models.scan import DetectorRun, ScanConfig, ScanRun
+from datasentry_core.storage import MetadataStore
+
+_SEVERITY_ORDER = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO]
+
+
+class DataSentry:
+    """项目工作区门面：持有元数据库与扫描入口（23.1 MVP 子集）。"""
+
+    def __init__(self, project: str | Path | None = None) -> None:
+        self._workspace = Path(project).expanduser() if project else Path.cwd()
+        self._store = MetadataStore.for_workspace(self._workspace)
+        self._runner = ScanRunner(self._registry())
+        self._ensure_gitignore()
+
+    @staticmethod
+    def _registry() -> DetectorRegistry:
+        registry = DetectorRegistry()
+        register_default_detectors(registry)
+        return registry
+
+    @property
+    def workspace(self) -> Path:
+        return self._workspace
+
+    @property
+    def db_path(self) -> Path:
+        return self._store.db_path
+
+    def _ensure_gitignore(self) -> None:
+        """ADR-010：工作区打开即确保 .gitignore 含 .datasentry/ 条目（防元数据入库）。"""
+        gitignore = self._workspace / ".gitignore"
+        entry = ".datasentry/\n"
+        if gitignore.exists() and entry in gitignore.read_text(encoding="utf-8"):
+            return
+        with gitignore.open("a", encoding="utf-8") as f:
+            f.write(entry)
+
+    def close(self) -> None:
+        """关闭元数据库连接。"""
+        self._store.close()
+
+    # ---- 扫描 ----------------------------------------------------------
+
+    def scan_file(
+        self,
+        path: str | Path,
+        *,
+        dataset_id: str | None = None,
+        config: ScanConfig | None = None,
+    ) -> tuple[ScanRun, list[DetectorRun], list[Issue]]:
+        """导入 + 扫描 + 评分 + 落库（数据源不可用抛 FileNotFoundError 类异常）。"""
+        source_path = Path(path).expanduser()
+        if not source_path.is_file():
+            raise FileNotFoundError(f"data source not found: {source_path}")
+        dataset_id = dataset_id or source_path.stem
+        spec = DataSourceSpec(
+            source_type=DataSourceType.CSV,
+            path=source_path,
+            options={"dataset_id": dataset_id},
+        )
+        handle = CsvConnector().open(spec)
+        try:
+            context = DetectionContext(
+                dataset_id=dataset_id,
+                table_name=None,
+                columns=handle.schema().column_names,
+                handle=handle,
+                config=config or ScanConfig(),
+            )
+            scan_run, runs, issues = self._runner.run_scan(context, config)
+            self._store.save_scan(scan_run, runs, issues)
+            return scan_run, runs, issues
+        finally:
+            handle.close()
+
+    # ---- 查询 ----------------------------------------------------------
+
+    def list_issues(
+        self,
+        *,
+        severity_at_least: str | None = None,
+        scan_run_id: str | None = None,
+    ) -> list[Issue]:
+        """Issue 列表；severity_at_least（info/low/medium/high/critical）按权重下限过滤。"""
+        if scan_run_id:
+            all_issues = self._store.get_issues(scan_run_id)
+        else:
+            all_issues = [
+                issue
+                for scan in self._store.list_scan_runs()
+                for issue in self._store.get_issues(scan.id)
+            ]
+        if severity_at_least is None:
+            return all_issues
+        floor = Severity(severity_at_least)
+        return [
+            issue
+            for issue in all_issues
+            if _SEVERITY_ORDER.index(issue.severity) <= _SEVERITY_ORDER.index(floor)
+        ]
+
+    def get_scan(self, scan_run_id: str) -> ScanRun | None:
+        return self._store.get_scan_run(scan_run_id)
+
+    def get_detector_runs(self, scan_run_id: str) -> list[DetectorRun]:
+        return self._store.get_detector_runs(scan_run_id)
+
+    def export_report(self, scan_run_id: str) -> dict:
+        """22.1 report export（JSON 报告）：scan + detector_runs + issues 完整数据。"""
+        scan = self.get_scan(scan_run_id)
+        if scan is None:
+            raise KeyError(f"scan run not found: {scan_run_id}")
+        runs = [r.model_dump(mode="json") for r in self.get_detector_runs(scan_run_id)]
+        issues = [i.model_dump(mode="json") for i in self._store.get_issues(scan_run_id)]
+        return {"scan": scan.model_dump(mode="json"), "detector_runs": runs, "issues": issues}

@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+uv.lock
+dist/
+build/
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+hypothesis/
+.hypothesis/
+
+# Project data
+.datasentry/
+*.db
+*.sqlite3
+
+# Env / secrets
+.env
+credentials.json
+
+# OS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+~$*
