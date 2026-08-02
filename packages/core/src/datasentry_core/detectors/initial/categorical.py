@@ -1,4 +1,4 @@
-"""类别异常检测器（11.6）：suspicious_placeholder / rare_category / category_explosion。"""
+"""类别异常检测器（11.6）：placeholder / rare_category / category_explosion / inconsistent_case。"""
 
 from __future__ import annotations
 
@@ -183,4 +183,56 @@ class CategoryExplosionDetector(DetectorBase):
                         severity=Severity.LOW,
                     )
                 )
+        return candidates
+
+
+class InconsistentCaseDetector(DetectorBase):
+    """大小写不一致（11.6）：归一化（小写）后同一值出现 ≥2 种形态（如 California/california）。"""
+
+    detector_id = "inconsistent_case"
+    display_name = "Inconsistent Case"
+    description = "Reports normalized values that appear in multiple case forms."
+    quality_dimension = QualityDimension.VALIDITY
+    capabilities: ClassVar[DetectorCapabilities] = DetectorCapabilities(supports_sql_pushdown=True)
+    default_thresholds: ClassVar[dict[str, float | int | str]] = {"min_group_rows": 2}
+
+    def detect(self, context: DetectionContext) -> list[IssueCandidate]:
+        candidates: list[IssueCandidate] = []
+        for col in string_columns(context):
+            q = quote_ident(col)
+            table = context.handle.sql_aggregate(
+                f"SELECT lower(trim({q})) AS k, count(*) AS n, count(DISTINCT trim({q})) AS forms "
+                f"FROM data WHERE {q} IS NOT NULL "
+                f"GROUP BY lower(trim({q})) "
+                f"HAVING count(DISTINCT trim({q})) >= 2 AND count(*) >= 2 "
+                f"ORDER BY n DESC LIMIT 20"
+            ).table
+            keys = table.column("k").to_pylist()
+            counts = table.column("n").to_pylist()
+            forms = table.column("forms").to_pylist()
+            if not keys:
+                continue
+            affected = sum(int(c) for c in counts)
+            candidates.append(
+                make_candidate(
+                    detector_id=self.detector_id,
+                    detector_version=self.detector_version,
+                    context=context,
+                    issue_type="inconsistent_case",
+                    columns=[col],
+                    affected_count=affected,
+                    evidence=[
+                        make_evidence(
+                            detector_id=self.detector_id,
+                            detector_version=self.detector_version,
+                            evidence_type=EvidenceType.STATISTICAL_MEASURE,
+                            description=f"{affected} rows in {len(keys)} case-variant groups",
+                            data={"groups": list(zip(keys, counts, forms, strict=True))},
+                        )
+                    ],
+                    raw_score=len(keys),
+                    confidence=0.9,
+                    severity=Severity.LOW,
+                )
+            )
         return candidates

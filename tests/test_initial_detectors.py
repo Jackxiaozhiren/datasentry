@@ -11,6 +11,7 @@ from datasentry_core.detectors import DetectionContext, DetectorRegistry
 from datasentry_core.detectors.initial import register_default_detectors
 from datasentry_core.detectors.initial.categorical import (
     CategoryExplosionDetector,
+    InconsistentCaseDetector,
     RareCategoryDetector,
     SuspiciousPlaceholderDetector,
 )
@@ -20,13 +21,18 @@ from datasentry_core.detectors.initial.missing import (
     SuspiciousMissingTokenDetector,
 )
 from datasentry_core.detectors.initial.numeric import (
+    HistogramRarityDetector,
     IqrOutlierDetector,
     ModifiedZScoreDetector,
+    PercentileOutlierDetector,
     TailProbabilityDetector,
 )
 from datasentry_core.detectors.initial.textual import (
     HiddenControlCharacterDetector,
     InvalidEmailDetector,
+    InvalidIpDetector,
+    InvalidPhoneDetector,
+    InvalidUrlDetector,
     LeadingTrailingWhitespaceDetector,
     RepeatedWhitespaceDetector,
     UnusualLengthDetector,
@@ -40,14 +46,20 @@ DETECTOR_CLASSES = [
     SuspiciousPlaceholderDetector,
     RareCategoryDetector,
     CategoryExplosionDetector,
+    InconsistentCaseDetector,
     LeadingTrailingWhitespaceDetector,
     RepeatedWhitespaceDetector,
     HiddenControlCharacterDetector,
     UnusualLengthDetector,
     InvalidEmailDetector,
+    InvalidPhoneDetector,
+    InvalidUrlDetector,
+    InvalidIpDetector,
     IqrOutlierDetector,
+    PercentileOutlierDetector,
     ModifiedZScoreDetector,
     TailProbabilityDetector,
+    HistogramRarityDetector,
     FormulaInjectionDetector,
 ]
 
@@ -84,9 +96,15 @@ def _detect(detector, ctx) -> list:
 class TestRegistryIntegration:
     def test_all_initial_detectors_registered(self, registry: DetectorRegistry) -> None:
         ids = [d.detector_id for d in registry.list()]
-        assert len(ids) == 15
+        assert len(ids) == 21
         assert "excessive_null_rate" in ids
         assert "suspicious_formula_injection" in ids
+        assert "percentile_outlier" in ids
+        assert "histogram_rarity" in ids
+        assert "invalid_phone" in ids
+        assert "invalid_url" in ids
+        assert "invalid_ip" in ids
+        assert "inconsistent_case" in ids
 
     def test_metadata_shape(self, registry: DetectorRegistry) -> None:
         for d in registry.list():
@@ -244,6 +262,81 @@ class TestNumericOutliers:
     def test_iqr_no_outliers(self, tmp_path: Path) -> None:
         ctx = _ctx(tmp_path, "v\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
         assert _detect(IqrOutlierDetector(), ctx) == []
+
+
+class TestPercentileOutlier:
+    def test_reports_percentile_extremes(self, tmp_path: Path) -> None:
+        rows = "".join(f"{i}\n" for i in range(2000))
+        ctx = _ctx(tmp_path, "v\n" + rows + "99999\n-99999\n")
+        candidates = _detect(PercentileOutlierDetector(), ctx)
+        assert len(candidates) == 1
+        assert candidates[0].affected_count >= 2
+
+    def test_clean_uniform_data(self, tmp_path: Path) -> None:
+        ctx = _ctx(tmp_path, "v\n" + "".join(f"{i % 50}\n" for i in range(500)))
+        assert _detect(PercentileOutlierDetector(), ctx) == []
+
+
+class TestHistogramRarity:
+    def test_reports_rare_bins(self, tmp_path: Path) -> None:
+        rows = "".join(f"{i % 100}\n" for i in range(200000))
+        ctx = _ctx(tmp_path, "v\n" + rows + "2000\n3000\n")
+        candidates = _detect(HistogramRarityDetector(), ctx)
+        assert len(candidates) == 1
+        assert candidates[0].affected_count == 2
+
+    def test_clean_small_dataset_no_issues(self, tmp_path: Path) -> None:
+        ctx = _ctx(tmp_path, "v\n1\n2\n3\n4\n")
+        assert _detect(HistogramRarityDetector(), ctx) == []
+
+
+class TestInvalidPhone:
+    def test_reports_invalid_phones(self, tmp_path: Path) -> None:
+        ctx = _ctx(tmp_path, "phone\n+86 138-0013-8000\n12345\nnot-a-phone\n13800138000\n")
+        candidates = _detect(InvalidPhoneDetector(), ctx)
+        assert len(candidates) == 1
+        assert candidates[0].affected_count == 2
+
+    def test_skips_non_phone_columns(self, tmp_path: Path) -> None:
+        ctx = _ctx(tmp_path, "name\nalice\nbob\n")
+        assert _detect(InvalidPhoneDetector(), ctx) == []
+
+
+class TestInvalidUrl:
+    def test_reports_invalid_urls(self, tmp_path: Path) -> None:
+        ctx = _ctx(tmp_path, "website\nhttps://example.com\nnot-a-url\nftp://files.example.org\n")
+        candidates = _detect(InvalidUrlDetector(), ctx)
+        assert len(candidates) == 1
+        assert candidates[0].affected_count == 1
+
+    def test_skips_non_url_columns(self, tmp_path: Path) -> None:
+        ctx = _ctx(tmp_path, "name\nalice\nbob\n")
+        assert _detect(InvalidUrlDetector(), ctx) == []
+
+
+class TestInvalidIp:
+    def test_reports_invalid_ips(self, tmp_path: Path) -> None:
+        ctx = _ctx(tmp_path, "ip_address\n192.168.1.1\n999.1.1.1\nnot-an-ip\n")
+        candidates = _detect(InvalidIpDetector(), ctx)
+        assert len(candidates) == 1
+        assert candidates[0].affected_count == 2
+
+    def test_skips_zip_code_columns(self, tmp_path: Path) -> None:
+        ctx = _ctx(tmp_path, "zip\n12345\n54321\n")
+        assert _detect(InvalidIpDetector(), ctx) == []
+
+
+class TestInconsistentCase:
+    def test_reports_case_variants(self, tmp_path: Path) -> None:
+        ctx = _ctx(tmp_path, "v\nCalifornia\ncalifornia\nCALIFORNIA\nTexas\ntexas\n")
+        candidates = _detect(InconsistentCaseDetector(), ctx)
+        assert len(candidates) == 1
+        assert candidates[0].columns == ["v"]
+        assert candidates[0].affected_count == 5
+
+    def test_clean_single_case(self, tmp_path: Path) -> None:
+        ctx = _ctx(tmp_path, "v\nalpha\nbeta\ngamma\n")
+        assert _detect(InconsistentCaseDetector(), ctx) == []
 
 
 class TestFormulaInjection:

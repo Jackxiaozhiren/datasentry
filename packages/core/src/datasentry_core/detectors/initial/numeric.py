@@ -1,4 +1,4 @@
-"""数值异常检测器（11.5 首批）：IQR / Modified Z-score / Tail probability。"""
+"""数值异常检测器（11.5）：IQR / Modified Z-score / Tail / Percentile / Histogram rarity。"""
 
 from __future__ import annotations
 
@@ -176,4 +176,127 @@ class TailProbabilityDetector(DetectorBase):
                         severity=Severity.MEDIUM,
                     )
                 )
+        return candidates
+
+
+class PercentileOutlierDetector(DetectorBase):
+    """分位数异常（11.5）：< P0.1 或 > P99.9（可配 P0.01/P99.99）。"""
+
+    detector_id = "percentile_outlier"
+    display_name = "Percentile Outlier"
+    description = "Flags values below P0.1 or above P99.9 (robust to skew)."
+    quality_dimension = QualityDimension.VALIDITY
+    capabilities: ClassVar[DetectorCapabilities] = DetectorCapabilities(supports_sql_pushdown=True)
+    default_thresholds: ClassVar[dict[str, float | int | str]] = {
+        "lower_p": 0.001,
+        "upper_p": 0.999,
+    }
+
+    def detect(self, context: DetectionContext) -> list[IssueCandidate]:
+        candidates: list[IssueCandidate] = []
+        for col in numeric_columns(context):
+            q = quote_ident(col)
+            stat = context.handle.sql_aggregate(
+                f"SELECT quantile_cont({q}, 0.001) AS p_low, quantile_cont({q}, 0.999) AS p_high "
+                f"FROM data"
+            ).table
+            row = stat.to_pylist()[0]
+            p_low, p_high = row["p_low"], row["p_high"]
+            if p_low is None or p_high is None:
+                continue
+            table = context.handle.sql_aggregate(
+                f"SELECT count(*) AS n FROM data "
+                f"WHERE {q} IS NOT NULL AND ({q} < {p_low} OR {q} > {p_high})"
+            ).table
+            count = int(table.column("n").to_pylist()[0])
+            if count > 0:
+                candidates.append(
+                    make_candidate(
+                        detector_id=self.detector_id,
+                        detector_version=self.detector_version,
+                        context=context,
+                        issue_type="percentile_outlier",
+                        columns=[col],
+                        affected_count=count,
+                        evidence=[
+                            make_evidence(
+                                detector_id=self.detector_id,
+                                detector_version=self.detector_version,
+                                evidence_type=EvidenceType.STATISTICAL_MEASURE,
+                                description=f"{count} values outside [{p_low:.3g}, {p_high:.3g}]",
+                                data={"p0_1": p_low, "p99_9": p_high, "count": count},
+                            )
+                        ],
+                        raw_score=count,
+                        confidence=0.9,
+                        severity=Severity.MEDIUM,
+                    )
+                )
+        return candidates
+
+
+class HistogramRarityDetector(DetectorBase):
+    """直方图稀有值（11.5）：20 等宽桶，桶频数 < 1e-5 × n（至少 1）。"""
+
+    detector_id = "histogram_rarity"
+    display_name = "Histogram Rarity"
+    description = "Flags values in histogram bins with frequency below 1e-5 of rows."
+    quality_dimension = QualityDimension.VALIDITY
+    capabilities: ClassVar[DetectorCapabilities] = DetectorCapabilities(supports_sql_pushdown=True)
+    default_thresholds: ClassVar[dict[str, float | int | str]] = {"n_bins": 20, "min_ratio": 1e-5}
+
+    def detect(self, context: DetectionContext) -> list[IssueCandidate]:
+        n_bins = 20
+        min_ratio = 1e-5
+        candidates: list[IssueCandidate] = []
+        for col in numeric_columns(context):
+            q = quote_ident(col)
+            stat = context.handle.sql_aggregate(
+                f"SELECT min({q}) AS lo, max({q}) AS hi, count({q}) AS n FROM data"
+            ).table
+            row = stat.to_pylist()[0]
+            lo, hi, total = row["lo"], row["hi"], row["n"]
+            if lo is None or hi is None or total is None or total <= 0:
+                continue
+            width = (float(hi) - float(lo)) / n_bins
+            if width <= 0:
+                continue
+            threshold = max(1, int(total * min_ratio))
+            table = context.handle.sql_aggregate(
+                f"SELECT floor(({q} - {lo}) / {width}) AS bin, count(*) AS c "
+                f"FROM data WHERE {q} IS NOT NULL "
+                f"GROUP BY bin HAVING count(*) < {threshold} ORDER BY c"
+            ).table
+            bins = table.column("bin").to_pylist()
+            counts = table.column("c").to_pylist()
+            if not bins:
+                continue
+            affected = sum(int(c) for c in counts)
+            candidates.append(
+                make_candidate(
+                    detector_id=self.detector_id,
+                    detector_version=self.detector_version,
+                    context=context,
+                    issue_type="histogram_rarity",
+                    columns=[col],
+                    affected_count=affected,
+                    evidence=[
+                        make_evidence(
+                            detector_id=self.detector_id,
+                            detector_version=self.detector_version,
+                            evidence_type=EvidenceType.STATISTICAL_MEASURE,
+                            description=f"{affected} values in {len(bins)} rare bins",
+                            data={
+                                "n_bins": n_bins,
+                                "bin_width": width,
+                                "min_frequency": threshold,
+                                "rare_bins": list(zip(bins, counts, strict=True)),
+                            },
+                        )
+                    ],
+                    raw_score=len(bins),
+                    confidence=0.85,
+                    severity=Severity.MEDIUM,
+                )
+            )
         return candidates

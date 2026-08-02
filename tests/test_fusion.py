@@ -87,6 +87,20 @@ class TestFusion:
         )
         assert len(issues) == 2
 
+    def test_step13_issue_types_map_to_families(self) -> None:
+        engine = EvidenceFusionEngine()
+        cases = [
+            ("percentile_outlier", "numeric_outlier"),
+            ("histogram_rarity", "numeric_outlier"),
+            ("invalid_phone", "string_format"),
+            ("invalid_url", "string_format"),
+            ("invalid_ip", "string_format"),
+            ("inconsistent_case", "categorical_anomaly"),
+        ]
+        for issue_type, family in cases:
+            issues = engine.fuse([_candidate(issue_type, ["v"])], "s", 100)
+            assert issues[0].issue_type == family, issue_type
+
     def test_different_families_not_merged(self) -> None:
         engine = EvidenceFusionEngine()
         issues = engine.fuse(
@@ -184,7 +198,7 @@ class TestScanRunner:
         register_default_detectors(reg)
         runner = ScanRunner(reg)
         runs, issues = runner.run(scan_ctx, ScanConfig(), scan_run_id="scan_1")
-        assert len(runs) == 15
+        assert len(runs) == 21
         assert all(r.scan_run_id == "scan_1" for r in runs)
         assert all(r.detector_id for r in runs)
         assert all(r.duration_ms >= 0 for r in runs)
