@@ -96,7 +96,7 @@ def _detect(detector, ctx) -> list:
 class TestRegistryIntegration:
     def test_all_initial_detectors_registered(self, registry: DetectorRegistry) -> None:
         ids = [d.detector_id for d in registry.list()]
-        assert len(ids) == 32
+        assert len(ids) == 36
         assert "excessive_null_rate" in ids
         assert "suspicious_formula_injection" in ids
         assert "percentile_outlier" in ids
@@ -116,6 +116,10 @@ class TestRegistryIntegration:
         assert "group_missingness" in ids
         assert "conditional_missingness" in ids
         assert "correlated_missingness" in ids
+        assert "spelling_variant" in ids
+        assert "fullwidth_character" in ids
+        assert "mojibake_character" in ids
+        assert "invalid_numeric" in ids
 
     def test_metadata_shape(self, registry: DetectorRegistry) -> None:
         for d in registry.list():

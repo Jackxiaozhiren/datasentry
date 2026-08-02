@@ -1,7 +1,7 @@
-"""首批确定性检测器（Step 6/13/14/15/16）：32 种（11.3~11.10 的子集，MVP 全表单表）。
+"""首批确定性检测器（Step 6/13/14/15/16/17）：36 种（11.3~11.10 的子集，MVP 全表单表）。
 
 注册入口：register_default_detectors(registry)。
-后续步骤补齐剩余检测器（spelling_variant、重复 Level 1 等）。
+后续步骤补齐剩余检测器（重复 Level 1、分布漂移等）。
 """
 
 from __future__ import annotations
@@ -51,6 +51,12 @@ from datasentry_core.detectors.missingness import (
     GroupMissingnessDetector,
     SuddenMissingnessDetector,
 )
+from datasentry_core.detectors.textual_variants import (
+    FullwidthCharacterDetector,
+    InvalidNumericDetector,
+    MojibakeCharacterDetector,
+    SpellingVariantDetector,
+)
 
 
 def build_initial_detectors() -> list[Detector]:
@@ -88,6 +94,10 @@ def build_initial_detectors() -> list[Detector]:
         StaleDateDetector(),
         MixedDateFormatDetector(),
         DuplicateTimestampDetector(),
+        SpellingVariantDetector(),
+        FullwidthCharacterDetector(),
+        MojibakeCharacterDetector(),
+        InvalidNumericDetector(),
     ]
 
 

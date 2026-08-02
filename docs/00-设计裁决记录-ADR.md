@@ -249,6 +249,41 @@
 
 ---
 
+## ADR-018：表示变体与编码检测器的判定边界（11.7/11.9 余项）
+
+- **状态**：Accepted（2026-08-02）
+- **决策**：
+  1. 新增 4 个检测器：
+     - `spelling_variant`（11.9）：无参考字典时拼写判定不可行，
+       MVP 定义为**表示变体**——distinct 值 ≤500 采样后
+       `lower + 去分隔符（非 [0-9a-z]）`归一化，同一逻辑值的不同
+       原值 ≥2 对且每组合计占比 ≥0.001 才报。覆盖 "A-10000"/"A10000"、
+       "1,000"/"1000" 等；大小写变体归 inconsistent_case（不重复报）。
+     - `fullwidth_character`（11.7 余项）：全角字母数字
+       （U+FF10-19/U+FF21-3A/U+FF41-5A）混入；CJK 中文本身不在
+       这些码位，不误报。
+     - `mojibake_character`（11.7 余项）：U+FFFD 替换符（无效 UTF-8
+       解码的标志）。
+     - `invalid_numeric`（11.7 余项）：列名含数值语义 hint
+       （price/amount/count/quantity/qty/salary/money/fee/total/
+       cost/age/num）但物理 VARCHAR 的列中非数值文本
+       （`^[+-]?[\d,.\s]+$` 之外），占比 ≥0.01 且 ≥2 行才报；
+       date/time/timestamp 列名特征豁免（日期字符串不算非数值）。
+  2. duckdb RE2 不支持 `\u` 转义：unicode 码位统一用 `\x{HHHH}`
+     （Go/RE2 语法）；`\xFFFD` 两字节形式会被当成 UTF-8 多字节
+     序列处理而失效，必须 `\x{FFFD}`。
+  3. 全部列级统计证据（延续 ADR-017 决策 3）；spelling_variant
+     的 distinct 采样 cap 500 防超大列（性能预算）。
+  4. 严重度：invalid_numeric MEDIUM（数值语义列被文本污染，消费端
+     解析必炸）；spelling/fullwidth/mojibake LOW（规范性问题）。
+- **理由**：11.7 文本族为 MVP 最大族群（8 个），补齐编码/表示类
+  后文本类检测器达 12 个；invalid_numeric 覆盖国内数据常见
+  「面议/—/空串外写法」混入金额列场景。
+- **影响**：4 个 issue_type → `string_format` family（VALIDITY）；
+  检测器计数 32 → 36（M4 ≥20 保持）。
+
+---
+
 ## 待定（Proposed）
 
 | 编号 | 议题 | 状态 |

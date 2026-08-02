@@ -67,7 +67,7 @@ make lint && make type && make test
 - `Profiler`：单次聚合查询完成全部列统计（数值列 min/max/mean/std/q25/median/q75，字符串列 min/max，其余类型仅 min/max），列名/别名均做引号转义
 - 约定：空字符串经 duckdb 视图折叠为 NULL（null 统计含空串）；`unique_ratio = distinct / 非空值`；`top_categories` 限 distinct 2~1000 的列取前 10；`examples` 刻意留空（脱敏设施在 Step 15 之后提供）；画像预算 1e6 行 < 60s 由 Step 20 基准验证
 
-## 首批确定性检测器（Step 6/13/14/15/16，32 种，M4 ≥20 达成）
+## 首批确定性检测器（Step 6/13/14/15/16/17，36 种，M4 ≥20 达成）
 
 | 类别 | 检测器 |
 |------|--------|
@@ -75,6 +75,7 @@ make lint && make type && make test
 | 唯一（11.4） | uniqueness_violation（GROUP BY 重复值，前 20 例证据） |
 | 类别（11.6） | suspicious_placeholder（test/xxx/foo 等 7 种，匹配即报）、rare_category（频数<5 且占比<0.001）、category_explosion（unique_ratio>0.9 且列名非标识符）、inconsistent_case（小写归一化后多形态） |
 | 文本（11.7） | leading_or_trailing_whitespace、repeated_whitespace、hidden_control_character、unusual_length（>1024）、invalid_email（仅列名含 email 特征）、invalid_phone（去非数字后长度∉[7,15]）、invalid_url（scheme:// 校验）、invalid_ip（IPv4 严格校验，zip 列豁免） |
+| 文本变体（11.7/11.9） | spelling_variant（去分隔符归一化后相同的不同原值，≥2 对）、fullwidth_character（全角字母数字混入）、mojibake_character（U+FFFD 编码损坏）、invalid_numeric（数值语义列中的非数值文本） |
 | 数值（11.5） | iqr_outlier（k=1.5/3.0）、modified_zscore（MAD-z>3.5）、tail_probability（<0）、percentile_outlier（<P0.1 或 >P99.9）、histogram_rarity（20 等宽桶，频数<1e-5×n） |
 | 日期时间（11.8） | invalid_date（格式非法）、impossible_date（日历不可能，try_strptime NULL）、future_date（> 当前+1 天）、stale_date（< 当前−365 天，birth/hire 等豁免）、mixed_date_format（多格式混用）、duplicate_timestamp（时间戳精确重复） |
 | 跨字段（11.10） | cross_field_rule（安全表达式求值，start<=end / min<=max 语义对，ADR-015） |
@@ -149,3 +150,10 @@ make lint && make type && make test
 - 阈值修正记录：相对 3× 在整体缺失率 >1/3 时永不触发，改用绝对差判定（ADR-017）；`min(a_null,b_null)` 为共现率分母（无 0 除）
 - 防组合爆炸预算：列对 ≤50（缺失率 ≥0.02 的列取前 15）、分组列 ≤10 × 目标列 ≤5、目标列 ≤5 × 时间列 ≤3
 - 融合：4 个 issue_type → `missingness` family（COMPLETENESS）；检测器计数 28 → 32（M4 ≥20 保持）
+
+## 表示变体与编码检测器（Step 17，11.7/11.9 余项 + ADR-018）
+
+- `detectors/textual_variants.py`：4 个检测器，全部 SQL pushdown、列级统计证据——
+  `spelling_variant`（distinct 值 ≤500 采样，lower+去分隔符归一化后同一逻辑值的不同原值 ≥2 对且合计占比 ≥0.001，LOW）、`fullwidth_character`（全角字母数字 U+FF10-19/FF21-3A/FF41-5A 混入，LOW）、`mojibake_character`（U+FFFD 替换符，编码损坏标志，LOW）、`invalid_numeric`（列名含 price/amount/count/qty 等数值特征、物理 VARCHAR，非数值文本占比 ≥0.01 且 ≥2 行，MEDIUM；date/time 列名特征豁免）
+- duckdb RE2 不支持 `\u` 转义：unicode 码位用 `\x{HHHH}`（Go 语法）——`[\x{FF10}-\x{FF19}]` 正确匹配全角数字
+- 融合：4 个 issue_type → `string_format` family（VALIDITY）；检测器计数 32 → 36（M4 ≥20 保持）

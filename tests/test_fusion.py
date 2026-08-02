@@ -107,6 +107,10 @@ class TestFusion:
             ("group_missingness", "missingness"),
             ("conditional_missingness", "missingness"),
             ("correlated_missingness", "missingness"),
+            ("spelling_variant", "string_format"),
+            ("fullwidth_character", "string_format"),
+            ("mojibake_character", "string_format"),
+            ("invalid_numeric", "string_format"),
         ]
         for issue_type, family in cases:
             issues = engine.fuse([_candidate(issue_type, ["v"])], "s", 100)
@@ -209,7 +213,7 @@ class TestScanRunner:
         register_default_detectors(reg)
         runner = ScanRunner(reg)
         runs, issues = runner.run(scan_ctx, ScanConfig(), scan_run_id="scan_1")
-        assert len(runs) == 32
+        assert len(runs) == 36
         assert all(r.scan_run_id == "scan_1" for r in runs)
         assert all(r.detector_id for r in runs)
         assert all(r.duration_ms >= 0 for r in runs)
