@@ -285,3 +285,7 @@ class DataSentry:
 
     def list_repair_runs(self) -> list[RepairRun]:
         return self._store.list_repair_runs()
+
+    def get_issue(self, issue_id: str) -> Issue | None:
+        """按 ID 取 Issue（修复工作台等 UI 用途）。"""
+        return self._store.get_issue_by_id(issue_id)

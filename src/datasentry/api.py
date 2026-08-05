@@ -29,13 +29,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Form, HTTPException, Query
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
-from datasentry import __version__
+from datasentry import __version__, ui
 from datasentry import client as sdk
 from datasentry_core.models.issue import Issue
-from datasentry_core.models.repair import RepairProposal, RepairRun
+from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
 from datasentry_core.models.scan import DetectorRun, ScanConfig, ScanRun
 
 
@@ -100,6 +101,10 @@ def _error(exc: Exception) -> int:
 
 def _handle(exc: Exception) -> HTTPException:
     return HTTPException(status_code=_error(exc), detail=str(exc))
+
+
+def _get_issue(client: sdk.DataSentry, issue_id: str) -> Issue | None:
+    return client.get_issue(issue_id)
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +243,103 @@ def create_app(project: str | Path | None = None) -> FastAPI:
     @app.get("/repairs", response_model=list[RepairRun], tags=["repairs"])
     def list_repair_runs() -> list[RepairRun]:
         return client.list_repair_runs()
+
+    # ---- Web UI（Step 24：服务端渲染核心页） ----------------------------
+
+    @app.get("/ui", response_class=HTMLResponse, tags=["ui"])
+    @app.get("/ui/", response_class=HTMLResponse, tags=["ui"])
+    def ui_home() -> HTMLResponse:
+        return HTMLResponse(ui.render_home(client.list_scan_runs()))
+
+    @app.post("/ui/scans", response_class=HTMLResponse, tags=["ui"])
+    def ui_create_scan(path: str = Form()) -> Response:
+        try:
+            scan, _runs, _issues = client.scan_file(path)
+        except Exception as exc:
+            return HTMLResponse(ui.render_error("Scan failed", str(exc)), status_code=404)
+        return RedirectResponse(url=f"/ui/scans/{scan.id}", status_code=303)
+
+    @app.get("/ui/scans", response_class=HTMLResponse, tags=["ui"])
+    def ui_scans_list() -> HTMLResponse:
+        return HTMLResponse(ui.render_home(client.list_scan_runs()))
+
+    @app.get("/ui/scans/{run_id}", response_class=HTMLResponse, tags=["ui"])
+    def ui_scan_detail(run_id: str, severity: str | None = Query(default=None)) -> HTMLResponse:
+        scan = client.get_scan(run_id)
+        if scan is None:
+            return HTMLResponse(
+                ui.render_error("Scan not found", f"scan run: {run_id}"), status_code=404
+            )
+        issues = client.list_issues(scan_run_id=run_id, severity_at_least=severity)
+        return HTMLResponse(ui.render_scan_detail(scan, issues, severity_filter=severity))
+
+    @app.get(
+        "/ui/scans/{run_id}/issues/{issue_id}",
+        response_class=HTMLResponse,
+        tags=["ui"],
+    )
+    def ui_workbench(run_id: str, issue_id: str) -> HTMLResponse:
+        issue = _get_issue(client, issue_id)
+        if issue is None:
+            return HTMLResponse(ui.render_error("Issue not found", issue_id), status_code=404)
+        return HTMLResponse(ui.render_workbench(issue, run_id=run_id))
+
+    @app.post(
+        "/ui/scans/{run_id}/issues/{issue_id}",
+        response_class=HTMLResponse,
+        tags=["ui"],
+    )
+    def ui_workbench_action(
+        run_id: str,
+        issue_id: str,
+        source_path: str = Form(),
+        action: str = Form(),
+    ) -> HTMLResponse:
+        issue = _get_issue(client, issue_id)
+        if issue is None:
+            return HTMLResponse(ui.render_error("Issue not found", issue_id), status_code=404)
+        error: str | None = None
+        proposal: RepairProposal | None = None
+        preview: RepairPreview | None = None
+        run: RepairRun | None = None
+        try:
+            if action == "propose":
+                proposal = client.repair_propose(issue_id, source_path)
+                if proposal is not None:
+                    pair = client.repair_preview(issue_id, source_path)
+                    if pair is not None:
+                        preview = pair[1]
+                else:
+                    error = "no repair proposal available for this issue"
+            elif action == "apply":
+                run = client.repair_apply(issue_id, source_path)
+            else:
+                error = f"unknown action: {action}"
+        except Exception as exc:
+            error = str(exc)
+        return HTMLResponse(
+            ui.render_workbench(
+                issue,
+                run_id=run_id,
+                source_path=source_path,
+                proposal=proposal,
+                preview=preview,
+                run=run,
+                error=error,
+            )
+        )
+
+    @app.post(
+        "/ui/scans/{run_id}/repairs/{repair_run_id}/rollback",
+        response_class=HTMLResponse,
+        tags=["ui"],
+    )
+    def ui_rollback(run_id: str, repair_run_id: str) -> Response:
+        try:
+            client.repair_rollback(repair_run_id)
+        except Exception as exc:
+            return HTMLResponse(ui.render_error("Rollback failed", str(exc)), status_code=404)
+        return RedirectResponse(url=f"/ui/scans/{run_id}", status_code=303)
 
     return app
 

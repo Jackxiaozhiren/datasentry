@@ -5,7 +5,7 @@
 >
 > 一个以统计证据为基础、以 AI 为辅助、以人工审批为保障的数据质量检测与修复平台。
 
-**状态**：开发中（Step 23 — REST API 单工作区门面）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
+**状态**：开发中（Step 24 — Web UI 核心页）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
 推进，一次一个实施步骤，每步执行 8 步法（设计决策 → 实现 → 测试 → 修复 → 文档 → 变更摘要）。
 
 ## 目录结构
@@ -207,3 +207,11 @@ make lint && make type && make test
 - 同步端点 MVP（扫描 ≤60s@1e6 无需任务队列），异步 Job 归 V1（ADR-023）；错误映射 FileNotFoundError/KeyError→404、ValueError→422、其余→500，body 统一 `{"ok": false, "detail"}`
 - `DataSentry` 新增 `list_scan_runs()`（此前仅 store 层）；新依赖 fastapi/uvicorn（运行）、httpx（测试）；mypy 清理 src 层遗留（dict 泛型/cast/yaml 存根），全仓 68 文件 0 错误
 - 测试 336 → 345：tests/test_api.py 9 例（健康探针/全闭环扫描/404/评分/报告/修复 propose→apply→rollback/未映射提案 None）
+
+## Web UI 核心页（Step 24，docs/03 1.2 + ADR-024）
+
+- `src/datasentry/ui.py`：服务端渲染（与 reporting/html.py 同一零依赖风格——内嵌 CSS、无前端构建链、无 JS 框架），所有输出经 `escape()` 转义（XSS 安全）
+- 三个核心页：`/ui/`（首页：工作区概览 + ScanRun 表 + 新扫描表单）、`/ui/scans/{run_id}`（Dataset Overview + Issue Center，severity 过滤）、`/ui/scans/{run_id}/issues/{issue_id}`（修复工作台：propose → preview 面板 → apply → rollback 链接，15 章闭环）
+- 表单提交走 POST + 303 重定向（PRG 模式）；Column Explorer / 跨扫描趋势归 V1（MVP 只做问题定位闭环，ADR-024）
+- `DataSentry` 新增 `get_issue()`（修复工作台按 ID 取 Issue）；新依赖 python-multipart（Form）
+- 测试 345 → 355：tests/test_ui.py 10 例（首页空/有数据、scan 详情、severity 过滤、404、工作台 propose/apply/rollback 全流程、未知 action、表单扫描、列名 XSS 转义）

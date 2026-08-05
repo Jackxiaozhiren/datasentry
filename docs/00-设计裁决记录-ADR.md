@@ -421,6 +421,28 @@
 
 ---
 
+## ADR-024：Web UI 的服务端渲染边界（docs/03 1.2 五个核心页）
+
+- **状态**：Accepted（2026-08-02）
+- **决策**：
+  1. UI 走 FastAPI 服务端渲染（`src/datasentry/ui.py`），与
+     `reporting/html.py` 同一零依赖风格——内嵌 CSS、无前端构建链、
+     无 JS 框架；所有输出统一 `escape()` 转义（XSS 安全）；
+  2. MVP 只实现三个核心页：首页（扫描概览 + 新建扫描）、
+     Dataset Overview + Issue Center（severity 过滤）、修复工作台
+     （15 章 propose→preview→apply→rollback 闭环）；Column Explorer
+     与跨扫描趋势归 V1；
+  3. 表单提交用 POST + 303 重定向（PRG 模式），页面无状态。
+- **理由**：MVP 划分（docs/03 1.2）要求五个核心页，但「修复工作台」是
+  唯一必须形成闭环的页面（12.5/15 章）；Column Explorer 依赖画像
+  逐列下钻，价值密度低于问题定位闭环，且单页应用化（前端框架）会
+  引入构建链，与 MVP 离线单文件原则冲突（ADR-023 同源）。
+- **影响**：新增 `src/datasentry/ui.py`（约 270 行渲染函数）+
+  `DataSentry.get_issue()` + python-multipart 依赖；XSS 测试以列名
+  注入路径覆盖（Issue title 为模板化标题，不含原始值）。
+
+---
+
 ## 待定（Proposed）
 
 | 编号 | 议题 | 状态 |
