@@ -231,6 +231,65 @@ def test_ollama_provider_missing_response_field() -> None:
         provider.complete(REQUEST)
 
 
+def test_ollama_provider_retries_on_timeout() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if len(calls) == 1:
+            raise httpx.ReadTimeout("first attempt times out")
+        return httpx.Response(
+            200,
+            json={
+                "model": "llama3",
+                "response": "retried ok",
+                "prompt_eval_count": 4,
+                "eval_count": 2,
+            },
+        )
+
+    provider = OllamaProvider(
+        LLMConfig(provider="ollama", model="llama3", max_retries=2),
+        transport=httpx.MockTransport(handler),
+    )
+    response = provider.complete(REQUEST)
+    assert len(calls) == 2  # 超时一次后重试成功
+    assert response.text == "retried ok"
+    assert response.status == "ok"
+
+
+def test_ollama_provider_gives_up_after_max_retries() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        raise httpx.ReadTimeout("always times out")
+
+    provider = OllamaProvider(
+        LLMConfig(provider="ollama", model="llama3", max_retries=2),
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(LLMError, match="timeout after 3 attempts"):
+        provider.complete(REQUEST)
+    assert len(calls) == 3  # 初始 + 2 次重试
+
+
+def test_ollama_provider_http_error_no_retry() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(500, text="boom")
+
+    provider = OllamaProvider(
+        LLMConfig(provider="ollama", model="llama3", max_retries=2),
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(LLMError):
+        provider.complete(REQUEST)
+    assert len(calls) == 1  # HTTP 错误不重试（超时才重试）
+
+
 def test_create_provider_defaults_null() -> None:
     assert isinstance(create_provider(LLMConfig()), NullProvider)
 

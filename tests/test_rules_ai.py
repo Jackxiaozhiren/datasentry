@@ -337,3 +337,89 @@ def test_invalid_rule_shape_rejected(tmp_path: Path, csv_file: Path) -> None:
     assert len(result.rules) == 1
     assert result.rules[0].candidate is None
     assert result.rules[0].rejected_reason is not None
+
+
+# ---- Ollama 真实接入 E2E（Step 29，ADR-029） --------------------------------
+
+
+def test_ollama_propose_approve_end_to_end(tmp_path: Path, csv_file: Path) -> None:
+    """真实 OllamaProvider 走本地 /api/generate：propose→预运行→候选→approve→审计。"""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    import httpx
+
+    from datasentry.llm_providers import LLMConfig, OllamaProvider
+
+    hits: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers["Content-Length"])
+            self.rfile.read(length)
+            hits.append(self.path)
+            inner = {
+                "rules": [
+                    {
+                        "type": "value_range",
+                        "severity": "high",
+                        "description": "price must be positive",
+                        "when": {"column": "price", "operator": "gt", "value": 0},
+                        "columns": ["price"],
+                        "confidence": 0.9,
+                        "paraphrase": "no negative prices",
+                        "notes": [],
+                    }
+                ]
+            }
+            data = json.dumps(
+                {"model": "llama3", "response": json.dumps(inner), "done": True}
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args) -> None:  # 静默测试日志
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        port = server.server_address[1]
+        provider = OllamaProvider(
+            LLMConfig(
+                provider="ollama",
+                model="llama3",
+                base_url=f"http://127.0.0.1:{port}",
+                max_retries=1,
+            ),
+            transport=httpx.HTTPTransport(),  # 真实 TCP（非 MockTransport）
+        )
+        store = MetadataStore(tmp_path / "m.db")
+        service = RuleProposalService(store=store, provider=provider)
+        result = service.propose("prices must be positive", str(csv_file))
+        assert len(result.rules) == 1
+        assert result.llm_error is None
+        item = result.rules[0]
+        assert item.candidate is not None
+        assert item.preflight.valid is True
+        assert item.preflight.sample_run is not None
+        assert item.preflight.sample_run.failures == 1  # price=-5 一行
+        assert hits == ["/api/generate"]
+
+        approved = service.approve(item.candidate.rule.id)
+        assert approved is not None and approved.enabled is True
+        stored = store.list_rules()
+        assert [r.id for r in stored if r.enabled] == [approved.id]
+
+        # cache：同描述二次 propose 不再打服务器
+        second = service.propose("prices must be positive", str(csv_file))
+        assert second.cache_hit is True
+        assert hits == ["/api/generate"]
+        invocations = store.list_llm_invocations()
+        assert len(invocations) == 1
+        assert invocations[0].provider_id == "ollama"
+    finally:
+        server.shutdown()

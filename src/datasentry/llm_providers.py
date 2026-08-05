@@ -78,6 +78,37 @@ def load_llm_config() -> LLMConfig:
     return LLMConfig.model_validate(merged)
 
 
+def _post_with_retry(
+    url: str,
+    payload: dict[str, Any],
+    headers: dict[str, str],
+    *,
+    timeout_seconds: float,
+    max_retries: int,
+    transport: httpx.BaseTransport | None,
+) -> tuple[dict[str, Any], int]:
+    """POST JSON 并返回 (json, latency_ms)；超时按 max_retries 重试，
+    HTTP/网络/JSON 错误透传异常。"""
+    attempt = 0
+    while True:
+        started = time.monotonic()
+        try:
+            with httpx.Client(
+                timeout=timeout_seconds, headers=headers, transport=transport
+            ) as client:
+                response = client.post(url, json=payload)
+            response.raise_for_status()
+            return response.json(), int((time.monotonic() - started) * 1000)
+        except httpx.TimeoutException as exc:
+            attempt += 1
+            if attempt > max_retries:
+                raise LLMError(f"timeout after {attempt} attempts: {exc}") from exc
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            raise LLMError(f"provider error: {exc}") from exc
+        except json.JSONDecodeError as exc:
+            raise LLMSchemaError(f"non-JSON response: {exc}") from exc
+
+
 class NullProvider:
     """未配置提供方：任何调用都显式失败（调用方按降级路径处理）。"""
 
@@ -116,7 +147,14 @@ class OpenAICompatibleProvider:
         if self.config.api_key:
             headers["Authorization"] = f"Bearer {self.config.api_key}"
         url = f"{self.config.base_url.rstrip('/')}/chat/completions"
-        data, latency_ms = self._post(url, payload, headers)
+        data, latency_ms = _post_with_retry(
+            url,
+            payload,
+            headers,
+            timeout_seconds=self.config.timeout_seconds,
+            max_retries=self.config.max_retries,
+            transport=self._transport,
+        )
         try:
             text = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
@@ -131,28 +169,6 @@ class OpenAICompatibleProvider:
             status="ok",
             latency_ms=latency_ms,
         )
-
-    def _post(
-        self, url: str, payload: dict[str, Any], headers: dict[str, str]
-    ) -> tuple[dict[str, Any], int]:
-        attempt = 0
-        while True:
-            started = time.monotonic()
-            try:
-                with httpx.Client(
-                    timeout=self.config.timeout_seconds, headers=headers, transport=self._transport
-                ) as client:
-                    response = client.post(url, json=payload)
-                response.raise_for_status()
-                return response.json(), int((time.monotonic() - started) * 1000)
-            except httpx.TimeoutException as exc:
-                attempt += 1
-                if attempt > self.config.max_retries:
-                    raise LLMError(f"timeout after {attempt} attempts: {exc}") from exc
-            except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-                raise LLMError(f"provider error: {exc}") from exc
-            except json.JSONDecodeError as exc:
-                raise LLMSchemaError(f"non-JSON response: {exc}") from exc
 
 
 class OllamaProvider:
@@ -179,21 +195,14 @@ class OllamaProvider:
         }
         base = self.config.base_url or "http://localhost:11434"
         url = f"{base.rstrip('/')}/api/generate"
-        started = time.monotonic()
-        try:
-            with httpx.Client(
-                timeout=self.config.timeout_seconds, transport=self._transport
-            ) as client:
-                response = client.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
-        except httpx.TimeoutException as exc:
-            raise LLMError(f"ollama timeout: {exc}") from exc
-        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-            raise LLMError(f"ollama error: {exc}") from exc
-        except json.JSONDecodeError as exc:
-            raise LLMSchemaError(f"non-JSON response: {exc}") from exc
-        latency_ms = int((time.monotonic() - started) * 1000)
+        data, latency_ms = _post_with_retry(
+            url,
+            payload,
+            {},
+            timeout_seconds=self.config.timeout_seconds,
+            max_retries=self.config.max_retries,
+            transport=self._transport,
+        )
         if "response" not in data:
             raise LLMSchemaError("ollama response missing 'response' field")
         text = data["response"]

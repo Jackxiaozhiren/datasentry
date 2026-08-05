@@ -561,9 +561,38 @@
 
 ---
 
+## ADR-029：Ollama 具体接入与超时重试统一（W13 前置项落地）
+
+- **状态**：Accepted（2026-08-05）
+- **决策**：
+  1. **Ollama 原生 /api/generate 接入定案**：`OllamaProvider`
+     以原生 generate 端点（非 OpenAI 兼容层）作为 V1 接入方式，
+     零密钥、默认 `http://localhost:11434`；模型必填校验在
+     Provider 构造期（`ValueError`）；
+  2. **重试策略统一**：把 OpenAI Provider 的 `_post` 提炼为
+     共享 `_post_with_retry`（超时按 `max_retries` 重试，HTTP
+     状态错误/网络错误/JSON 解析错误不重试），Ollama 复用——
+     修正 ADR-027「超时重试」承诺在 Ollama 侧未落实的不一致；
+     重试上限错误消息统一为 `timeout after N attempts`；
+  3. **真实接入验收**：本地 HTTP 服务模拟 /api/generate 走
+     完整链路（真实 TCP + 真实 provider）——propose 预运行
+     1 违规行 → 候选落库 → approve 激活 → `llm_cache` 命中
+     不再打服务器 → 审计 1 条 `provider_id=ollama`；CLI
+     子进程冒烟同样全通（`DATASENTRY_LLM_PROVIDER=ollama` +
+     `DATASENTRY_LLM_BASE_URL` 环境变量注入）；
+  4. Ollama 响应校验维持 ADR-027：缺 `response` 字段或非字符串
+     抛 `LLMSchemaError`（测试中的缺包装响应被正确拦截）。
+- **理由**：ADR 待定表「Ollama Provider 的具体接入版本（V1 实现）」
+  为 W13 前置项；本地部署是 38 章安全子集的最自然形态（数据
+  不出机器），原生端点比 OpenAI 兼容层少一层转换。
+- **影响**：测试 394 → 398（Ollama 超时重试 2 例、HTTP 不重试
+  1 例、真实接入 E2E 1 例）；`llm_providers.py` 结构：共享
+  `_post_with_retry` + 两 Provider 各自解析响应形态。
+
+---
+
 ## 待定（Proposed）
 
 | 编号 | 议题 | 状态 |
 |------|------|------|
-| — | Ollama Provider 的具体接入版本（V1 实现） | Proposed，W13 前置 |
 | — | 插件 API 版本 1 的稳定性承诺 | Proposed，V1 前置 |

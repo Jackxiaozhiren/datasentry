@@ -5,7 +5,7 @@
 >
 > 一个以统计证据为基础、以 AI 为辅助、以人工审批为保障的数据质量检测与修复平台。
 
-**状态**：开发中（Step 28 — V1 第一阶段：NL→规则候选生成 + 预运行审批闭环；MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
+**状态**：开发中（Step 29 — V1 第一阶段：Ollama 具体接入 + 重试统一；MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
 推进，一次一个实施步骤，每步执行 8 步法（设计决策 → 实现 → 测试 → 修复 → 文档 → 变更摘要）。
 
 ## 目录结构
@@ -245,3 +245,10 @@ make lint && make type && make test
 - **NL→规则候选**（`src/datasentry/rules_ai.py` `RuleProposalService`）：`rules propose "prices must be positive"` → 采样画像（每列 3 值）→ ADR-027 脱敏（占位符内嵌掩码统计）→ LLM 严格 JSON（pydantic 白名单校验：RuleType 9 类 / Severity / 算子 / 列存在）→ 逐候选预运行 → **候选 `enabled=False` 落库**（14.4：未批准规则永不出现在扫描集）→ 审计 + `llm_cache`（prompt sha256 命中跳过调用）
 - **CLI**：`rules propose "<描述>" --file/--budget`、`rules approve <rule_id>`（危险规则需 `--force`）、`rules list`（候选/生效分开展示）；未配置 LLM 显式报错 exit 3，离线行为不变
 - 测试 381 → 394：tests/test_rules_ai.py 13 例（期望语义取反/命名参数绑定/危险标记/缓存命中/审计/全链路 mock 服务冒烟），覆盖率 96.39%
+
+## Ollama 具体接入与超时重试统一（Step 29，W13 前置项）
+
+- **Ollama 接入定案**：`OllamaProvider` 用原生 `/api/generate`（非 OpenAI 兼容层），默认 `http://localhost:11434` 零密钥；模型必填在构造期校验；响应缺 `response` 字段/非字符串抛 `LLMSchemaError`
+- **重试统一**：`_post_with_retry` 共享辅助（超时按 `max_retries` 重试，默认 2 次；HTTP 状态/网络/JSON 错误不重试，错误消息统一 `timeout after N attempts`）——补齐 ADR-027 承诺在 Ollama 侧未落实的不一致
+- **真实接入验收**：本地 HTTP 模拟 `/api/generate`（真实 TCP，非 MockTransport）全链路——propose 预运行 1 违规行 → 候选落库 → approve 激活 → 二次 propose 缓存命中不再请求 → 审计 `provider_id=ollama`；CLI 子进程冒烟同链路全通（`DATASENTRY_LLM_PROVIDER=ollama` + `DATASENTRY_LLM_BASE_URL`）
+- 测试 394 → 398：Ollama 超时重试成功/重试耗尽/HTTP 不重试 3 例 + 真实接入 E2E 1 例；ADR 待定表 Ollama 项标记完成
