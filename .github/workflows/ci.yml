@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PYTHON_VERSION: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: 1 · ruff lint
+        run: uv run ruff check .
+
+      - name: 2 · ruff format check
+        run: uv run ruff format --check .
+
+      - name: 3 · mypy --strict (datasentry_core + datasentry)
+        run: uv run mypy packages/core/src/datasentry_core src/datasentry
+
+      - name: 4 · pytest + coverage gate (>=85%)
+        run: uv run pytest --cov=datasentry_core --cov-fail-under=85 --cov-report=term --cov-report=xml
+
+      - name: 5 · upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+      - name: 6 · M9 demo smoke (budget 180s)
+        run: uv run python examples/demo/demo.py --rows 2000
+
+      - name: 7 · benchmark (1e6 rows, <=60s gate)
+        run: uv run python benchmarks/bench_scan.py 1000000
+
+      - name: 8 · CLI smoke (scan + report + exit code)
+        run: |
+          set -e
+          TMP=$(mktemp -d)
+          uv run python - <<'EOF'
+          from pathlib import Path
+          from datasentry import DataSentry
+          import tempfile
+          p = Path(tempfile.mkdtemp()) / "d.csv"
+          p.write_text("id,name\n1,alice\n2,bob\n")
+          c = DataSentry(project=p.parent / "ws")
+          try:
+              run, _, _ = c.scan_file(p)
+              r = c.export_report(run.id)
+              assert r["scan"]["fingerprint"]["row_count"] == 2
+          finally:
+              c.close()
+          EOF
+
+      - name: 9 · API + UI smoke (container-free)
+        run: |
+          set -e
+          uv run python - <<'EOF'
+          from fastapi.testclient import TestClient
+          from datasentry.api import create_app
+          c = TestClient(create_app())
+          assert c.get("/health").json()["ok"] is True
+          assert c.get("/ui/").status_code == 200
+          print("api+ui smoke ok")
+          EOF
+
+      - name: 10 · artifact check (report files exist)
+        run: |
+          set -e
+          TMP=$(mktemp -d)
+          uv run python examples/demo/demo.py --rows 500 --out "$TMP" >/dev/null
+          test -f "$TMP/report.json"
+          test -f "$TMP/report.html"
+          test -f "$TMP/customers.csv"
+          echo "artifacts ok"

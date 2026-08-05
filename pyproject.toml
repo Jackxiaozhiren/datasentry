@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 datasentry = "datasentry.cli:main"
+datasentry-server = "datasentry.api:main"
 
 [build-system]
 requires = ["hatchling"]

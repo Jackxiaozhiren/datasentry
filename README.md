@@ -5,7 +5,7 @@
 >
 > 一个以统计证据为基础、以 AI 为辅助、以人工审批为保障的数据质量检测与修复平台。
 
-**状态**：开发中（Step 25 — M9 Demo 走通，MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
+**状态**：开发中（Step 26 — 工程与生态收尾，MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
 推进，一次一个实施步骤，每步执行 8 步法（设计决策 → 实现 → 测试 → 修复 → 文档 → 变更摘要）。
 
 ## 目录结构
@@ -221,3 +221,11 @@ make lint && make type && make test
 - `examples/demo/demo.py`：一键走通全流程（无 LLM 完全离线）——生成脏数据 CSV（前后空白/大小写混用/缺失占位/离群价/非法日期）→ `scan_file`（36 检测器 + 融合 + 评分 + 落库）→ 导出 JSON + HTML 报告 → 修复闭环（propose → preview → apply → rollback，15 章）→ 打印各阶段耗时与 PASS/FAIL 判定
 - 默认 5000 行固定种子（可复现）；实测 **5.4s**（预算 180s，余量 33×）；`--rows`/`--out` 可配
 - 测试 355 → 358：tests/test_demo.py 3 例（子进程全流程 + 预算断言、固定种子数据可复现、空数据边界）
+
+## 工程与生态收尾（Step 26，42 章验收补全）
+
+- **License**：Apache-2.0（LICENSE 全文 + pyproject 声明）
+- **贡献指南**：CONTRIBUTING.md（门禁表、代码约定、提交规范、新检测器流程）
+- **Makefile**：`type` 补跑 `src/datasentry`（此前只跑 core，门禁实际 69 文件）；新增 `demo`/`bench`/`check-all`（门禁 + M9 Demo + 性能基准一条命令）
+- **Docker 一键启动**：Dockerfile（uv 官方镜像多阶段，无 dev 依赖）+ docker-compose（端口 8000，workspace 卷挂载）；`datasentry-server` 入口（api.main，支持 `DATASENTRY_PROJECT` 环境变量）；已实测 build + health + UI + API 全通
+- **CI 十阶段**：.github/workflows/ci.yml —— ruff lint / format / mypy --strict / pytest+覆盖率门禁 / 覆盖率工件上传 / M9 demo / 1e6 行基准 / CLI smoke / API+UI smoke / 产物检查

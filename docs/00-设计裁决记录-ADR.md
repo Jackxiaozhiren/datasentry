@@ -465,6 +465,33 @@
 
 ---
 
+## ADR-026：容器与 CI 形态（42 章收尾）
+
+- **状态**：Accepted（2026-08-02）
+- **决策**：
+  1. 镜像基于 ghcr.io/astral-sh/uv 多阶段构建：builder 阶段
+     `uv sync --frozen --no-dev`，runtime 阶段仅拷贝 .venv/src/
+     packages（editable 安装路径一致即可运行），不包含测试与
+     dev 依赖——镜像体积与攻击面最小化；
+  2. 服务入口为新增 `datasentry-server` console script
+     （`datasentry.api:main`），默认 0.0.0.0:8000；工作区路径由
+     `DATASENTRY_PROJECT` 环境变量注入（api.create_app 读取），
+     容器内默认 /app/workspace 并卷挂载宿主 workspace/ 目录；
+  3. CI 单 job 十阶段（GitHub Actions）：lint → format → mypy
+     --strict → pytest+覆盖率门禁 → 覆盖率工件上传 → M9 demo
+     → 1e6 行基准（≤60s 档，实测 17.4s）→ CLI smoke → API+UI
+     smoke → 产物存在性检查；基准与 demo 纳入 CI 防止回归；
+  4. `make type` 修正为 mypy 同时检查 datasentry_core 与
+     datasentry（此前仅 core，与门禁声明不符——Step 23 起门禁
+     实际已含 src，本次对齐）。
+- **理由**：42 章要求「有明确 License 和贡献指南」；MVP 划分 1.6
+  要求 Docker 一键启动与 CI 十阶段。单 job 顺序执行避免并发 runner
+  成本，demo/bench 进 CI 守住 M3/M9 预算（34 章）。
+- **影响**：容器实测 health/UI/API 全通；`make check-all` 一条命令
+  覆盖 lint+type+test+demo+bench；CI 全流程约 5 分钟内完成。
+
+---
+
 ## 待定（Proposed）
 
 | 编号 | 议题 | 状态 |

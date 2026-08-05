@@ -1,0 +1,9 @@
+services:
+  datasentry:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATASENTRY_PROJECT: /app/workspace
+    volumes:
+      - ./workspace:/app/workspace

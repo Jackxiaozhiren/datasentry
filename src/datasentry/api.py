@@ -27,6 +27,7 @@ body 统一 {"ok": false, "detail": "..."}。
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Query
@@ -113,7 +114,9 @@ def _get_issue(client: sdk.DataSentry, issue_id: str) -> Issue | None:
 
 
 def create_app(project: str | Path | None = None) -> FastAPI:
-    """创建绑定给定工作区的应用（默认当前目录）。"""
+    """创建绑定给定工作区的应用（默认当前目录或 DATASENTRY_PROJECT）。"""
+    if project is None:
+        project = os.environ.get("DATASENTRY_PROJECT")
     app = FastAPI(title="DataSentry API", version=__version__)
     client = sdk.DataSentry(project=project)
     app.state.client = client
@@ -361,3 +364,10 @@ _ENDPOINTS = frozenset(
         "GET /repairs",
     }
 )
+
+
+def main() -> None:
+    """启动 API 服务（容器/开发入口，默认 0.0.0.0:8000）。"""
+    import uvicorn
+
+    uvicorn.run(create_app(), host="0.0.0.0", port=8000)
