@@ -5,7 +5,7 @@
 >
 > 一个以统计证据为基础、以 AI 为辅助、以人工审批为保障的数据质量检测与修复平台。
 
-**状态**：开发中（Step 24 — Web UI 核心页）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
+**状态**：开发中（Step 25 — M9 Demo 走通，MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
 推进，一次一个实施步骤，每步执行 8 步法（设计决策 → 实现 → 测试 → 修复 → 文档 → 变更摘要）。
 
 ## 目录结构
@@ -215,3 +215,9 @@ make lint && make type && make test
 - 表单提交走 POST + 303 重定向（PRG 模式）；Column Explorer / 跨扫描趋势归 V1（MVP 只做问题定位闭环，ADR-024）
 - `DataSentry` 新增 `get_issue()`（修复工作台按 ID 取 Issue）；新依赖 python-multipart（Form）
 - 测试 345 → 355：tests/test_ui.py 10 例（首页空/有数据、scan 详情、severity 过滤、404、工作台 propose/apply/rollback 全流程、未知 action、表单扫描、列名 XSS 转义）
+
+## M9 Demo（Step 25，34 章 Demo < 3 分钟）
+
+- `examples/demo/demo.py`：一键走通全流程（无 LLM 完全离线）——生成脏数据 CSV（前后空白/大小写混用/缺失占位/离群价/非法日期）→ `scan_file`（36 检测器 + 融合 + 评分 + 落库）→ 导出 JSON + HTML 报告 → 修复闭环（propose → preview → apply → rollback，15 章）→ 打印各阶段耗时与 PASS/FAIL 判定
+- 默认 5000 行固定种子（可复现）；实测 **5.4s**（预算 180s，余量 33×）；`--rows`/`--out` 可配
+- 测试 355 → 358：tests/test_demo.py 3 例（子进程全流程 + 预算断言、固定种子数据可复现、空数据边界）

@@ -62,6 +62,8 @@ ignore = ["RUF002", "RUF003"]
 "tests/*" = ["B011"]
 # benchmarks 打印中文报告带全角标点，属有意为之
 "benchmarks/*" = ["RUF001"]
+# demo 脚本帮助文案带中文全角括号，属有意为之
+"examples/demo/*" = ["RUF001"]
 # UI 模板含 × 排版字符（行×列），属有意为之
 "src/datasentry/ui.py" = ["RUF001"]
 
