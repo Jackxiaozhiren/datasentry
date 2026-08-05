@@ -5,7 +5,7 @@
 >
 > 一个以统计证据为基础、以 AI 为辅助、以人工审批为保障的数据质量检测与修复平台。
 
-**状态**：开发中（Step 31 — V1 第一阶段：检测器插件 API v1；MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
+**状态**：开发中（Step 32 — V1 里程碑：发布工程 0.1.0；MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
 推进，一次一个实施步骤，每步执行 8 步法（设计决策 → 实现 → 测试 → 修复 → 文档 → 变更摘要）。
 
 ## 目录结构
@@ -268,3 +268,11 @@ make lint && make type && make test
 - **示例**：`examples/plugins/example_detector.py`（负值检测插件，复制进 plugins/ 即生效）——端到端测试验证扫描命中 `plugin_negative_value` issue
 - **安全边界**：插件与本机内置检测器同权（本地可信代码，非沙箱）；受限表达式求值（11.10/ADR-015）不适用于插件模块
 - 测试 401 → 408；ADR 待定表清零（插件 API v1 稳定性承诺=V1 前置项落地）
+
+## 发布工程（Step 32，0.1.0 里程碑 / ADR-032）
+
+- **双包构建**：`datasentry-core`（引擎，零网络）+ `datasentry`（CLI/API/UI）hatchling 打包；`uv build` 四产物（sdist+wheel × 2）验证通过；dist/ 不入库
+- **元数据面**：readme（PyPI 首页）/keywords/classifiers（Alpha、Python 3.12/3.13、Apache-2.0）/urls 补齐；本次构建发现 core 缺 README 即构建失败——发布前冒烟的价值实证
+- **干净环境验收**：全新 Python 3.12 venv 安装本地 wheel → `datasentry --version` → `scan`（6 issues / score 94.8）→ `report export` HTML 全链路通过；importlib.metadata 校验 keywords/classifiers/readme 完整
+- **CHANGELOG.md**：Keep a Changelog 格式，0.1.0 汇总 Step 1–31 全部变更
+- 测试 408 例不变（发布面无逻辑变更），门禁 3 连绿

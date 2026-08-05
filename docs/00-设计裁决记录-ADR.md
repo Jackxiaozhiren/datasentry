@@ -653,6 +653,36 @@
 
 ---
 
+## ADR-032：发布工程形态（0.1.0 里程碑）
+
+- **状态**：Accepted（2026-08-05）
+- **决策**：
+  1. **双包发布**：`datasentry-core`（领域模型与引擎，零网络
+     依赖）与 `datasentry`（CLI/API/UI 门面）分别构建发布，
+     均走 hatchling；版本同步为 0.1.0（MVP 里程碑），发布顺序
+     先 core 后主包（依赖声明 `datasentry-core>=0.1.0`）；
+  2. **元数据面**：两包补 readme（PyPI 首页）/keywords/
+     classifiers/urls（Homepage/Source/Issues）；
+     `datasentry` 声明 Development Status Alpha 与 Python
+     3.12/3.13 支持（requires-python >= 3.12）；
+  3. **构建产物**：`uv build` 验证主包 + core 包 sdist/wheel
+     四产物；构建物不入库（.gitignore 已有 dist/）；
+  4. **干净环境验收**：全新 venv（Python 3.12）安装本地 wheel
+     → `datasentry --version`、`scan`（6 issues / score 94.8）
+     → `report export` HTML 全链路通过；元数据检查
+     （keywords/classifiers/readme）通过 importlib.metadata；
+  5. **变更记录**：CHANGELOG.md（Keep a Changelog 格式，
+     0.1.0 汇总 Step 1–31）。
+- **理由**：产品走向可用需可安装、可验证、可追溯的发布形态；
+  双包隔离让 core 可独立消费（插件/扩展生态，ADR-031）；
+  本地 wheel 冒烟在发布前捕获打包遗漏（本次发现 core 缺
+  readme 导致构建失败即为例证）。
+- **影响**：新增 CHANGELOG.md、packages/core/README.md；
+  pyproject 元数据补齐；`uv build` 四产物验证通过；
+  测试 408 例不变（发布面无代码逻辑变更）。
+
+---
+
 ## 待定（Proposed）
 
 | 编号 | 议题 | 状态 |

@@ -2,9 +2,23 @@
 name = "datasentry"
 version = "0.1.0"
 description = "An evidence-driven, local-first AI copilot for detecting, explaining, validating, and safely repairing data quality problems."
+readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 authors = [{ name = "DataSentry Contributors" }]
+keywords = ["data-quality", "data-observability", "quality-gates", "llm", "duckdb", "local-first"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = [
     "datasentry-core>=0.1.0",
     "fastapi>=0.115",
@@ -13,6 +27,11 @@ dependencies = [
     "python-multipart>=0.0.9",
     "pyyaml>=6.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/DataSentry-AI/datasentry"
+Source = "https://github.com/DataSentry-AI/datasentry"
+Issues = "https://github.com/DataSentry-AI/datasentry/issues"
 
 [project.scripts]
 datasentry = "datasentry.cli:main"
