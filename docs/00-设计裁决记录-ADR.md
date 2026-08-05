@@ -522,6 +522,45 @@
 
 ---
 
+## ADR-028：规则引擎预运行与 NL→候选审批闭环（14.3/14.4）
+
+- **状态**：Accepted（2026-08-05）
+- **决策**：
+  1. **期望语义取反**：`Rule.when` 表达的是「数据应当满足的
+     期望条件」，引擎在预运行阶段自动取反生成违规子句
+     （equals→`col <> $1`、gt→`col <= $1`、between→
+     `col NOT BETWEEN`、in→`col NOT IN`、not_null→`col IS NULL`
+     等）。模型提示词/人工创建都用期望语义书写，避免两套心智；
+  2. **预运行即试算**：`rules/engine.py` 的 `run_preflight` 在
+     **批准之前**对样本执行违规子句，产出
+     `RulePreflightReport`（schema 校验 / 列存在 / 危险规则
+     标记 / 抽样试算）。`dangerous = failures > 0 且 ratio > 0.5`
+     时标注，CLI 必须显式确认才可批准；参数绑定用 DuckDB 命名
+     参数（`$1`…），值以 `{"1": ...}` dict 传入（已有公开
+     `sql_aggregate`/`read_sample` 封装，不依赖私有视图）；
+  3. **候选落库待批**（14.4）：LLM 生成的候选规则直接
+     `enabled=False` 入库，`rules approve` 才置 1（
+     `activate_rule` UPDATE 后重读，保证返回激活后状态）——
+     未批准规则永不出现在扫描执行集中；
+  4. **脱敏复用 ADR-027 管线**：候选生成 prompt 由脱敏后的
+     profile（掩码占位符）构建，占位符内嵌列级 PII 掩码统计，
+     LLM 只见字段名/分布/掩码值；
+  5. **缓存与审计**：prompt 哈希（sha256 前 16 位）命中
+     `llm_cache`（`expires_at` 哨兵 `9999-12-31T23:59:59+00:00`
+     表示不过期）则跳过调用；每次生成记审计（复用 ADR-027
+     的 `llm_invocations`），未配置 LLM 时整条链路显式降级
+     （`LLMNotConfiguredError`，exit 3）。
+- **理由**：14.3/14.4 要求规则可预运行验证、AI 生成的规则需
+  人工确认才生效；预运行在批准前暴露坏规则（列不存在/全行
+  违规）是安全阀门；候选与生效规则同表用 enabled 区分，
+  避免两套存储。
+- **影响**：测试 381 → 394（tests/test_rules_ai.py 13 例，
+  覆盖率 96.39%）；CLI 新增 `rules propose`/`rules approve`/
+  `rules list`；store 新增规则与 LLM 缓存读写；
+  14.3/14.4 闭环完成，AI 生成规则零改动不出现在扫描中。
+
+---
+
 ## 待定（Proposed）
 
 | 编号 | 议题 | 状态 |

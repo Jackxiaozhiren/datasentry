@@ -27,6 +27,7 @@ from datasentry_core.models.issue import Issue
 from datasentry_core.models.llm import LLMInvocation
 from datasentry_core.models.quality import QualityScore
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
+from datasentry_core.models.rules import Rule
 from datasentry_core.models.scan import DetectorRun, ScanConfig, ScanRun
 from datasentry_core.repair import RepairEngine
 from datasentry_core.reporting import build_report
@@ -290,6 +291,10 @@ class DataSentry:
     def list_llm_invocations(self, limit: int = 20) -> list[LLMInvocation]:
         """最近 LLM 调用审计（13.11；不含 prompt 原文）。"""
         return self._store.list_llm_invocations(limit=limit)
+
+    def list_rules(self) -> list[Rule]:
+        """已落库规则列表（14.1/14.4）。"""
+        return self._store.list_rules()
 
     def get_issue(self, issue_id: str) -> Issue | None:
         """按 ID 取 Issue（修复工作台等 UI 用途）。"""

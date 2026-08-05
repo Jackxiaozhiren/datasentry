@@ -5,7 +5,7 @@
 >
 > 一个以统计证据为基础、以 AI 为辅助、以人工审批为保障的数据质量检测与修复平台。
 
-**状态**：开发中（Step 27 — V1 第一阶段：LLM Provider 抽象 + 脱敏管线；MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
+**状态**：开发中（Step 28 — V1 第一阶段：NL→规则候选生成 + 预运行审批闭环；MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
 推进，一次一个实施步骤，每步执行 8 步法（设计决策 → 实现 → 测试 → 修复 → 文档 → 变更摘要）。
 
 ## 目录结构
@@ -238,3 +238,10 @@ make lint && make type && make test
 - **审计闭环（13.11）**：`llm_invocations` 表读写（store.record_llm_invocation / list_llm_invocations，含 masked_sample_count / injection_flagged）；CLI 新增 `datasentry llm status`（配置状态 + 最近调用）+ `datasentry llm invocations`（审计明细，不含 prompt 原文）
 - 测试 358 → 381：tests/test_llm_ai.py 23 例（PII 识别/确定性/往返/重叠掩码、provider 成功/HTTP 错误/Schema 失败/未配置、env 配置合并、审计落库顺序与 limit）
 - 未配置时全流程行为不变：`llm status` 显示 configured=false，扫描仍纯离线可复现（ADR-014 不变）
+
+## 规则引擎预运行与 NL→候选审批闭环（Step 28，14.3/14.4）
+
+- **规则预运行引擎**（`datasentry_core/rules/engine.py`）：`Rule.when` 为「期望条件」，预运行时自动取反生成违规子句（equals→`col <> $1`、gt→`col <= $1`、between→`col NOT BETWEEN`、not_in→`col IN`、not_null→`col IS NULL` 等 12 算子）；`run_preflight` 在**批准前**试算样本：schema/列存在校验、`dangerous` 标记（违规行占比 > 0.5）、`sample_run` 违规明细与示例行；参数用 DuckDB 命名参数绑定（`$1`…`{"1": v}`）
+- **NL→规则候选**（`src/datasentry/rules_ai.py` `RuleProposalService`）：`rules propose "prices must be positive"` → 采样画像（每列 3 值）→ ADR-027 脱敏（占位符内嵌掩码统计）→ LLM 严格 JSON（pydantic 白名单校验：RuleType 9 类 / Severity / 算子 / 列存在）→ 逐候选预运行 → **候选 `enabled=False` 落库**（14.4：未批准规则永不出现在扫描集）→ 审计 + `llm_cache`（prompt sha256 命中跳过调用）
+- **CLI**：`rules propose "<描述>" --file/--budget`、`rules approve <rule_id>`（危险规则需 `--force`）、`rules list`（候选/生效分开展示）；未配置 LLM 显式报错 exit 3，离线行为不变
+- 测试 381 → 394：tests/test_rules_ai.py 13 例（期望语义取反/命名参数绑定/危险标记/缓存命中/审计/全链路 mock 服务冒烟），覆盖率 96.39%

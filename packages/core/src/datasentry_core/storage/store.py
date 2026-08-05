@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from datasentry_core.models.enums import (
@@ -25,11 +25,13 @@ from datasentry_core.models.evidence import Evidence, utcnow
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.llm import LLMInvocation
 from datasentry_core.models.repair import RepairProposal, RepairRun
+from datasentry_core.models.rules import Rule
 from datasentry_core.models.scan import DetectorRun, ScanRun
 from datasentry_core.storage.paths import project_db_path
 from datasentry_core.storage.schema import migrate
 
 _LOCAL_PROJECT_ID = "local"
+_NEVER_EXPIRES = "9999-12-31T23:59:59+00:00"
 
 
 def _iso(dt: datetime) -> str:
@@ -504,6 +506,111 @@ class MetadataStore:
             error_message=d["error_message"],
             created_at=datetime.fromisoformat(d["created_at"]),
         )
+
+    # ---- 规则（Step 28，14.1/14.4 审批落库） -------------------------------
+
+    def save_rule(self, rule: Rule) -> None:
+        """保存规则（source=llm_candidate 的候选经审批后落库，14.4）。"""
+        with self._lock, self._conn:
+            self._ensure_project()
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO rules (
+                    id, project_id, rule_version, type, severity, description,
+                    when_json, then_json, expression, columns, source, enabled,
+                    criticality_override, created_by, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    rule.id,
+                    _LOCAL_PROJECT_ID,
+                    rule.version,
+                    rule.type.value,
+                    rule.severity.value,
+                    rule.description,
+                    rule.when.model_dump_json() if rule.when else None,
+                    rule.then.model_dump_json() if rule.then else None,
+                    rule.expression,
+                    json.dumps(rule.columns),
+                    rule.source,
+                    int(rule.enabled),
+                    rule.criticality_override.value if rule.criticality_override else None,
+                    rule.created_by,
+                    _iso(rule.created_at),
+                    _iso(rule.created_at),
+                ),
+            )
+
+    def list_rules(self) -> list[Rule]:
+        """规则列表（含 llm_candidate 已批准规则，按创建时间倒序）。"""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM rules ORDER BY created_at DESC, rowid DESC"
+            ).fetchall()
+        return [self._rule_from_row(r) for r in rows]
+
+    def activate_rule(self, rule_id: str) -> Rule | None:
+        """用户批准：候选规则 enabled 0→1（14.4）。不存在返回 None。"""
+        with self._lock, self._conn:
+            row = self._conn.execute("SELECT * FROM rules WHERE id = ?", (rule_id,)).fetchone()
+            if row is None:
+                return None
+            self._conn.execute(
+                "UPDATE rules SET enabled = 1, updated_at = ? WHERE id = ?",
+                (_iso(utcnow()), rule_id),
+            )
+            updated = self._conn.execute("SELECT * FROM rules WHERE id = ?", (rule_id,)).fetchone()
+        return self._rule_from_row(updated)
+
+    def _rule_from_row(self, row: sqlite3.Row) -> Rule:
+        from datasentry_core.models.enums import RuleType
+        from datasentry_core.models.rules import Condition, Rule
+
+        d = dict(row)
+        return Rule(
+            id=d["id"],
+            type=RuleType(d["type"]),
+            severity=Severity(d["severity"]),
+            description=d["description"],
+            when=Condition.model_validate_json(d["when_json"]) if d["when_json"] else None,
+            then=Condition.model_validate_json(d["then_json"]) if d["then_json"] else None,
+            expression=d["expression"],
+            columns=json.loads(d["columns"]),
+            source=d["source"],
+            enabled=bool(d["enabled"]),
+            criticality_override=d["criticality_override"],
+            created_by=d["created_by"],
+            created_at=datetime.fromisoformat(d["created_at"]),
+            version=d["rule_version"],
+        )
+
+    # ---- LLM 缓存（Step 28，13.9 预算：同 prompt 命中缓存省 token） --------
+
+    def get_llm_cache(self, cache_key: str) -> str | None:
+        """按 key 取 LLM 响应缓存（未过期）；命中返回 response_json 原文。"""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT response_json, expires_at FROM llm_cache WHERE cache_key = ?",
+                (cache_key,),
+            ).fetchone()
+        if row is None:
+            return None
+        if row["expires_at"] and datetime.fromisoformat(row["expires_at"]) < utcnow():
+            return None
+        return str(row["response_json"])
+
+    def put_llm_cache(self, cache_key: str, response_json: str, ttl_seconds: int = 0) -> None:
+        """写 LLM 响应缓存；ttl_seconds<=0 表示不过期。"""
+        expires_at = (
+            _iso(utcnow() + timedelta(seconds=ttl_seconds)) if ttl_seconds > 0 else _NEVER_EXPIRES
+        )
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO llm_cache "
+                "(cache_key, response_json, created_at, expires_at)"
+                " VALUES (?, ?, ?, ?)",
+                (cache_key, response_json, _iso(utcnow()), expires_at),
+            )
 
     def _repair_proposal_from_row(self, row: sqlite3.Row) -> RepairProposal:
         from datasentry_core.models.repair import RepairProposal

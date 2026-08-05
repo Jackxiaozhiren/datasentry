@@ -411,6 +411,117 @@ def _cmd_llm_invocations(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_rules_propose(args: argparse.Namespace) -> int:
+    """自然语言 → 规则候选（14.4）：脱敏 → LLM → 严格校验 → 预运行，不落库。"""
+    from datasentry.rules_ai import RuleProposalService
+
+    client = DataSentry(args.project)
+    try:
+        service = RuleProposalService(store=client._store, project=args.project)
+        result = service.propose(args.description, args.file, budget_tokens=args.budget)
+    finally:
+        client.close()
+    if result.llm_error:
+        _emit(_envelope("rules propose", {"error": result.llm_error}), args.format)
+        return EXIT_ERROR
+    if result.cache_hit:
+        print("  [cache] prompt matched llm_cache; no LLM call made")
+    data: dict[str, Any] = {"masked_sample_count": result.masked_sample_count, "rules": []}
+    for item in result.rules:
+        if item.candidate is None:
+            data["rules"].append({"rejected": item.rejected_reason})
+            continue
+        rule = item.candidate.rule
+        entry = {
+            "rule_id": rule.id,
+            "type": rule.type.value,
+            "severity": rule.severity.value,
+            "description": rule.description,
+            "when": rule.when.model_dump() if rule.when else None,
+            "columns": rule.columns,
+            "confidence": item.candidate.confidence,
+            "paraphrase": item.candidate.paraphrase,
+        }
+        if item.preflight is not None:
+            entry["preflight"] = {
+                "valid": item.preflight.valid,
+                "schema_valid": item.preflight.schema_valid,
+                "dangerous": item.preflight.dangerous,
+                "rows_tested": item.preflight.sample_run.rows_tested
+                if item.preflight.sample_run
+                else None,
+                "failures": item.preflight.sample_run.failures
+                if item.preflight.sample_run
+                else None,
+                "failure_ratio": item.preflight.sample_run.failure_ratio
+                if item.preflight.sample_run
+                else None,
+            }
+        data["rules"].append(entry)
+    if args.format == "text":
+        print(f"proposed {len(data['rules'])} rule candidate(s) (preflight run, NOT saved)")
+        for entry in data["rules"]:
+            if "rejected" in entry:
+                print(f"  ✗ rejected: {entry['rejected']}")
+                continue
+            pf = entry.get("preflight") or {}
+            print(
+                f"  {entry['rule_id']} [{entry['severity']}] {entry['type']}: "
+                f"{entry['description']} (conf={entry['confidence']:.2f}, "
+                f"rows={pf.get('rows_tested')}, failures={pf.get('failures')}, "
+                f"dangerous={pf.get('dangerous')})"
+            )
+            print(
+                f"    approve with: datasentry rules approve {entry['rule_id']} --file {args.file}"
+            )
+    else:
+        _emit(_envelope("rules propose", data), args.format)
+    return EXIT_OK
+
+
+def _cmd_rules_approve(args: argparse.Namespace) -> int:
+    """批准候选规则落库（14.4 用户批准；source=llm_candidate）。"""
+    from datasentry.rules_ai import RuleProposalService
+
+    client = DataSentry(args.project)
+    try:
+        service = RuleProposalService(store=client._store, project=args.project)
+        rule = service.approve(args.rule_id)
+    finally:
+        client.close()
+    if rule is None:
+        _emit(_envelope("rules approve", {"error": f"rule not found: {args.rule_id}"}), args.format)
+        return EXIT_SOURCE_UNAVAILABLE
+    data: dict[str, Any] = {"rule_id": rule.id, "source": rule.source, "enabled": rule.enabled}
+    _emit(_envelope("rules approve", data), args.format)
+    return EXIT_OK
+
+
+def _cmd_rules_list(args: argparse.Namespace) -> int:
+    """列出已批准规则（14.1 落库视图）。"""
+    client = DataSentry(args.project)
+    try:
+        rules = client.list_rules()
+    finally:
+        client.close()
+    data = {
+        "rules": [
+            {
+                "id": r.id,
+                "type": r.type.value,
+                "severity": r.severity.value,
+                "description": r.description,
+                "source": r.source,
+                "enabled": r.enabled,
+                "version": r.version,
+            }
+            for r in rules
+        ]
+    }
+    _emit(_envelope("rules list", data), args.format)
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="datasentry",
@@ -517,6 +628,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_invocations = llm_sub.add_parser("invocations", help="list recent LLM call audit")
     p_invocations.add_argument("--limit", type=int, default=20, help="max rows (default 20)")
     p_invocations.set_defaults(func=_cmd_llm_invocations)
+
+    p_rules = sub.add_parser("rules", help="data quality rules (14.1/14.4)")
+    rules_sub = p_rules.add_subparsers(dest="rules_cmd", required=True)
+    p_propose = rules_sub.add_parser(
+        "propose", help="natural language → rule candidates (LLM, preflight, NOT saved)"
+    )
+    p_propose.add_argument("description", type=str, help="rule requirement in natural language")
+    p_propose.add_argument(
+        "--file", type=str, required=True, help="data file to profile + preflight"
+    )
+    p_propose.add_argument("--budget", type=int, default=20000, help="max output tokens (13.9)")
+    p_propose.set_defaults(func=_cmd_rules_propose)
+    p_approve = rules_sub.add_parser("approve", help="approve a proposed rule into store")
+    p_approve.add_argument("rule_id", type=str)
+    p_approve.set_defaults(func=_cmd_rules_approve)
+    p_rule_list = rules_sub.add_parser("list", help="list approved rules")
+    p_rule_list.set_defaults(func=_cmd_rules_list)
     return parser
 
 
