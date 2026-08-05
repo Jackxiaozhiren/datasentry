@@ -480,13 +480,26 @@ def _cmd_rules_propose(args: argparse.Namespace) -> int:
 
 
 def _cmd_rules_approve(args: argparse.Namespace) -> int:
-    """批准候选规则落库（14.4 用户批准；source=llm_candidate）。"""
-    from datasentry.rules_ai import RuleProposalService
+    """批准候选规则落库（14.4 用户批准；source=llm_candidate）。
+
+    提供 --file 时对目标数据重跑预运行复核；dangerous（违规行占比
+    > 0.5）的规则必须带 --force 才批准（14.4 安全阀门）。
+    """
+    from datasentry.rules_ai import RuleApprovalBlockedError, RuleProposalService
 
     client = DataSentry(args.project)
     try:
         service = RuleProposalService(store=client._store, project=args.project)
-        rule = service.approve(args.rule_id)
+        rule = service.approve(args.rule_id, data_path=args.file, force=args.force)
+    except RuleApprovalBlockedError as exc:
+        _emit(
+            _envelope(
+                "rules approve",
+                {"error": str(exc), "rule_id": exc.rule_id, "reason": exc.reason},
+            ),
+            args.format,
+        )
+        return EXIT_ERROR
     finally:
         client.close()
     if rule is None:
@@ -642,6 +655,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_propose.set_defaults(func=_cmd_rules_propose)
     p_approve = rules_sub.add_parser("approve", help="approve a proposed rule into store")
     p_approve.add_argument("rule_id", type=str)
+    p_approve.add_argument(
+        "--file",
+        type=str,
+        default=None,
+        help="data file to re-run preflight against before approving",
+    )
+    p_approve.add_argument(
+        "--force",
+        action="store_true",
+        help="approve even if preflight marks the rule dangerous (failures > 50% of rows)",
+    )
     p_approve.set_defaults(func=_cmd_rules_approve)
     p_rule_list = rules_sub.add_parser("list", help="list approved rules")
     p_rule_list.set_defaults(func=_cmd_rules_list)

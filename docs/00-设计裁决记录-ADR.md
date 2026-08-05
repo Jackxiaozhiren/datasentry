@@ -591,6 +591,32 @@
 
 ---
 
+## ADR-030：危险规则批准安全阀门（14.4 强制确认流落实）
+
+- **状态**：Accepted（2026-08-05）
+- **决策**：
+  1. **approve 真实复核**：`service.approve(rule_id, data_path=None,
+     force=False)` 提供 `data_path` 时对目标数据**重跑预运行**
+     （而非信任 propose 时快照）——数据在提案与批准之间可能变化，
+     复核保证批准时状态即生效时状态；
+  2. **危险规则拦截**：复核 `dangerous`（违规行占比 > 0.5）且未
+     `force` → 抛 `RuleApprovalBlockedError`（携带 rule_id 与
+     reason，含失败行统计），规则保持 `enabled=0`；CLI 报错
+     exit 3 并提示 `--force`；`--force` 是用户显式知情确认
+     （14.4 用户批准的安全阀门，非绕过）；
+  3. **不带 --file 保持原语义**：无数据路径时跳过复核直接激活
+     （兼容 ADR-028 既定 approve 行为，API 不破坏）；
+  4. **store 新增 `get_rule`**：单条读取供复核使用（此前只有
+     list_rules 全量 + activate_rule 写后读）。
+- **理由**：ADR-028 仅实现 dangerous 标记展示，README 声称的
+  `--force` 确认流未实现（自述与实现不一致）；14.4「先预运行 +
+  用户批准」要求把预运行结果纳入批准决策，真实复核优于快照。
+- **影响**：测试 398 → 401（拦截/强批/安全复核/无文件跳过 4 例）；
+  CLI `rules approve` 新增 `--file`/`--force`；rules_ai.py
+  docstring 同步修正（候选落库 enabled=0，非「只展示不落库」）。
+
+---
+
 ## 待定（Proposed）
 
 | 编号 | 议题 | 状态 |

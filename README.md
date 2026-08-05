@@ -5,7 +5,7 @@
 >
 > 一个以统计证据为基础、以 AI 为辅助、以人工审批为保障的数据质量检测与修复平台。
 
-**状态**：开发中（Step 29 — V1 第一阶段：Ollama 具体接入 + 重试统一；MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
+**状态**：开发中（Step 30 — V1 第一阶段：危险规则批准安全阀门；MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
 推进，一次一个实施步骤，每步执行 8 步法（设计决策 → 实现 → 测试 → 修复 → 文档 → 变更摘要）。
 
 ## 目录结构
@@ -252,3 +252,10 @@ make lint && make type && make test
 - **重试统一**：`_post_with_retry` 共享辅助（超时按 `max_retries` 重试，默认 2 次；HTTP 状态/网络/JSON 错误不重试，错误消息统一 `timeout after N attempts`）——补齐 ADR-027 承诺在 Ollama 侧未落实的不一致
 - **真实接入验收**：本地 HTTP 模拟 `/api/generate`（真实 TCP，非 MockTransport）全链路——propose 预运行 1 违规行 → 候选落库 → approve 激活 → 二次 propose 缓存命中不再请求 → 审计 `provider_id=ollama`；CLI 子进程冒烟同链路全通（`DATASENTRY_LLM_PROVIDER=ollama` + `DATASENTRY_LLM_BASE_URL`）
 - 测试 394 → 398：Ollama 超时重试成功/重试耗尽/HTTP 不重试 3 例 + 真实接入 E2E 1 例；ADR 待定表 Ollama 项标记完成
+
+## 危险规则批准安全阀门（Step 30，14.4 强制确认流）
+
+- **approve 真实复核**：`rules approve <id> --file <data>` 对目标数据**重跑预运行**（非信任 propose 快照——数据在提案与批准之间可能变化）；复核为 dangerous（违规行占比 > 0.5）且未 `--force` → 拒绝激活（exit 3），规则保持 `enabled=0`
+- **`--force` 显式知情确认**：危险规则须用户显式带 `--force` 才批准（14.4 安全阀门，非绕过）；错误消息含失败行统计（`3/5 rows, ratio 0.60 > 0.5`）
+- **兼容**：不带 `--file` 保持原 approve 语义（跳过复核直接激活）；store 新增 `get_rule` 单条读取
+- 测试 398 → 401：拦截/强批/安全复核通过/无文件跳过 4 例；修正 rules_ai.py docstring 与实现不一致（候选落库 enabled=0，非「只展示不落库」）

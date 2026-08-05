@@ -315,6 +315,67 @@ def test_approve_activates_candidate(tmp_path: Path, csv_file: Path) -> None:
     assert service.approve("rule_missing") is None
 
 
+# ---- 危险规则批准安全阀门（Step 30，14.4 强制确认流） -----------------------
+
+
+def _approve_service(
+    tmp_path: Path, csv_file: Path, when: dict
+) -> tuple[RuleProposalService, MetadataStore, str]:
+    provider = _FakeProvider(
+        _payload_json(
+            [
+                {
+                    "type": "value_range",
+                    "severity": "high",
+                    "description": "price must be positive",
+                    "when": when,
+                    "columns": ["price"],
+                    "confidence": 0.9,
+                    "paraphrase": "p",
+                    "notes": [],
+                }
+            ]
+        )
+    )
+    service, store = _service(tmp_path, provider)
+    result = service.propose("prices must be positive", str(csv_file))
+    return service, store, result.rules[0].candidate.rule.id
+
+
+def test_approve_dangerous_rule_blocked_without_force(tmp_path: Path, csv_file: Path) -> None:
+    """gt value=100 → 3/5 行违规（100/-5/50）ratio 0.6 > 0.5 → 阀门拦截。"""
+    from datasentry.rules_ai import RuleApprovalBlockedError
+
+    service, store, rule_id = _approve_service(
+        tmp_path, csv_file, {"column": "price", "operator": "gt", "value": 100}
+    )
+    with pytest.raises(RuleApprovalBlockedError) as exc:
+        service.approve(rule_id, data_path=csv_file)
+    assert "0.60" in str(exc.value)
+    assert store.get_rule(rule_id).enabled is False  # 未被激活
+    approved = service.approve(rule_id, data_path=csv_file, force=True)
+    assert approved is not None and approved.enabled is True
+
+
+def test_approve_safe_rule_with_recheck(tmp_path: Path, csv_file: Path) -> None:
+    """gt value=0 → 仅 -5 违规（1/5，ratio 0.2）→ 复核通过直接激活。"""
+    service, _, rule_id = _approve_service(
+        tmp_path, csv_file, {"column": "price", "operator": "gt", "value": 0}
+    )
+    approved = service.approve(rule_id, data_path=csv_file)
+    assert approved is not None and approved.enabled is True
+
+
+def test_approve_without_data_path_skips_recheck(tmp_path: Path, csv_file: Path) -> None:
+    """不带 --file 时跳过复核（兼容原 approve 行为）。"""
+    service, store, rule_id = _approve_service(
+        tmp_path, csv_file, {"column": "price", "operator": "gt", "value": 100}
+    )
+    approved = service.approve(rule_id)
+    assert approved is not None and approved.enabled is True
+    assert store.get_rule(rule_id).enabled is True
+
+
 def test_invalid_rule_shape_rejected(tmp_path: Path, csv_file: Path) -> None:
     provider = _FakeProvider(
         _payload_json(

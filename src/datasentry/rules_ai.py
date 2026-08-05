@@ -5,8 +5,9 @@
        → 模板 prompt → llm_cache 命中检查 → provider 调用 → JSON
        严格校验（RuleCandidate）→ 语义校验（列存在/operator 白名单）
        → llm_invocations 审计（masked_sample_count / prompt_hash）→
-       对每个候选跑 run_preflight（14.3），**只展示不落库**
-    2. approve：用户确认后把 Rule 落库（source=llm_candidate）
+       对每个候选跑 run_preflight（14.3）→ 候选落库 enabled=0（未生效）
+    2. approve：用户确认后把候选转正（enabled 0→1，14.4）；提供
+       data_path 时重跑预运行复核，dangerous 规则需 force=True 才批准
     3. 未配置 LLM：抛 LLMNotConfiguredError，CLI 清晰提示且不崩溃
 
 预算（13.9）：LLMRequest.max_tokens 由调用方预算参数控制，默认
@@ -71,6 +72,28 @@ class _RuleJson(BaseModel):
 
 class _RulesJson(BaseModel):
     rules: list[_RuleJson] = Field(default_factory=list)
+
+
+class RuleApprovalBlockedError(RuntimeError):
+    """危险规则（预运行违规占比 > 0.5）未带 force 时拒绝批准（14.4 安全阀门）。
+
+    携带 `rule_id` 与 `reason`：dangerous 复核给出失败行统计，
+    数据类型不支持给出说明；CLI 据 reason 提示用户 --force。
+    """
+
+    def __init__(self, rule_id: str, reason: str | RulePreflightReport) -> None:
+        self.rule_id = rule_id
+        if isinstance(reason, str):
+            self.reason = reason
+        else:
+            run = reason.sample_run
+            self.reason = (
+                f"preflight failed on {run.failures}/{run.rows_tested} rows "
+                f"(ratio {run.failure_ratio:.2f} > 0.5, dangerous)"
+                if run is not None
+                else "preflight report has no sample run"
+            )
+        super().__init__(f"rule approval blocked for {rule_id}: {self.reason}")
 
 
 @dataclass
@@ -304,12 +327,36 @@ class RuleProposalService:
 
     # ---- 审批落库 ---------------------------------------------------------
 
-    def approve(self, rule_id: str) -> Rule | None:
+    def approve(
+        self,
+        rule_id: str,
+        data_path: str | Path | None = None,
+        force: bool = False,
+    ) -> Rule | None:
         """用户批准：候选转正（enabled 0→1，14.4 批准语义）。
 
-        候选在 propose 时已落库（enabled=0，未生效）；approve 只是
-        翻转 enabled，不重新构造规则（保持审计一致性）。
+        候选在 propose 时已落库（enabled=0，未生效）；approve 翻转
+        enabled，不重新构造规则（保持审计一致性）。提供 data_path
+        时对目标数据**重跑预运行**复核（真实复核而非生成时快照）；
+        复核为 dangerous（违规行占比 > 0.5）且未 force → 抛
+        `RuleApprovalBlockedError`（14.4 安全阀门，防止全行违规规则
+        在扫描集中静默爆炸）。
         """
+        rule = self._store.get_rule(rule_id)
+        if rule is None:
+            return None
+        if data_path is not None and rule.when is not None:
+            source_type = _source_type_for_path(Path(data_path))
+            if source_type is None:
+                raise RuleApprovalBlockedError(rule_id, "unsupported data file type")
+            spec = DataSourceSpec(source_type=source_type, path=Path(data_path))
+            handle = default_registry().open(spec)
+            try:
+                report = run_preflight(rule, handle)
+            finally:
+                handle.close()
+            if report.dangerous and not force:
+                raise RuleApprovalBlockedError(rule_id, report)
         return self._store.activate_rule(rule_id)
 
     # ---- prompt 模板 ------------------------------------------------------

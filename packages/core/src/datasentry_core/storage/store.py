@@ -549,6 +549,12 @@ class MetadataStore:
             ).fetchall()
         return [self._rule_from_row(r) for r in rows]
 
+    def get_rule(self, rule_id: str) -> Rule | None:
+        """按 ID 读取规则（不存在返回 None）。"""
+        with self._lock:
+            row = self._conn.execute("SELECT * FROM rules WHERE id = ?", (rule_id,)).fetchone()
+        return self._rule_from_row(row) if row is not None else None
+
     def activate_rule(self, rule_id: str) -> Rule | None:
         """用户批准：候选规则 enabled 0→1（14.4）。不存在返回 None。"""
         with self._lock, self._conn:
