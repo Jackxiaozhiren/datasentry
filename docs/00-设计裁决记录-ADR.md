@@ -617,8 +617,44 @@
 
 ---
 
+## ADR-031：检测器插件 API v1 与加载语义（4.8 扩展约束）
+
+- **状态**：Accepted（2026-08-05）
+- **决策**：
+  1. **加载机制**：`datasentry_core/plugins.py` 的
+     `load_plugin_detectors(registry, dirs)` —— 目录扫描
+     `*.py`（跳过 `_`/`.` 前缀），`importlib` 动态加载模块，
+     发现实现 `Detector` 协议的类（runtime_checkable），无参
+     实例化并注册；文件按名称排序（加载确定性）；返回新注册
+     detector_id 列表；
+  2. **稳定性承诺（插件 API v1）**：`Detector` 协议
+     （detector_id/detector_version/quality_dimension/supports/
+     detect/metadata）、`DetectionContext` 字段与
+     `DetectorRegistry` 接口为稳定面，不破坏性变更；
+     `load_plugin_detectors` 签名与 `PluginLoadError` 保持；
+  3. **失败即报错**：import 失败/实例化失败/ID 冲突 → 抛
+     `PluginLoadError`（含文件定位），不静默吞掉——插件是
+     用户主动引入的代码，静默跳过会隐藏配置错误；
+  4. **自动加载**：`DataSentry` 打开工作区时加载
+     `<workspace>/plugins/`（不存在则跳过）；CLI 新增
+     `datasentry detectors` 展示注册表（内置+插件，含
+     quality_dimension/version/enabled）；
+  5. **安全边界**：插件与本机内置检测器同权（**非沙箱**，
+     本地可信代码）；11.10/ADR-015 的受限表达式求值只约束
+     规则表达式，不适用于插件模块——文档与示例明确声明。
+- **理由**：4.8「检测器可扩展」需最小可信加载面；目录约定
+  （workspace/plugins）零配置、复制即用；协议化发现免注册
+  清单维护；ADR 待定表「插件 API 版本 1 的稳定性承诺」
+  （V1 前置）自此落地。
+- **影响**：测试 401 → 408（加载/跳过/冲突/坏导入/缺目录/
+  端到端扫描命中/列表展示 7 例）；新增
+  examples/plugins/example_detector.py（负值检测示例，接入
+  端到端测试）；mypy 覆盖 75 文件。
+
+---
+
 ## 待定（Proposed）
 
 | 编号 | 议题 | 状态 |
 |------|------|------|
-| — | 插件 API 版本 1 的稳定性承诺 | Proposed，V1 前置 |
+| — | （无待定项——V1 前置项全部落地） | — |

@@ -5,7 +5,7 @@
 >
 > 一个以统计证据为基础、以 AI 为辅助、以人工审批为保障的数据质量检测与修复平台。
 
-**状态**：开发中（Step 30 — V1 第一阶段：危险规则批准安全阀门；MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
+**状态**：开发中（Step 31 — V1 第一阶段：检测器插件 API v1；MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
 推进，一次一个实施步骤，每步执行 8 步法（设计决策 → 实现 → 测试 → 修复 → 文档 → 变更摘要）。
 
 ## 目录结构
@@ -259,3 +259,12 @@ make lint && make type && make test
 - **`--force` 显式知情确认**：危险规则须用户显式带 `--force` 才批准（14.4 安全阀门，非绕过）；错误消息含失败行统计（`3/5 rows, ratio 0.60 > 0.5`）
 - **兼容**：不带 `--file` 保持原 approve 语义（跳过复核直接激活）；store 新增 `get_rule` 单条读取
 - 测试 398 → 401：拦截/强批/安全复核通过/无文件跳过 4 例；修正 rules_ai.py docstring 与实现不一致（候选落库 enabled=0，非「只展示不落库」）
+
+## 检测器插件 API v1（Step 31，4.8 扩展约束 / ADR-031）
+
+- **加载机制**（`datasentry_core/plugins.py`）：`load_plugin_detectors(registry, dirs)` 目录扫描 `*.py`（跳过私有/缓存文件）→ 动态 import → 发现实现 `Detector` 协议（detector_id/detector_version/quality_dimension/supports/detect/metadata）的类 → 无参实例化注册；文件按名排序确定性加载
+- **失败即报错**：import/实例化/ID 冲突 → `PluginLoadError`（含文件定位），不静默；非检测器模块属性忽略
+- **自动加载**：`DataSentry` 打开工作区即加载 `<workspace>/plugins/`（不存在跳过）；CLI `datasentry detectors` 列出注册表（内置+插件：dimension/version/enabled）
+- **示例**：`examples/plugins/example_detector.py`（负值检测插件，复制进 plugins/ 即生效）——端到端测试验证扫描命中 `plugin_negative_value` issue
+- **安全边界**：插件与本机内置检测器同权（本地可信代码，非沙箱）；受限表达式求值（11.10/ADR-015）不适用于插件模块
+- 测试 401 → 408；ADR 待定表清零（插件 API v1 稳定性承诺=V1 前置项落地）

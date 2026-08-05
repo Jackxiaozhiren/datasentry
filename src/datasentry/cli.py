@@ -411,6 +411,17 @@ def _cmd_llm_invocations(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_detectors_list(args: argparse.Namespace) -> int:
+    """列出注册表检测器（内置 + workspace/plugins 插件，ADR-031）。"""
+    client = DataSentry(args.project)
+    try:
+        detectors = client.list_detectors()
+    finally:
+        client.close()
+    _emit(_envelope("detectors list", {"detectors": detectors}), args.format)
+    return EXIT_OK
+
+
 def _cmd_rules_propose(args: argparse.Namespace) -> int:
     """自然语言 → 规则候选（14.4）：脱敏 → LLM → 严格校验 → 预运行，不落库。"""
     from datasentry.rules_ai import RuleProposalService
@@ -641,6 +652,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_invocations = llm_sub.add_parser("invocations", help="list recent LLM call audit")
     p_invocations.add_argument("--limit", type=int, default=20, help="max rows (default 20)")
     p_invocations.set_defaults(func=_cmd_llm_invocations)
+
+    p_detectors = sub.add_parser("detectors", help="list registered detectors (built-in + plugins)")
+    p_detectors.set_defaults(func=_cmd_detectors_list)
 
     p_rules = sub.add_parser("rules", help="data quality rules (14.1/14.4)")
     rules_sub = p_rules.add_subparsers(dest="rules_cmd", required=True)

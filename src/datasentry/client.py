@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from datasentry_core.connectors import (
     DataSourceSpec,
@@ -58,13 +59,17 @@ class DataSentry:
     def __init__(self, project: str | Path | None = None) -> None:
         self._workspace = Path(project).expanduser() if project else Path.cwd()
         self._store = MetadataStore.for_workspace(self._workspace)
-        self._runner = ScanRunner(self._registry())
+        self._registry = self._registry_with_plugins()
+        self._runner = ScanRunner(self._registry)
         self._ensure_gitignore()
 
-    @staticmethod
-    def _registry() -> DetectorRegistry:
+    def _registry_with_plugins(self) -> DetectorRegistry:
+        """内置检测器 + <workspace>/plugins/ 目录插件（Step 31，ADR-031）。"""
+        from datasentry_core.plugins import load_plugin_detectors
+
         registry = DetectorRegistry()
         register_default_detectors(registry)
+        load_plugin_detectors(registry, [self._workspace / "plugins"])
         return registry
 
     @property
@@ -94,6 +99,23 @@ class DataSentry:
     def close(self) -> None:
         """关闭元数据库连接。"""
         self._store.close()
+
+    def list_detectors(self) -> list[dict[str, Any]]:
+        """注册表快照（内置 + 插件）：检测器元数据，供 CLI/UI 展示。"""
+        result: list[dict[str, Any]] = []
+        for detector in self._registry.list():
+            meta = detector.metadata()
+            result.append(
+                {
+                    "detector_id": meta.detector_id,
+                    "display_name": meta.display_name,
+                    "description": meta.description,
+                    "quality_dimension": meta.quality_dimension.value,
+                    "version": detector.detector_version,
+                    "enabled": self._registry.is_enabled(detector.detector_id),
+                }
+            )
+        return result
 
     # ---- 扫描 ----------------------------------------------------------
 
@@ -248,7 +270,7 @@ class DataSentry:
             proposal = engine.propose(issue, context)
             if proposal is None:
                 return None
-            preview = engine.preview(proposal, context, self._registry())
+            preview = engine.preview(proposal, context, self._registry)
         finally:
             context.handle.close()
         return proposal, preview
