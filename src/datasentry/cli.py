@@ -359,6 +359,58 @@ def _cmd_repair_list(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_llm_status(args: argparse.Namespace) -> int:
+    """LLM 提供方状态与配置来源（13.11 审计查询入口）。"""
+    from datasentry.llm_providers import load_llm_config
+
+    config = load_llm_config()
+    client = DataSentry(args.project)
+    try:
+        invocations = client.list_llm_invocations(limit=20)
+    finally:
+        client.close()
+    summary = {
+        "provider": config.provider,
+        "model": config.model or "n/a",
+        "base_url": config.base_url or "n/a",
+        "configured": config.provider != "null",
+        "recent_calls": len(invocations),
+        "last_status": invocations[0].status if invocations else None,
+    }
+    _emit(_envelope("llm status", summary), args.format)
+    return EXIT_OK
+
+
+def _cmd_llm_invocations(args: argparse.Namespace) -> int:
+    """列出最近 LLM 调用审计（字段名 + 统计量，不含 prompt 原文）。"""
+    client = DataSentry(args.project)
+    try:
+        invocations = client.list_llm_invocations(limit=args.limit)
+    finally:
+        client.close()
+    data = {
+        "invocations": [
+            {
+                "invocation_id": i.invocation_id,
+                "task_type": i.task_type,
+                "provider_id": i.provider_id,
+                "model": i.model,
+                "input_tokens": i.input_tokens,
+                "output_tokens": i.output_tokens,
+                "cache_hit": i.cache_hit,
+                "latency_ms": i.latency_ms,
+                "status": i.status,
+                "masked_sample_count": i.masked_sample_count,
+                "injection_flagged": i.injection_flagged,
+                "created_at": i.created_at.isoformat(),
+            }
+            for i in invocations
+        ]
+    }
+    _emit(_envelope("llm invocations", data), args.format)
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="datasentry",
@@ -457,6 +509,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_rollback.set_defaults(func=_cmd_repair_rollback)
     p_runs = repair_sub.add_parser("list", help="list repair runs")
     p_runs.set_defaults(func=_cmd_repair_list)
+
+    p_llm = sub.add_parser("llm", help="LLM provider status & audit (Step 27, 13.11)")
+    llm_sub = p_llm.add_subparsers(dest="llm_cmd", required=True)
+    p_status = llm_sub.add_parser("status", help="show provider config & recent calls")
+    p_status.set_defaults(func=_cmd_llm_status)
+    p_invocations = llm_sub.add_parser("invocations", help="list recent LLM call audit")
+    p_invocations.add_argument("--limit", type=int, default=20, help="max rows (default 20)")
+    p_invocations.set_defaults(func=_cmd_llm_invocations)
     return parser
 
 

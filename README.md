@@ -5,7 +5,7 @@
 >
 > 一个以统计证据为基础、以 AI 为辅助、以人工审批为保障的数据质量检测与修复平台。
 
-**状态**：开发中（Step 26 — 工程与生态收尾，MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
+**状态**：开发中（Step 27 — V1 第一阶段：LLM Provider 抽象 + 脱敏管线；MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
 推进，一次一个实施步骤，每步执行 8 步法（设计决策 → 实现 → 测试 → 修复 → 文档 → 变更摘要）。
 
 ## 目录结构
@@ -229,3 +229,12 @@ make lint && make type && make test
 - **Makefile**：`type` 补跑 `src/datasentry`（此前只跑 core，门禁实际 69 文件）；新增 `demo`/`bench`/`check-all`（门禁 + M9 Demo + 性能基准一条命令）
 - **Docker 一键启动**：Dockerfile（uv 官方镜像多阶段，无 dev 依赖）+ docker-compose（端口 8000，workspace 卷挂载）；`datasentry-server` 入口（api.main，支持 `DATASENTRY_PROJECT` 环境变量）；已实测 build + health + UI + API 全通
 - **CI 十阶段**：.github/workflows/ci.yml —— ruff lint / format / mypy --strict / pytest+覆盖率门禁 / 覆盖率工件上传 / M9 demo / 1e6 行基准 / CLI smoke / API+UI smoke / 产物检查
+
+## V1 第一阶段：LLM Provider 抽象 + 脱敏管线（Step 27，38 章安全子集）
+
+- **脱敏管线**（`datasentry_core/privacy/redactor.py`，38 章「AI 不接收未经授权的完整数据」）：确定性启发式 PII 识别（email / 中国手机号 / 身份证 / IPv4 / URL），占位符 `{{REDACTED:<kind>:<n>}}` 替换 + 进程内映射表可还原（`restore`）；`mask_rows` 批量掩码、`mask_profile` 掩码画像 examples/top_categories；同输入恒同输出（LLM 缓存可复用）；映射表不落盘（加密存储归 V1 后续）
+- **LLM Provider 抽象**：core 层零网络依赖接口（`datasentry_core/llm/provider.py`：`LLMProvider` Protocol + `LLMRequest`/`LLMResponse`/`LLMError` 异常层次）；应用层实现（`src/datasentry/llm_providers.py`）：`NullProvider`（未配置显式降级）、`OpenAICompatibleProvider`（Chat Completions 兼容 + Bearer）、`OllamaProvider`（本地 /api/generate）；超时重试（默认 2 次）、HTTP/JSON 形态校验（`LLMSchemaError`）
+- **配置**：`DATASENTRY_LLM_PROVIDER/MODEL/BASE_URL/API_KEY` 环境变量优先，其次全局 `config.json`；未配置默认 null（现有离线行为不变）
+- **审计闭环（13.11）**：`llm_invocations` 表读写（store.record_llm_invocation / list_llm_invocations，含 masked_sample_count / injection_flagged）；CLI 新增 `datasentry llm status`（配置状态 + 最近调用）+ `datasentry llm invocations`（审计明细，不含 prompt 原文）
+- 测试 358 → 381：tests/test_llm_ai.py 23 例（PII 识别/确定性/往返/重叠掩码、provider 成功/HTTP 错误/Schema 失败/未配置、env 配置合并、审计落库顺序与 limit）
+- 未配置时全流程行为不变：`llm status` 显示 configured=false，扫描仍纯离线可复现（ADR-014 不变）

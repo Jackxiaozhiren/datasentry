@@ -23,6 +23,7 @@ from datasentry_core.models.enums import (
 )
 from datasentry_core.models.evidence import Evidence, utcnow
 from datasentry_core.models.issue import Issue
+from datasentry_core.models.llm import LLMInvocation
 from datasentry_core.models.repair import RepairProposal, RepairRun
 from datasentry_core.models.scan import DetectorRun, ScanRun
 from datasentry_core.storage.paths import project_db_path
@@ -438,6 +439,70 @@ class MetadataStore:
             status=IssueStatus(d["status"]),
             created_at=datetime.fromisoformat(d["created_at"]),
             evidence=[],  # get_issues 内补
+        )
+
+    # ---- LLM 调用审计（Step 27，13.11） -----------------------------------
+
+    def record_llm_invocation(self, invocation: LLMInvocation) -> None:
+        """记录单次 LLM 调用审计（llm_invocations 表，已含去敏约束）。"""
+        with self._lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO llm_invocations (
+                    invocation_id, task_type, template_version, provider_id, model,
+                    input_tokens, output_tokens, cache_hit, latency_ms, status,
+                    prompt_hash, masked_sample_count, injection_flagged,
+                    error_message, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    invocation.invocation_id,
+                    invocation.task_type,
+                    invocation.template_version,
+                    invocation.provider_id,
+                    invocation.model,
+                    invocation.input_tokens,
+                    invocation.output_tokens,
+                    int(invocation.cache_hit),
+                    invocation.latency_ms,
+                    invocation.status,
+                    invocation.prompt_hash,
+                    invocation.masked_sample_count,
+                    int(invocation.injection_flagged),
+                    invocation.error_message,
+                    _iso(invocation.created_at),
+                ),
+            )
+
+    def list_llm_invocations(self, limit: int = 20) -> list[LLMInvocation]:
+        """最近 N 次调用（审计查询，按时间倒序）。"""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM llm_invocations ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [self._invocation_from_row(r) for r in rows]
+
+    def _invocation_from_row(self, row: sqlite3.Row) -> LLMInvocation:
+        from datasentry_core.models.llm import LLMInvocation
+
+        d = dict(row)
+        return LLMInvocation(
+            invocation_id=d["invocation_id"],
+            task_type=d["task_type"],
+            template_version=d["template_version"],
+            provider_id=d["provider_id"],
+            model=d["model"],
+            input_tokens=d["input_tokens"],
+            output_tokens=d["output_tokens"],
+            cache_hit=bool(d["cache_hit"]),
+            latency_ms=d["latency_ms"],
+            status=d["status"],
+            prompt_hash=d["prompt_hash"],
+            masked_sample_count=d["masked_sample_count"],
+            injection_flagged=bool(d["injection_flagged"]),
+            error_message=d["error_message"],
+            created_at=datetime.fromisoformat(d["created_at"]),
         )
 
     def _repair_proposal_from_row(self, row: sqlite3.Row) -> RepairProposal:

@@ -492,6 +492,36 @@
 
 ---
 
+## ADR-027：LLM 能力分层与脱敏边界（38 章安全子集）
+
+- **状态**：Accepted（2026-08-02）
+- **决策**：
+  1. **分层**：`datasentry_core/llm/provider.py` 只定义 Protocol 与
+     数据结构（**零网络依赖**，core 保持纯离线可测试）；
+     HTTP 实现（OpenAI-compatible / Ollama）在应用层
+     `src/datasentry/llm_providers.py`（httpx 进 main 依赖）；
+  2. **脱敏前置**：所有入 LLM 的文本必须先经
+     `privacy/redactor.py`（38 章：AI 不接收未经授权的完整数据）。
+     掩码确定性（同输入同输出）保证 LLM 缓存可复用；映射表只在
+     进程内传递、不落盘——落盘加密存储归 V1 后续迭代；
+  3. **显式降级**：未配置提供方 = `NullProvider`，任何调用抛
+     `LLMNotConfiguredError`，调用方走降级路径（现有离线行为
+     完全不变，ADR-014 的可复现性承诺不受影响）；
+  4. **审计**：每次调用写 `llm_invocations` 表（13.11），只存
+     字段名/统计量/掩码样本数/注入标记，**不存 prompt 原文**；
+     CLI 提供 `llm status` / `llm invocations` 查询；
+  5. PII 识别采用**确定性正则启发式**（email/手机号/身份证/IPv4/
+     URL），姓名等无可靠正则的类别不识别——宁可漏报不误伤
+     （误伤会破坏修复语义与 LLM 输出一致性）。
+- **理由**：MVP 划分将 38 章安全子集列为 MVP 期唯一遗留项；
+  分层保证 core 可独立测试、应用层可换 provider；确定性掩码 +
+  不落盘映射表在「可复现」与「隐私」之间取明确边界。
+- **影响**：新增 72 → 72 文件 mypy 覆盖；未配置 LLM 时
+  `datasentry llm status` 显示 configured=false，扫描流程零改动；
+  httpx 由 dev 依赖升为 main 依赖。
+
+---
+
 ## 待定（Proposed）
 
 | 编号 | 议题 | 状态 |

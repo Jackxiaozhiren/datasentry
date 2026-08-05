@@ -24,6 +24,7 @@ from datasentry_core.detectors.initial import register_default_detectors
 from datasentry_core.detectors.runner import ScanRunner
 from datasentry_core.models.enums import Severity
 from datasentry_core.models.issue import Issue
+from datasentry_core.models.llm import LLMInvocation
 from datasentry_core.models.quality import QualityScore
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
 from datasentry_core.models.scan import DetectorRun, ScanConfig, ScanRun
@@ -285,6 +286,10 @@ class DataSentry:
 
     def list_repair_runs(self) -> list[RepairRun]:
         return self._store.list_repair_runs()
+
+    def list_llm_invocations(self, limit: int = 20) -> list[LLMInvocation]:
+        """最近 LLM 调用审计（13.11；不含 prompt 原文）。"""
+        return self._store.list_llm_invocations(limit=limit)
 
     def get_issue(self, issue_id: str) -> Issue | None:
         """按 ID 取 Issue（修复工作台等 UI 用途）。"""
