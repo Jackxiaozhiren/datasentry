@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 
 import duckdb
 import pyarrow as pa
@@ -56,6 +56,22 @@ class DuckDBExecutor:
             return self._conn.execute(sql, params).to_arrow_table()
         assert isinstance(params, Sequence) and not isinstance(params, (str, bytes))
         return self._conn.execute(sql, list(params)).to_arrow_table()
+
+    def execute_stream(
+        self,
+        sql: str,
+        batch_size: int = 65536,
+    ) -> Iterator[pa.RecordBatch]:
+        """只读流式执行：RecordBatchReader 按 batch_size 断批。"""
+        if self._closed:
+            raise UnsafeSqlError("executor is closed")
+        assert_read_only_sql(sql)
+        reader = self._conn.execute(sql).to_arrow_reader(batch_size)
+        while True:
+            try:
+                yield next(reader)
+            except StopIteration:
+                break
 
     def close(self) -> None:
         if not self._closed:

@@ -24,6 +24,7 @@
 ```bash
 pip install datasentry          # 或 uv sync（源码开发）
 datasentry scan orders.csv      # 检测 → 评分 → 落库，一步完成
+datasentry scan analytics.duckdb --table payments   # DuckDB 文件表（Step 38）
 datasentry report export <run_id> --as html --output report.html
 datasentry report export <run_id> --as junit --output junit.xml   # CI（每个 issue = failure testcase）
 datasentry report export <run_id> --as sarif --output sarif.json  # GitHub Code Scanning / IDE
@@ -48,7 +49,7 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
 
 | 命令 | 作用 |
 |------|------|
-| `datasentry scan <file>` | 检测 + 融合 + 评分 + 落库（CSV/Parquet/JSONL/XLSX） |
+| `datasentry scan <file> [--table NAME]` | 检测 + 融合 + 评分 + 落库（CSV/Parquet/JSONL/XLSX/DuckDB） |
 | `datasentry issues list` | 问题列表（按严重度/维度筛选） |
 | `datasentry score latest` | 六维质量总分 |
 | `datasentry report export <run> --as json\|markdown\|html\|junit\|sarif` | 报告导出（含 CI 格式） |
@@ -200,6 +201,7 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 ## 多格式文件连接器（Step 18，7.1 + ADR-019）
 
 - `connectors/file_based.py`：`FileDataHandle` 共享基类（schema/read_sample/sql_aggregate/count_rows/fingerprint/warnings 公式注入扫描/close）；CSV 连接器保持独立（专属编码探测/分隔符嗅探，不重构）
+- `connectors/duckdb.py`（Step 38，V1 数据库型落地）：`.duckdb` 文件 READ_ONLY ATTACH + 表视图，`scan --table` 必填（`--table [schema.]table` 经 options.schema）；流式批读走 executor `execute_stream`（to_arrow_reader 按 batch 断批）；标识符双引号转义防注入，缺表名 → 退出码 2
 - `connectors/parquet.py`：duckdb `read_parquet` 视图 + pyarrow `ParquetFile.iter_batches` 流式批读
 - `connectors/jsonl.py`：duckdb `read_json_auto(format='newline_delimited')` 视图；read_batches 用 LIMIT/OFFSET 分页（1e6 行预算内）
 - `connectors/xlsx.py`：openpyxl 读取（`data_only=False`——公式单元格返回公式文本，公式注入可检测；计算结果缓存归 V1）→ pyarrow 表注册；混合类型列自动推断失败回退全字符串（int/str 混排不炸）；sheet/header_row 可配（默认首个 sheet、第 0 行）

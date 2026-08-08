@@ -11,6 +11,7 @@ from datasentry_core.connectors.base import (
     SchemaInfo,
 )
 from datasentry_core.connectors.csv import CsvConnector
+from datasentry_core.connectors.duckdb import DuckdbConnector
 from datasentry_core.connectors.errors import (
     ConnectorError,
     DataSourceNotFoundError,
@@ -33,6 +34,7 @@ __all__ = [
     "DataSourceNotFoundError",
     "DataSourceSpec",
     "DataSourceType",
+    "DuckdbConnector",
     "FingerprintMode",
     "FrameBatch",
     "JsonlConnector",

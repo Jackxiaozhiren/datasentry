@@ -146,6 +146,7 @@ class TestDetectorRegistry:
             "parquet",
             "jsonl",
             "xlsx",
+            "duckdb",  # Step 38：DuckDB 文件连接器入默认注册表
         ]
 
 

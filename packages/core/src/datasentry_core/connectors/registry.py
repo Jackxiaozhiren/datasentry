@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datasentry_core.connectors.base import DataConnector, DataHandle
 from datasentry_core.connectors.csv import CsvConnector
+from datasentry_core.connectors.duckdb import DuckdbConnector
 from datasentry_core.connectors.errors import UnsupportedFormatError
 from datasentry_core.connectors.jsonl import JsonlConnector
 from datasentry_core.connectors.parquet import ParquetConnector
@@ -44,10 +45,11 @@ class ConnectorRegistry:
 
 
 def default_registry() -> ConnectorRegistry:
-    """默认注册表：MVP 文件型连接器集合（数据库型归 V1，ADR-019）。"""
+    """默认注册表：文件型连接器 + DuckDB 文件连接器（Step 38，V1 数据库型落地）。"""
     registry = ConnectorRegistry()
     registry.register(CsvConnector())
     registry.register(ParquetConnector())
     registry.register(JsonlConnector())
     registry.register(XlsxConnector())
+    registry.register(DuckdbConnector())
     return registry

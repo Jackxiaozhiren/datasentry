@@ -839,3 +839,36 @@
   便捷入口；CLI `contract export` 子命令；tests/test_contract_
   export.py（10 例：结构/属性/规则映射/降级/GE envelope）+ CLI
   1 例；测试 430 → 441。
+
+## ADR-038：DuckDB 文件连接器（Step 38）
+
+- **状态**：已确认（Step 38）
+- **背景**：MVP 把数据库型数据源（SQLITE/POSTGRESQL/DUCKDB）
+  划归 V1（ADR-019）。数据团队的质量扫描对象常是库表而非
+  导出文件；DuckDB 已是唯一执行引擎（ADR-005），本地
+  `.duckdb` 文件是零依赖、可测试的切入点。
+- **决策**：
+  1. **连接器形态**：`connectors/duckdb.py` —— READ_ONLY
+     ATTACH 文件 + `CREATE VIEW data AS SELECT * FROM src_db.<table>`，
+     完全复用 FileDataHandle 共享实现（schema/read_sample/
+     sql_aggregate/count_rows/fingerprint/warnings）；表名必填
+     （spec.table_name），schema 名经 options 传入，标识符双引号
+     转义（防表名/schema 名注入）。
+  2. **流式执行原语**：`DuckDBExecutor.execute_stream(sql,
+     batch_size)` —— to_arrow_reader 按批产出 RecordBatch，
+     与现有 execute（整表 Arrow）并存，SQL 同过只读守卫。
+  3. **接入面**：`.duckdb` 扩展名 → DUCKDB；`scan_file(..., 
+     table_name=None)`（scan 时记录最近表名，repair_open 复用）；
+     CLI `scan --table NAME`；缺表名 → DataSourceNotFoundError
+     → 退出码 2（参数配置错误）；无表名校验进 open（supports
+     只判格式，避免误导性「格式不支持」）。
+  4. **默认注册表**：default_registry() 注册 DuckdbConnector。
+- **理由**：数据库型数据源是 V1 交付物，「DuckDB 文件」形态
+  成本最低且覆盖协议面（多表工作区的种子）；共享基类复用
+  保证检测器层零改动；惰性视图 + 转义 + 只读 ATTACH 满足
+  安全模型。
+- **影响**：engine/duckdb.py +execute_stream（弃用
+  fetch_record_batch → to_arrow_reader）；connectors/duckdb.py
+  新增；registry/__init__/client/cli 接入；tests/test_duckdb_
+  connector.py 12 例（协议/流式/schema 表/注入/registry/client/
+  缺表名）；测试 441 → 453。

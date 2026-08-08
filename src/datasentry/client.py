@@ -47,6 +47,7 @@ _EXT_TO_SOURCE_TYPE: dict[str, DataSourceType] = {
     ".jsonl": DataSourceType.JSONL,
     ".ndjson": DataSourceType.JSONL,
     ".xlsx": DataSourceType.XLSX,
+    ".duckdb": DataSourceType.DUCKDB,
 }
 
 
@@ -63,6 +64,7 @@ class DataSentry:
         self._store = MetadataStore.for_workspace(self._workspace)
         self._registry = self._registry_with_plugins()
         self._runner = ScanRunner(self._registry)
+        self._last_table_name: dict[str, str | None] = {}
         self._ensure_gitignore()
 
     def _registry_with_plugins(self) -> DetectorRegistry:
@@ -126,9 +128,13 @@ class DataSentry:
         path: str | Path,
         *,
         dataset_id: str | None = None,
+        table_name: str | None = None,
         config: ScanConfig | None = None,
     ) -> tuple[ScanRun, list[DetectorRun], list[Issue]]:
-        """导入 + 扫描 + 评分 + 落库（数据源不可用抛 FileNotFoundError 类异常）。"""
+        """导入 + 扫描 + 评分 + 落库（数据源不可用抛 FileNotFoundError 类异常）。
+
+        table_name：DuckDB 文件连接器必填（Step 38）；其他格式忽略。
+        """
         source_path = Path(path).expanduser()
         if not source_path.is_file():
             raise FileNotFoundError(f"data source not found: {source_path}")
@@ -138,9 +144,11 @@ class DataSentry:
                 f"unsupported data source format: {source_path.suffix or '(no extension)'}"
             )
         dataset_id = dataset_id or source_path.stem
+        self._last_table_name[str(source_path)] = table_name
         spec = DataSourceSpec(
             source_type=source_type,
             path=source_path,
+            table_name=table_name,
             options={"dataset_id": dataset_id},
         )
         handle = default_registry().open(spec)
@@ -245,6 +253,7 @@ class DataSentry:
         spec = DataSourceSpec(
             source_type=source_type,
             path=path,
+            table_name=self._last_table_name.get(str(path)),
             options={"dataset_id": path.stem},
         )
         handle = default_registry().open(spec)
