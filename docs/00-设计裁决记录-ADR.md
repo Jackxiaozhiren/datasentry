@@ -709,6 +709,37 @@
 
 ---
 
+## ADR-034：场景示例的修复闭环语义（Step 34）
+
+- **日期**：2026-08-08
+- **状态**：Accepted
+- **决策**：
+  1. **门禁是修复闭环的最终裁决**：场景示例断言「修复前
+     gate 拦截（passed=False）→ 修复后 gate 放行
+     （passed=True）」，不强求质量总分单调上涨——`set_null`
+     以缺失换错误，分数可能不升反降，属真实权衡而非缺陷；
+  2. **修复副本链式推进**：修复引擎写副本不原地改文件
+     （ADR-020 产物语义），复扫对象 = 上一轮修复副本
+     （`.datasentry/repairs/<run_id>.csv`）；同轮修复互不
+     叠加（每次 apply 均以本轮输入为源），轮末最后一个副本
+     作为下一轮输入，直至无可修复（上限 3 轮防死循环）；
+  3. **evidence.data JSON 序列化守卫**：DuckDB 将全合法日期
+     列推断为 DATE 类型后，检测器把原始 `date` 对象写入
+     evidence.data 导致 `save_scan` 崩溃——uniqueness_violation
+     与 rare_category 统一经 `_json_safe`（date/datetime →
+     ISO 字符串）后再落库；回归测试断言 JSON 往返无异常且
+     无日期对象泄漏；
+  4. **示例脚本可复现性**：固定种子 + 同 seed 两次运行输出
+     逐行一致（排除 uuid/路径/耗时行），预算 180s 硬断言。
+- **理由**：34 章场景 B/C 此前只有单文件 demo（Step 25）；
+  电商双文件场景同时覆盖多文件扫描、门禁、修复闭环、报告
+  导出四条产品主线，且暴露并修复了真实序列化缺陷。
+- **影响**：新增 examples/ecommerce/run_showcase.py、
+  tests/test_ecommerce.py（3 例）、tests/test_evidence_json.py
+  （2 例）；核心包 2 个检测器文件修复；测试 408 → 413。
+
+---
+
 ## 待定（Proposed）
 
 | 编号 | 议题 | 状态 |

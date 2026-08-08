@@ -5,7 +5,7 @@
 >
 > 一个以统计证据为基础、以 AI 为辅助、以人工审批为保障的数据质量检测与修复平台。
 
-**状态**：开发中（Step 33 — V1 里程碑：README 产品化；MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
+**状态**：开发中（Step 34 — 电商订单域多文件场景示例；MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
 推进，一次一个实施步骤，每步执行 8 步法（设计决策 → 实现 → 测试 → 修复 → 文档 → 变更摘要）。
 
 ## 为什么选择 DataSentry
@@ -357,3 +357,13 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - **干净环境验收**：全新 Python 3.12 venv 安装本地 wheel → `datasentry --version` → `scan`（6 issues / score 94.8）→ `report export` HTML 全链路通过；importlib.metadata 校验 keywords/classifiers/readme 完整
 - **CHANGELOG.md**：Keep a Changelog 格式，0.1.0 汇总 Step 1–31 全部变更
 - 测试 408 例不变（发布面无逻辑变更），门禁 3 连绿
+
+## 电商订单域场景示例（Step 34，34 章场景 B/C 真实化）
+
+- **多文件场景**：`examples/ecommerce/run_showcase.py` 生成 orders.csv（负价/非法日期/状态变体/重复客户）+ customers.csv（坏邮箱/坏手机号）双脏数据文件，分别扫描落库——orders 12 issues / 96.7，customers 8 issues / 97.0（固定种子可复现，同 seed 输出逐行一致）
+- **质量门禁真实闭环**：进程内 `QualityGateEvaluator`（22 章场景 C）`fail_on=high` 求值——脏数据被拦截（passed=False，high 影响 4.15% 行 > 0.01 阈值）；扫描 → 修复（副本叠加）→ 复扫 → 再修，直至无可修复（上限 3 轮），修复 3 个 issue 后门禁放行（passed=True）
+- **修复权衡显式化**：`set_null` 把非法日期转 NULL——消除错误但引入缺失，分数 96.7 → 96.0 不升反降；脚本明示「门禁才是最终裁决」，不强凑分数上涨
+- **修复副本链式推进**：修复引擎写副本不原地改文件（15 章产物），复扫对象 = 上一轮修复副本（`.datasentry/repairs/<run_id>.csv`）；同轮修复互不叠加，轮末最后一个副本作为下一轮输入
+- **三份 HTML 报告**：orders / customers / orders-final 各导出规范报告；预算 180s 实测 ~10s
+- **核心包 bug 修复**：DuckDB 将全合法日期列推断为 DATE 类型后，`uniqueness_violation` / `rare_category` 把原始 `date` 对象塞进 evidence.data → `save_scan` JSON 序列化崩溃；两处改为 `_json_safe`（date/datetime → ISO 字符串）；新增 tests/test_evidence_json.py 回归守卫（JSON 往返 + 无 date 泄漏断言）
+- 测试 408 → 413：tests/test_ecommerce.py（预算硬断言 + 门禁拦截/放行契约 + 产物存在性 + seed 可复现 ×2）+ tests/test_evidence_json.py（2 例）；ADR 待定表保持清零

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from datetime import date, datetime
+from typing import Any, ClassVar
 
 from datasentry_core.detectors.base import DetectionContext
 from datasentry_core.detectors.common import (
@@ -15,6 +16,14 @@ from datasentry_core.detectors.common import (
 )
 from datasentry_core.models.detector import DetectorCapabilities, IssueCandidate
 from datasentry_core.models.enums import EvidenceType, QualityDimension, Severity
+
+
+def _json_safe(value: Any) -> Any:
+    """evidence 数据必须 JSON 可序列化：date/datetime 转 ISO 字符串。"""
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
+
 
 _PLACEHOLDERS = ("test", "xxx", "foo", "abc", "12345", "dummy", "example")
 _IDENTIFIER_HINTS = ("_id", "id_", " id", "key", "code", "uuid", "hash")
@@ -123,7 +132,12 @@ class RareCategoryDetector(DetectorBase):
                             detector_version=self.detector_version,
                             evidence_type=EvidenceType.STATISTICAL_MEASURE,
                             description=f"{len(values)} rare categories",
-                            data={"categories": list(zip(values, counts, strict=True))},
+                            data={
+                                "categories": [
+                                    (_json_safe(v), int(c))
+                                    for v, c in zip(values, counts, strict=True)
+                                ]
+                            },
                         )
                     ],
                     raw_score=len(values),

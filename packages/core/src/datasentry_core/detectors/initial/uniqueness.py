@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
+from datetime import date, datetime
+from typing import Any, ClassVar
 
 from datasentry_core.detectors.base import DetectionContext
 from datasentry_core.detectors.common import (
@@ -40,7 +41,13 @@ class UniquenessViolationDetector(DetectorBase):
             if not values:
                 continue
             duplicate_rows = sum(int(c) - 1 for c in counts)
-            examples = list(zip(values, counts, strict=True))
+
+            def _json_safe(value: Any) -> Any:
+                if isinstance(value, (date, datetime)):
+                    return value.isoformat()
+                return value
+
+            examples = [(_json_safe(v), int(c)) for v, c in zip(values, counts, strict=True)]
             candidates.append(
                 make_candidate(
                     detector_id=self.detector_id,
