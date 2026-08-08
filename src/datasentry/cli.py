@@ -281,6 +281,37 @@ def _cmd_contract_validate(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_contract_export(args: argparse.Namespace) -> int:
+    """Step 37：契约 → Pandera 代码 / GE ExpectationSuite（V1 交付物）。"""
+    from datasentry_core.contracts import to_great_expectations, to_pandera
+    from datasentry_core.models.contract import Contract
+
+    path = Path(args.path)
+    if not path.is_file():
+        _emit(_envelope("contract export", {"error": f"file not found: {path}"}), args.format)
+        return EXIT_SOURCE_UNAVAILABLE
+    try:
+        import yaml
+
+        contract = Contract.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+    except Exception as exc:  # YAML 语法或 schema 不符均视为导出失败
+        _emit(_envelope("contract export", {"error": str(exc)}), args.format)
+        return EXIT_CONFIG
+    if args.as_format == "pandera":
+        content = to_pandera(contract)
+    else:
+        content = json.dumps(to_great_expectations(contract), ensure_ascii=False, indent=2)
+    out = (
+        Path(args.output).expanduser()
+        if args.output
+        else path.with_name(f"{path.stem}.{'py' if args.as_format == 'pandera' else 'ge.json'}")
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(content, encoding="utf-8")
+    _emit(_envelope("contract export", {"path": str(out), "format": args.as_format}), args.format)
+    return EXIT_OK
+
+
 def _cmd_repair_propose(args: argparse.Namespace) -> int:
     """15 章：issue → 修复提案。"""
     client = DataSentry(args.project)
@@ -683,6 +714,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_validate = contract_sub.add_parser("validate", help="validate contract YAML format")
     p_validate.add_argument("path", type=str)
     p_validate.set_defaults(func=_cmd_contract_validate)
+    p_export = contract_sub.add_parser("export", help="export contract to external ecosystems (V1)")
+    p_export.add_argument("path", type=str)
+    p_export.add_argument(
+        "--as",
+        dest="as_format",
+        type=str,
+        default="pandera",
+        choices=["pandera", "ge"],
+        help="export target (pandera|ge, default: pandera)",
+    )
+    p_export.add_argument("--output", type=str, default=None, help="output file path")
+    p_export.set_defaults(func=_cmd_contract_export)
 
     p_repair = sub.add_parser(
         "repair", help="repair engine (15 章, ADR-020; propose→preview→apply→rollback)"

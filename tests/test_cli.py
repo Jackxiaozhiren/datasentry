@@ -132,6 +132,70 @@ class TestClient:
         assert sarif["version"] == "2.1.0"
         assert len(sarif["runs"][0]["results"]) == len(issues)
 
+    def test_contract_export_pandera_and_ge(self, workspace: Path, capsys) -> None:
+        """Step 37：contract export 生成 Pandera 代码与 GE suite 文件。"""
+        contract = workspace / "orders.yaml"
+        contract.write_text(
+            "version: '1.0'\n"
+            "dataset:\n"
+            "  name: orders\n"
+            "columns:\n"
+            "  amount:\n"
+            "    type: float\n"
+            "    min: 0.0\n"
+            "    max: 100000.0\n",
+            encoding="utf-8",
+        )
+        py_out = workspace / "schema.py"
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "contract",
+                "export",
+                str(contract),
+                "--as",
+                "pandera",
+                "--output",
+                str(py_out),
+            ]
+        )
+        assert code == 0
+        assert "DataFrameSchema" in py_out.read_text(encoding="utf-8")
+        ge_out = workspace / "suite.ge.json"
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "contract",
+                "export",
+                str(contract),
+                "--as",
+                "ge",
+                "--output",
+                str(ge_out),
+            ]
+        )
+        assert code == 0
+        suite = json.loads(ge_out.read_text(encoding="utf-8"))
+        assert suite["expectation_suite_name"] == "orders.datasentry"
+        assert any(
+            e["expectation_type"] == "expect_column_values_to_be_between"
+            for e in suite["expectations"]
+        )
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "contract",
+                "export",
+                str(workspace / "missing.yaml"),
+                "--as",
+                "ge",
+            ]
+        )
+        assert code == 4  # EXIT_SOURCE_UNAVAILABLE
+
     def test_quality_score_after_scan(self, sample_csv: Path, workspace: Path) -> None:
         client = DataSentry(project=workspace)
         scan, _, _ = client.scan_file(sample_csv)

@@ -806,3 +806,36 @@
   `reporting/__init__.py` 导出便捷入口；CLI `--as` 选择扩到
   5 种；tests/test_reporting.py +9 例（XML 转义、空报告绿套件、
   规则去重、级别映射）、test_cli.py +1 例；测试 422 → 430。
+
+## ADR-037：契约导出器（Pandera / Great Expectations）（Step 37）
+
+- **状态**：已确认（Step 37）
+- **背景**：V1 交付物清单「契约导出器（Pandera/GE）」。契约
+  YAML 是质量声明的单一来源，但既有数据栈（Pandera 校验、
+  GE ExpectationSuite）无法直接消费 DSL。
+- **决策**：
+  1. **零依赖导出**：`datasentry_core/contracts/exporters.py`
+     纯函数式生成，不引入 pandera / great_expectations 运行时
+     依赖——Pandera 输出为可直接复制执行的 Python 代码字符串
+     （DataFrameSchema + pa.Column + pa.Check），GE 输出为
+     完整 ExpectationSuite 文档（expectation_suite_name /
+     expectations / meta）。
+  2. **映射收敛**：列契约（nullable/unique/min/max/allowed_
+     values/regex/format）与内嵌 checks（regex/range/
+     allowed_values/not_null/unique）一一映射；顶层 Rule 中
+     NOT_NULL/UNIQUENESS/VALUE_RANGE/ALLOWED_VALUES/REGEX
+     可表达，CONDITIONAL_*/AGGREGATE/COLUMN_COMPARISON 不可
+     表达——Pandera 侧降级为注释列出，GE 侧零贡献（不伪造
+     语义）；语义类型 → Pandera dtype / GE type_ 映射表收敛，
+     未知回退 object/String。
+  3. **CLI 接入**：`contract export <path> --as pandera|ge
+     [--output]`，默认落点 `<stem>.py` / `<stem>.ge.json`，
+     契约无效 → 退出码 2，文件缺失 → 退出码 4。
+- **理由**：保持「DSL 单一来源」的写入侧（validate/scan），
+  导出侧让契约落地 Pandera（校验即代码）与 GE（套件即文档）
+  两大生态；零依赖保证安装面不膨胀；不可表达规则显式降级
+  而非静默丢失。
+- **影响**：新增 `contracts/exporters.py` + `contracts/__init__.py`
+  便捷入口；CLI `contract export` 子命令；tests/test_contract_
+  export.py（10 例：结构/属性/规则映射/降级/GE envelope）+ CLI
+  1 例；测试 430 → 441。

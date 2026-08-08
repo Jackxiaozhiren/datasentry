@@ -52,7 +52,8 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
 | `datasentry issues list` | 问题列表（按严重度/维度筛选） |
 | `datasentry score latest` | 六维质量总分 |
 | `datasentry report export <run> --as json\|markdown\|html\|junit\|sarif` | 报告导出（含 CI 格式） |
-| `datasentry contract` | 契约校验（跨表/多文件约束） |
+| `datasentry contract validate <file>` | 契约校验 |
+| `datasentry contract export <file> --as pandera\|ge` | 契约导出（Pandera 代码 / GE ExpectationSuite） |
 | `datasentry repair propose/preview/apply/rollback` | 修复闭环 |
 | `datasentry rules propose/approve/list` | NL→规则候选 + 预运行审批（14.3/14.4） |
 | `datasentry llm status/invocations` | LLM 配置状态与审计 |
@@ -79,7 +80,7 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
 ## 与现有工具的位置
 
 - **vs pandas-profiling / ydata-profiling**：只报告不修复；DataSentry 提供修复闭环、门禁与规则化
-- **vs Great Expectations**：GE 强在数据契约测试套件；DataSentry 用检测器自动发现 + AI 辅助生成规则（预运行 + 审批），上手无需写 expectation
+- **vs Great Expectations**：GE 强在数据契约测试套件；DataSentry 用检测器自动发现 + AI 辅助生成规则（预运行 + 审批），上手无需写 expectation；契约可一键导出为 GE suite / Pandera schema（Step 37，双向流动：DSL 是单一来源）
 - **vs 商业 Data Observability**（Monte Carlo 等）：DataSentry 本地优先、数据不出机器、免费开源；云侧调度与协作归 V2
 
 ## 路线图
@@ -192,7 +193,7 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 
 - `src/datasentry/`：SDK 客户端 + CLI（`datasentry` 命令已注册到 PATH，`uv sync` 安装）
 - SDK（23.1）：`DataSentry(project=...)` 工作区门面 —— `scan_file`（导入→扫描→评分→落库）、`list_issues`（--severity 过滤）、`get_scan`/`get_detector_runs`、`export_report`；构造即确保 `.datasentry/` 目录与 `.gitignore` 条目（ADR-010）
-- CLI（22.1）：`init` / `scan` / `issues list|show` / `report export` / `contract validate`；全局 `--project` / `--format text|json` / `--seed` / `--version`
+- CLI（22.1）：`init` / `scan` / `issues list|show` / `report export` / `contract validate` / `contract export`；全局 `--project` / `--format text|json` / `--seed` / `--version`
 - JSON envelope：`{"ok", "command", "data", "warnings", "llm_usage"}`；退出码 0 成功 / 2 配置错误 / 3 执行错误 / 4 数据源不可用（1 保留质量门禁）
 - 检测器类型收窄：字符串类检测器（missing token/placeholder 等）经 `supports()` + `string_columns()` 限定，数值列不再触发 `trim()` Binder 错误
 
