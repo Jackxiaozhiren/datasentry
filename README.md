@@ -5,10 +5,91 @@
 >
 > 一个以统计证据为基础、以 AI 为辅助、以人工审批为保障的数据质量检测与修复平台。
 
-**状态**：开发中（Step 32 — V1 里程碑：发布工程 0.1.0；MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
+**状态**：开发中（Step 33 — V1 里程碑：README 产品化；MVP 九项硬性验收 M1–M9 全达成）。本仓库按《产品设计与开发 Prompt 完整版 v2.0》
 推进，一次一个实施步骤，每步执行 8 步法（设计决策 → 实现 → 测试 → 修复 → 文档 → 变更摘要）。
 
-## 目录结构
+## 为什么选择 DataSentry
+
+| 能力 | 说明 |
+|------|------|
+| **证据驱动** | 36+ 确定性检测器（缺失/日期/编码/跨字段/离群），每个问题带统计证据链（样本、占比、置信度），非"AI 猜" |
+| **AI 辅助规则** | 自然语言描述 → LLM 生成规则候选 → 预运行试算 → **人工批准才生效**（未批准规则永不出现在扫描集） |
+| **安全修复** | 修复前 preview → apply → rollback 全流程，AI 只提方案，落库由你决定 |
+| **质量门禁** | `scan --fail-on`：CI 里按严重度/得分卡发布（22 章场景 C），报告 JSON/Markdown/HTML |
+| **本地优先** | DuckDB 执行引擎，1e6 行 10 秒级；LLM 可完全离线（未配置自动降级）或接本地 Ollama（数据不出机器） |
+| **可扩展** | 检测器插件 API v1：`plugins/` 目录复制即用；规则引擎 12 算子期望语义 |
+
+## 快速开始
+
+```bash
+pip install datasentry          # 或 uv sync（源码开发）
+datasentry scan orders.csv      # 检测 → 评分 → 落库，一步完成
+datasentry report export <run_id> --as html --output report.html
+datasentry score latest         # 质量总分（0–100，六维）
+datasentry scan orders.csv --fail-on high --threshold 80   # CI 质量门禁
+```
+
+LLM 辅助规则（可选，离线不配也能用）：
+
+```bash
+export DATASENTRY_LLM_PROVIDER=ollama DATASENTRY_LLM_MODEL=llama3   # 本地
+datasentry rules propose "prices must be positive" --file orders.csv
+datasentry rules approve <rule_id> --file orders.csv --force         # 危险规则显式确认
+```
+
+插件（可选）：把检测器 `.py` 放进工作区 `plugins/` 目录即自动加载，
+`datasentry detectors` 查看注册表。
+
+> 完整示例：`examples/demo/demo.py` 一键走通生成脏数据 → 扫描 → 报告 → 修复闭环（5.4s）。
+
+## 命令速查
+
+| 命令 | 作用 |
+|------|------|
+| `datasentry scan <file>` | 检测 + 融合 + 评分 + 落库（CSV/Parquet/JSONL/XLSX） |
+| `datasentry issues list` | 问题列表（按严重度/维度筛选） |
+| `datasentry score latest` | 六维质量总分 |
+| `datasentry report export <run> --as json\|markdown\|html` | 报告导出 |
+| `datasentry contract` | 契约校验（跨表/多文件约束） |
+| `datasentry repair propose/preview/apply/rollback` | 修复闭环 |
+| `datasentry rules propose/approve/list` | NL→规则候选 + 预运行审批（14.3/14.4） |
+| `datasentry llm status/invocations` | LLM 配置状态与审计 |
+| `datasentry detectors` | 检测器注册表（内置 + 插件） |
+| `datasentry-server` | FastAPI 服务 + Web UI（或 Docker compose 一键起） |
+
+## 架构总览
+
+```
+┌──────────────────────────── datasentry（应用层）──────────────────────────┐
+│  CLI │ REST API + Web UI │ SDK (DataSentry) │ rules_ai（NL→规则候选）    │
+└───────────────┬──────────────────────────────┬───────────────────────────┘
+                │                              │ LLM Provider（OpenAI/Ollama/Null）
+┌───────────────▼──────────────────────────────▼───────────────────────────┐
+│                 datasentry-core（领域层，零网络依赖）                       │
+│   connectors（CSV/Parquet/JSONL/XLSX）→ detectors（36+ 注册表 + 插件）      │
+│   → 融合 → 六维评分 → 质量门禁 → 报告引擎（JSON/MD/HTML）                   │
+│   rules 引擎（期望语义取反 + 预运行）│ repair 引擎（propose/apply/rollback） │
+│   privacy 脱敏（PII 掩码映射不落盘）│ storage（SQLite 元数据库，ADR-010）    │
+└───────────────────────────────────────────────────────────────────────────┘
+                执行引擎：DuckDB（只读 SQL 视图，11.10 受限求值）
+```
+
+## 与现有工具的位置
+
+- **vs pandas-profiling / ydata-profiling**：只报告不修复；DataSentry 提供修复闭环、门禁与规则化
+- **vs Great Expectations**：GE 强在数据契约测试套件；DataSentry 用检测器自动发现 + AI 辅助生成规则（预运行 + 审批），上手无需写 expectation
+- **vs 商业 Data Observability**（Monte Carlo 等）：DataSentry 本地优先、数据不出机器、免费开源；云侧调度与协作归 V2
+
+## 路线图
+
+- **V1 已完成（0.1.0）**：MVP M1–M9 全达成 —— 36+ 检测器 / 融合评分 / 门禁 / 修复闭环 / 报告 / 契约 / API+UI / Docker+CI / M9 Demo / LLM 辅助规则（脱敏+审批） / 插件 API v1 / 发布工程
+- **V2 方向**：云侧调度与协作、报告 HTML 交互增强、加密存储的 PII 还原、插件生态治理
+
+---
+
+## 开发附录（实施过程笔记）
+
+### 目录结构
 
 ```
 ├── packages/core/          # datasentry-core：领域模型 + 连接器 + 执行层 + 核心引擎
@@ -27,14 +108,14 @@
 └── pyproject.toml          # uv workspace 根
 ```
 
-## 快速开始
+### 开发者快速开始
 
 ```bash
 uv sync
-make lint && make type && make test
+make lint && make type && make test   # 或 make check（含覆盖率门禁）
 ```
 
-## 设计文档
+### 设计文档
 
 - `docs/00-设计裁决记录-ADR.md` — 架构决策记录（已确认 11 项）
 - `docs/01-设计材料-一致性检查.md` — 需求一致性检查
