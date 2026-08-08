@@ -230,6 +230,148 @@ class TestCli:
         assert payload["data"]["gate"]["passed"] is False
         assert payload["data"]["gate"]["failed_count"] > 0
 
+    def test_scan_contract_gate_binds_quality_gate(
+        self,
+        sample_csv: Path,
+        workspace: Path,
+        capsys,
+    ) -> None:
+        contract = workspace / "c.yaml"
+        contract.write_text(
+            "version: '1.0'\n"
+            "dataset:\n"
+            "  name: orders\n"
+            "quality_gate:\n"
+            "  fail_on: [medium]\n"
+            "  maximum_failed_rows_ratio: 0.01\n",
+            encoding="utf-8",
+        )
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "scan",
+                str(sample_csv),
+                "--contract",
+                str(contract),
+            ]
+        )
+        assert code == 1  # 契约 fail_on=medium → 门禁失败
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["data"]["gate"]["passed"] is False
+        assert "gate" in payload["data"]
+        assert payload["data"]["gate"]["failed_count"] > 0
+
+    def test_scan_contract_fail_on_override(
+        self,
+        sample_csv: Path,
+        workspace: Path,
+        capsys,
+    ) -> None:
+        contract = workspace / "c.yaml"
+        contract.write_text(
+            "version: '1.0'\ndataset:\n  name: orders\nquality_gate:\n  fail_on: [medium]\n",
+            encoding="utf-8",
+        )
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "scan",
+                str(sample_csv),
+                "--contract",
+                str(contract),
+                "--fail-on",
+                "critical",
+            ]
+        )
+        assert code == 0  # 显式 --fail-on 覆盖契约 gate
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["data"]["gate"]["passed"] is True
+
+    def test_scan_contract_rules_apply(self, workspace: Path, capsys) -> None:
+        data = workspace / "payments.csv"
+        data.write_text("id,amount\n1,-50\n2,30\n3,2000\n", encoding="utf-8")
+        contract = workspace / "c.yaml"
+        contract.write_text(
+            "version: '1.0'\n"
+            "dataset:\n"
+            "  name: payments\n"
+            "rules:\n"
+            "  - id: negative_amount\n"
+            "    type: value_range\n"
+            "    severity: high\n"
+            "    when:\n"
+            "      column: amount\n"
+            "      operator: gte\n"
+            "      value: 0\n"
+            "    description: amount must be non-negative\n",
+            encoding="utf-8",
+        )
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "scan",
+                str(data),
+                "--contract",
+                str(contract),
+            ]
+        )
+        assert code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["data"]["total_issues"] >= 1  # 契约规则参与扫描
+
+    def test_scan_contract_missing_file_exit_2(
+        self,
+        sample_csv: Path,
+        workspace: Path,
+        capsys,
+    ) -> None:
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "scan",
+                str(sample_csv),
+                "--contract",
+                str(workspace / "nope.yaml"),
+            ]
+        )
+        assert code == 2
+
+    def test_scan_contract_invalid_schema_exit_2(
+        self,
+        sample_csv: Path,
+        workspace: Path,
+        capsys,
+    ) -> None:
+        contract = workspace / "bad.yaml"
+        contract.write_text("dataset: [unclosed", encoding="utf-8")
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "scan",
+                str(sample_csv),
+                "--contract",
+                str(contract),
+            ]
+        )
+        assert code == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["data"]["valid"] is False  # 契约校验失败 envelope
+
     def test_scan_gate_pass_exit_0(self, sample_csv: Path, workspace: Path, capsys) -> None:
         code = main(
             [

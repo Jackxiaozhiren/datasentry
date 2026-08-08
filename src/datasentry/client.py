@@ -23,6 +23,7 @@ from datasentry_core.connectors import (
 from datasentry_core.detectors import DetectionContext, DetectorRegistry
 from datasentry_core.detectors.initial import register_default_detectors
 from datasentry_core.detectors.runner import ScanRunner
+from datasentry_core.models.contract import QualityGate
 from datasentry_core.models.enums import Severity
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.llm import LLMInvocation
@@ -32,6 +33,7 @@ from datasentry_core.models.rules import Rule
 from datasentry_core.models.scan import DetectorRun, ScanConfig, ScanRun
 from datasentry_core.repair import RepairEngine
 from datasentry_core.reporting import build_report
+from datasentry_core.scoring.gate import GateResult, QualityGateEvaluator
 from datasentry_core.storage import MetadataStore
 
 _SEVERITY_ORDER = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO]
@@ -215,6 +217,22 @@ class DataSentry:
         )
 
     # ---- 修复（Step 21，15 章 / ADR-020） --------------------------------
+
+    def evaluate_gate(
+        self,
+        issues: list[Issue],
+        gate: QualityGate,
+        *,
+        dataset_id: str | None = None,
+    ) -> GateResult:
+        """质量门禁求值（22 章场景 C）：require_repair_validation 时注入修复证据。
+
+        修复证据 = 工作区内存在已应用（applied）状态的修复记录（Step 35）。
+        """
+        repair_validated = (
+            self._store.has_applied_repairs() if gate.require_repair_validation else False
+        )
+        return QualityGateEvaluator().evaluate(issues, gate, repair_validated=repair_validated)
 
     def repair_open(self, source_path: str | Path) -> DetectionContext:
         """打开数据源句柄供修复引擎使用（源路径由 CLI 显式传入）。"""

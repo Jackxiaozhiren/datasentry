@@ -9,7 +9,8 @@ import pytest
 
 from datasentry import DataSentry
 from datasentry.cli import main
-from datasentry_core.models.enums import RepairRunStatus
+from datasentry_core.models.contract import QualityGate
+from datasentry_core.models.enums import RepairRunStatus, Severity
 
 
 @pytest.fixture
@@ -114,6 +115,29 @@ class TestRepairClient:
                 )
             )
             assert client.repair_propose(outside.id, repair_csv) is None
+        finally:
+            client.close()
+
+    def test_repair_validation_evidence_cycle(self, repair_csv: Path, workspace: Path) -> None:
+        """Step 35 E2E：require_repair_validation 门禁 = 修复证据闭环。"""
+        client = DataSentry(project=workspace)
+        try:
+            _, _, issues = client.scan_file(repair_csv)
+            gate = QualityGate(fail_on=[Severity.HIGH], require_repair_validation=True)
+            # 常规求值失败 + 无修复证据 → 拦截
+            assert client.evaluate_gate(issues, gate).passed is False
+            assert client._store.has_applied_repairs() is False
+            # 走修复闭环 → 证据出现 → 放行
+            repaired = False
+            for issue in sorted(issues, key=lambda i: i.priority_score, reverse=True):
+                if client.repair_propose(issue.id, repair_csv) is None:
+                    continue
+                client.repair_apply(issue.id, repair_csv)
+                repaired = True
+                break
+            assert repaired is True
+            assert client._store.has_applied_repairs() is True
+            assert client.evaluate_gate(issues, gate).passed is True
         finally:
             client.close()
 

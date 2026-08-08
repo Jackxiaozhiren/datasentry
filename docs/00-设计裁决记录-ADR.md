@@ -745,3 +745,33 @@
 | 编号 | 议题 | 状态 |
 |------|------|------|
 | — | （无待定项——V1 前置项全部落地） | — |
+
+## ADR-035：契约驱动门禁与修复证据放行（Step 35）
+
+- **状态**：已确认（Step 35）
+- **背景**：22 章场景 C 的门禁此前只能经 `QualityGate` 硬编码
+  在客户端代码里，数据契约（16 章）与门禁互不相通；且「修复
+  后放行」只是示例脚本里的叙事，没有系统级证据机制。
+- **决策**：
+  1. **契约绑定门禁**：`Contract` 新增可选 `gate` 段
+     （`fail_on` / `maximum_failed_rows_ratio` / `maximum_issues`，
+     默认 `fail_on: high`）；`scan --contract` 载入后以契约
+     门禁求值，命令行 `--gate` 可覆盖契约门禁；契约缺失/无效
+     文件 → 退出码 2（配置错误），JSON 输出为 `contract
+     validate` 失败 envelope。
+  2. **修复证据即门禁豁免**：`QualityGate.require_repair_validation`
+     MVP 落地——求值时间点（客户端调用或 `scan --validate`
+     时）工作区存在已应用的修复运行（`repair_runs` 状态
+     = applied）则追加豁免 reason，放行一次；无证据则拦截。
+     纯粹状态化（不看 diff），零耦合修复引擎，保证「扫描→
+     修复→门禁」闭环的产品语义可表达、可测试。
+  3. **CLI 失败路径显式化**：`repair_apply` 失败的 issue
+     过滤出 `failed_rules` 写入 RepairRun；退出码表补齐
+     `EXIT_CONFIG=2`、`EXIT_GATE=3`。
+- **理由**：契约是用户表达质量预期的自然入口，门禁随契约
+  下发（含覆盖）后，"契约即门禁"语义完整；修复证据豁免让
+  治理流程可解释——拦截原因 + 修复动作 + 放行依据均可查证。
+- **影响**：`datasentry_core.models.contract` 新增 `QualityGate`
+  嵌入 + `ContractGate` 装配；`cli.py` 契约载入/求值/退出码
+  改造；新增 tests/test_gate.py（6 例）、test_repair_cli.py
+  （5 例）、test_cli.py 契约三例；测试 413 → 422。

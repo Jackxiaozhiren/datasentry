@@ -73,7 +73,29 @@ class TestGateEvaluator:
         assert result.failed_issues == ["i1"]
         assert any("maximum_issues" in r for r in result.reasons)
 
-    def test_repair_validation_unsupported_fails(self) -> None:
-        result = QualityGateEvaluator().evaluate([], QualityGate(require_repair_validation=True))
+    def test_repair_validation_requires_evidence(self) -> None:
+        issues = [_issue("i1", Severity.CRITICAL, affected_ratio=0.5)]
+        result = QualityGateEvaluator().evaluate(
+            issues, QualityGate(require_repair_validation=True)
+        )
         assert result.passed is False
-        assert "require_repair_validation" in result.reasons[0]
+        assert any("require_repair_validation" in r for r in result.reasons)
+
+    def test_repair_validation_overrides_failure_with_evidence(self) -> None:
+        issues = [_issue("i1", Severity.CRITICAL, affected_ratio=0.5)]
+        result = QualityGateEvaluator().evaluate(
+            issues,
+            QualityGate(require_repair_validation=True),
+            repair_validated=True,
+        )
+        assert result.passed is True
+        assert any("repair evidence" in r for r in result.reasons)
+
+    def test_repair_validation_clean_data_needs_no_evidence(self) -> None:
+        result = QualityGateEvaluator().evaluate([], QualityGate(require_repair_validation=True))
+        assert result.passed is True
+
+    def test_repair_validation_off_keeps_regular_semantics(self) -> None:
+        issues = [_issue("i1", Severity.CRITICAL, affected_ratio=0.5)]
+        result = QualityGateEvaluator().evaluate(issues, QualityGate(), repair_validated=True)
+        assert result.passed is False  # 无 require 时证据参数不影响常规求值

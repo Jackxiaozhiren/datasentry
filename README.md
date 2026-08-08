@@ -360,6 +360,8 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 
 ## 电商订单域场景示例（Step 34，34 章场景 B/C 真实化）
 
+- **契约即门禁（Step 35）**：`Contract` 可内嵌 `gate` 段（`fail_on` / `maximum_failed_rows_ratio` / `maximum_issues`），`scan --contract` 自动以契约门禁求值，`--gate` 可覆盖；契约缺失/无效 → 退出码 2；`require_repair_validation` 落地——工作区存在已应用修复即豁免放行（`tests/test_gate.py` 6 例闭环验证）
+
 - **多文件场景**：`examples/ecommerce/run_showcase.py` 生成 orders.csv（负价/非法日期/状态变体/重复客户）+ customers.csv（坏邮箱/坏手机号）双脏数据文件，分别扫描落库——orders 12 issues / 96.7，customers 8 issues / 97.0（固定种子可复现，同 seed 输出逐行一致）
 - **质量门禁真实闭环**：进程内 `QualityGateEvaluator`（22 章场景 C）`fail_on=high` 求值——脏数据被拦截（passed=False，high 影响 4.15% 行 > 0.01 阈值）；扫描 → 修复（副本叠加）→ 复扫 → 再修，直至无可修复（上限 3 轮），修复 3 个 issue 后门禁放行（passed=True）
 - **修复权衡显式化**：`set_null` 把非法日期转 NULL——消除错误但引入缺失，分数 96.7 → 96.0 不升反降；脚本明示「门禁才是最终裁决」，不强凑分数上涨

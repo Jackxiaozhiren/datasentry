@@ -18,10 +18,11 @@ from typing import Any, cast
 
 from datasentry import __version__
 from datasentry.client import DataSentry
+from datasentry_core.models.contract import Contract, QualityGate
 from datasentry_core.models.enums import Severity
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.scan import ScanConfig
-from datasentry_core.scoring.gate import GateResult, QualityGateEvaluator
+from datasentry_core.scoring.gate import GateResult
 
 EXIT_OK = 0
 EXIT_GATE_FAILED = 1  # scan --fail-on 质量门禁（22 章场景 C）
@@ -74,9 +75,20 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
 
 def _cmd_scan(args: argparse.Namespace) -> int:
-    """22.1 scan：导入 → 扫描 → 评分 → 落库；数据源缺失退出码 4；门禁失败退出码 1。"""
+    """22.1 scan：导入 → 扫描 → 评分 → 落库；数据源缺失退出码 4；门禁失败退出码 1。
+
+    --contract 绑定契约（Step 35）：quality_gate 求值 + 契约 rules 进
+    ScanConfig.custom_rules；显式 --fail-on/--max-failure-ratio 覆盖契约 gate。
+    """
     client = DataSentry(args.project)
     config = ScanConfig(detectors=args.detector or None, seed=args.seed)
+    contract = None
+    if args.contract:
+        contract = _load_contract(args.contract, args.format)
+        if contract is None:
+            return EXIT_CONFIG
+        if contract.rules:
+            config.custom_rules = contract.rules
     try:
         scan_run, runs, issues = client.scan_file(args.path, config=config)
     except FileNotFoundError as exc:
@@ -92,8 +104,8 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         "detector_runs": len(runs),
         "quality_score": scan_run.quality_score.overall if scan_run.quality_score else None,
     }
-    if args.fail_on is not None:
-        gate_result = _evaluate_gate(issues, args)
+    if args.contract is not None or args.fail_on is not None:
+        gate_result = _evaluate_gate(issues, args, contract, client, scan_run.dataset_id)
         gate_data = gate_result.model_dump()
         gate_data["failed_count"] = gate_result.failed_count
         summary["gate"] = gate_data
@@ -103,15 +115,49 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _evaluate_gate(issues: list[Issue], args: argparse.Namespace) -> GateResult:
-    """22 章场景 C：scan --fail-on SEV [--max-failure-ratio R] → 质量门禁。"""
-    from datasentry_core.models.contract import QualityGate
+def _load_contract(path: str, fmt: str) -> Contract | None:
+    """读取并校验契约 YAML；失败返回 None（配置错误）。"""
+    import yaml
+    from pydantic import ValidationError
 
-    gate = QualityGate(
-        fail_on=[Severity(args.fail_on)],
-        maximum_failed_rows_ratio=args.max_failure_ratio,
-    )
-    return QualityGateEvaluator().evaluate(issues, gate)
+    from datasentry_core.models.contract import Contract
+
+    contract_path = Path(path).expanduser()
+    try:
+        raw = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        _emit(_envelope("contract validate", {"error": f"file not found: {path}"}), fmt)
+        return None
+    except yaml.YAMLError as exc:
+        _emit(_envelope("contract validate", {"valid": False, "error": str(exc)}), fmt)
+        return None
+    try:
+        return Contract.model_validate(raw)
+    except ValidationError as exc:
+        _emit(_envelope("contract validate", {"valid": False, "error": str(exc)}), fmt)
+        return None
+
+
+def _evaluate_gate(
+    issues: list[Issue],
+    args: argparse.Namespace,
+    contract: Contract | None,
+    client: DataSentry,
+    dataset_id: str,
+) -> GateResult:
+    """22 章场景 C：契约 gate（--contract）或显式 --fail-on 求值。
+
+    优先级：显式 --fail-on/--max-failure-ratio 覆盖契约 gate 对应项；
+    require_repair_validation 的修复证据由 client 查询注入（Step 35）。
+    """
+    gate = QualityGate()
+    if contract is not None and contract.quality_gate is not None:
+        gate = contract.quality_gate
+    if args.fail_on is not None:
+        gate.fail_on = [Severity(args.fail_on)]
+    if args.max_failure_ratio != 0.01 or gate.maximum_failed_rows_ratio == 0.01:
+        gate.maximum_failed_rows_ratio = args.max_failure_ratio
+    return client.evaluate_gate(issues, gate)
 
 
 def _cmd_issues_list(args: argparse.Namespace) -> int:
@@ -566,8 +612,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_init = sub.add_parser("init", help="initialize workspace (.datasentry/ + .gitignore)")
     p_init.set_defaults(func=_cmd_init)
 
-    p_scan = sub.add_parser("scan", help="scan a data file (CSV)")
+    p_scan = sub.add_parser("scan", help="scan a data file (CSV/Parquet/JSONL/XLSX)")
     p_scan.add_argument("path", type=str, help="data file path")
+    p_scan.add_argument(
+        "--contract",
+        type=str,
+        default=None,
+        help="contract YAML: binds quality_gate + rules to the scan (Step 35)",
+    )
     p_scan.add_argument(
         "--detector", action="append", default=None, help="detector whitelist (repeatable)"
     )
@@ -576,7 +628,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         choices=["info", "low", "medium", "high", "critical"],
-        help="quality gate: fail (exit 1) on issues at this severity (22 章场景 C)",
+        help="quality gate: fail (exit 1) on issues at this severity; "
+        "overrides --contract (22 章场景 C)",
     )
     p_scan.add_argument(
         "--max-failure-ratio",

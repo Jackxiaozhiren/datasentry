@@ -333,6 +333,18 @@ class MetadataStore:
             ).fetchall()
         return [self._repair_run_from_row(r) for r in rows]
 
+    def has_applied_repairs(self) -> bool:
+        """workspace 是否存在已应用（非回滚）的修复记录——require_repair_validation 证据。
+
+        Step 35 语义：修复证据按工作区级查询（修复副本与源文件指纹不同，
+        按 dataset 匹配会让复扫死锁；证据只回答「是否走过修复闭环」）。
+        """
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM repair_runs WHERE status = 'applied' LIMIT 1", ()
+            ).fetchone()
+        return row is not None
+
     def get_issue_by_id(self, issue_id: str) -> Issue | None:
         """跨扫描查找 Issue（附 evidence）。"""
         with self._lock:
