@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 
 from datasentry_core import __version__
@@ -17,7 +18,9 @@ from datasentry_core.reporting import (
     critical_findings,
 )
 from datasentry_core.reporting.html import render_html
+from datasentry_core.reporting.junit import render_junit
 from datasentry_core.reporting.markdown import render_markdown
+from datasentry_core.reporting.sarif import render_sarif
 
 
 def _scan() -> ScanRun:
@@ -179,6 +182,91 @@ class TestHtml:
         html = render_html(_report())
         for section in HTML_SECTIONS:
             assert f'id="{section}"' in html
+
+
+class TestJunit:
+    def test_suite_and_testcases(self) -> None:
+        root = ET.fromstring(render_junit(_report()))
+        assert root.tag == "testsuite"
+        assert root.get("name") == "datasentry:orders"
+        assert root.get("tests") == "2"
+        assert root.get("failures") == "2"
+        assert root.get("errors") == "0"
+        cases = root.findall("testcase")
+        assert len(cases) == 2
+        assert cases[0].get("name") == "numeric_outlier"
+        assert cases[0].get("classname") == "amount"
+        assert cases[0].get("file") == "orders"
+        failure = cases[0].find("failure")
+        assert failure is not None
+        assert failure.get("type") == "high"
+        assert failure.get("message") == "Outlier in amount"
+        assert "affected: 2 rows" in (failure.text or "")
+        assert "detectors: numeric_outlier" in (failure.text or "")
+        overview = root.find("properties/property")
+        assert overview is not None
+        assert "rows=100" in overview.get("value", "")
+
+    def test_xml_escaping(self) -> None:
+        report = _report()
+        report["issues"][0]["title"] = "a <b> & \"c\" 'd'"
+        xml = render_junit(report)
+        assert "<b>" not in xml
+        root = ET.fromstring(xml)
+        assert root.findall("testcase")[0].find("failure").get("message") == "a <b> & \"c\" 'd'"
+
+    def test_empty_report_is_green_suite(self) -> None:
+        report = build_report(_scan(), _runs(), [], None)
+        root = ET.fromstring(render_junit(report))
+        assert root.get("tests") == "0"
+        assert root.get("failures") == "0"
+        assert root.findall("testcase") == []
+
+
+class TestSarif:
+    def test_run_structure(self) -> None:
+        sarif = render_sarif(_report())
+        assert sarif["version"] == "2.1.0"
+        assert sarif["$schema"].endswith("sarif-2.1.0.json")
+        run = sarif["runs"][0]
+        assert run["automationDetails"]["id"] == "scan_abc"
+        assert run["tool"]["driver"]["name"] == "DataSentry"
+        assert run["tool"]["driver"]["version"]
+        assert run["properties"]["dataset_id"] == "orders"
+
+    def test_rules_and_results_mapping(self) -> None:
+        sarif = render_sarif(_report())
+        run = sarif["runs"][0]
+        rule_ids = {r["id"] for r in run["tool"]["driver"]["rules"]}
+        assert rule_ids == {"numeric_outlier", "uniqueness_violation"}
+        results = run["results"]
+        assert len(results) == 2
+        by_rule = {r["ruleId"]: r for r in results}
+        assert by_rule["uniqueness_violation"]["level"] == "error"  # critical
+        assert by_rule["numeric_outlier"]["level"] == "error"  # high
+        loc = by_rule["numeric_outlier"]["locations"][0]["physicalLocation"]
+        assert loc["artifactLocation"]["uri"] == "orders"
+        props = by_rule["numeric_outlier"]["properties"]
+        assert props["columns"] == ["amount"]
+        assert props["scan_run_id"] == "scan_abc"
+        assert "amount" in by_rule["numeric_outlier"]["message"]["text"]
+
+    def test_medium_maps_to_warning(self) -> None:
+        report = _report()
+        report["issues"][0]["severity"] = Severity.MEDIUM
+        sarif = render_sarif(report)
+        result = next(r for r in sarif["runs"][0]["results"] if r["ruleId"] == "numeric_outlier")
+        assert result["level"] == "warning"
+        rule = next(
+            r for r in sarif["runs"][0]["tool"]["driver"]["rules"] if r["id"] == "numeric_outlier"
+        )
+        assert rule["defaultConfiguration"]["level"] == "warning"
+
+    def test_empty_issues(self) -> None:
+        report = build_report(_scan(), _runs(), [], None)
+        sarif = render_sarif(report)
+        assert sarif["runs"][0]["results"] == []
+        assert sarif["runs"][0]["tool"]["driver"]["rules"] == []
 
 
 class TestReportWithNoQuality:

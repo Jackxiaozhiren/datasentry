@@ -775,3 +775,34 @@
   嵌入 + `ContractGate` 装配；`cli.py` 契约载入/求值/退出码
   改造；新增 tests/test_gate.py（6 例）、test_repair_cli.py
   （5 例）、test_cli.py 契约三例；测试 413 → 422。
+
+## ADR-036：JUnit / SARIF CI 报告导出（Step 36）
+
+- **状态**：已确认（Step 36）
+- **背景**：V1 交付物清单首项为 CI 集成（GitHub Action、
+  JUnit/SARIF）。现有 report export 只产出 JSON/Markdown/HTML，
+  无法接入 CI 测试汇总与 GitHub Code Scanning。
+- **决策**：
+  1. **JUnit XML**（`reporting/junit.py`）：一次 scan → 单个
+     `<testsuite>`（name=`datasentry:<dataset_id>`）；issue 存在
+     即质量问题 → 每个 issue 一个 failure testcase（type=严重度，
+     message=title，body=severity/confidence/affected/detectors），
+     errors 保留给平台级错误；properties.overview 放数据集概览。
+     与门禁判定解耦（CI 阈值判定走 `scan --fail-on` 退出码，
+     本导出只忠实呈现检测结果）。
+  2. **SARIF 2.1.0**（`reporting/sarif.py`）：一次 scan → 一个
+     run；issue_type 去重注册为 rules（defaultConfiguration.level
+     按严重度），每个 issue → result（critical/high→error、
+     medium→warning、low/info→note）；无行号证据时 location 落
+     文件级（dataset_id 作 artifact uri），列名/受影响行数进
+     message 与 properties；`automationDetails.id` = scan_run_id。
+  3. **CLI 接入**：`report export --as junit|sarif [--output]`，
+     与 json/markdown/html 同一输出路径约定（默认
+     `.datasentry/reports/<run_id>.junit/.sarif`）。
+- **理由**：CI 集成是 V1 首项交付，JUnit 满足测试汇总生态、
+  SARIF 满足代码扫描生态；两个导出器均纯函数式、以已有
+  26.2 规范报告为唯一输入，零状态零耦合。
+- **影响**：新增 `reporting/junit.py`、`reporting/sarif.py`，
+  `reporting/__init__.py` 导出便捷入口；CLI `--as` 选择扩到
+  5 种；tests/test_reporting.py +9 例（XML 转义、空报告绿套件、
+  规则去重、级别映射）、test_cli.py +1 例；测试 422 → 430。

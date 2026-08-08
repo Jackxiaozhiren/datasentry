@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -87,6 +88,49 @@ class TestClient:
         with pytest.raises(KeyError):
             client.export_report("missing")
         client.close()
+
+    def test_export_report_junit_and_sarif(self, sample_csv: Path, workspace: Path) -> None:
+        """Step 36：--as junit / --as sarif CI 导出走通文件落盘。"""
+        client = DataSentry(project=workspace)
+        scan, _, issues = client.scan_file(sample_csv)
+        client.close()
+        junit_out = workspace / "junit.xml"
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "report",
+                "export",
+                scan.id,
+                "--as",
+                "junit",
+                "--output",
+                str(junit_out),
+            ]
+        )
+        assert code == 0
+        assert junit_out.exists()
+        root = ET.fromstring(junit_out.read_text(encoding="utf-8"))
+        assert root.tag == "testsuite"
+        assert int(root.get("tests")) == len(issues)
+        sarif_out = workspace / "sarif.json"
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "report",
+                "export",
+                scan.id,
+                "--as",
+                "sarif",
+                "--output",
+                str(sarif_out),
+            ]
+        )
+        assert code == 0
+        sarif = json.loads(sarif_out.read_text(encoding="utf-8"))
+        assert sarif["version"] == "2.1.0"
+        assert len(sarif["runs"][0]["results"]) == len(issues)
 
     def test_quality_score_after_scan(self, sample_csv: Path, workspace: Path) -> None:
         client = DataSentry(project=workspace)

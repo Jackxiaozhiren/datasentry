@@ -207,6 +207,14 @@ def _cmd_report_export(args: argparse.Namespace) -> int:
         from datasentry_core.reporting.markdown import render_markdown
 
         content = render_markdown(report)
+    elif args.as_format == "junit":
+        from datasentry_core.reporting.junit import render_junit
+
+        content = render_junit(report)
+    elif args.as_format == "sarif":
+        from datasentry_core.reporting.sarif import render_sarif
+
+        content = json.dumps(render_sarif(report), ensure_ascii=False, indent=2)
     else:
         from datasentry_core.reporting.html import render_html
 
@@ -658,8 +666,8 @@ def build_parser() -> argparse.ArgumentParser:
         dest="as_format",
         type=str,
         default="json",
-        choices=["json", "markdown", "html"],
-        help="report format (json|markdown|html, default: json)",
+        choices=["json", "markdown", "html", "junit", "sarif"],
+        help="report format (json|markdown|html|junit|sarif, default: json)",
     )
     p_export.add_argument(
         "--output", type=str, default=None, help="output path (default: .datasentry/reports/)"

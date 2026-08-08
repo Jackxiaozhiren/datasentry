@@ -25,6 +25,8 @@
 pip install datasentry          # 或 uv sync（源码开发）
 datasentry scan orders.csv      # 检测 → 评分 → 落库，一步完成
 datasentry report export <run_id> --as html --output report.html
+datasentry report export <run_id> --as junit --output junit.xml   # CI（每个 issue = failure testcase）
+datasentry report export <run_id> --as sarif --output sarif.json  # GitHub Code Scanning / IDE
 datasentry score latest         # 质量总分（0–100，六维）
 datasentry scan orders.csv --fail-on high --threshold 80   # CI 质量门禁
 ```
@@ -49,7 +51,7 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
 | `datasentry scan <file>` | 检测 + 融合 + 评分 + 落库（CSV/Parquet/JSONL/XLSX） |
 | `datasentry issues list` | 问题列表（按严重度/维度筛选） |
 | `datasentry score latest` | 六维质量总分 |
-| `datasentry report export <run> --as json\|markdown\|html` | 报告导出 |
+| `datasentry report export <run> --as json\|markdown\|html\|junit\|sarif` | 报告导出（含 CI 格式） |
 | `datasentry contract` | 契约校验（跨表/多文件约束） |
 | `datasentry repair propose/preview/apply/rollback` | 修复闭环 |
 | `datasentry rules propose/approve/list` | NL→规则候选 + 预运行审批（14.3/14.4） |
@@ -217,7 +219,7 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - `reporting/`：`build_report()` = 26.2 规范 JSON 报告（报告头 + scan + detector_runs + issues + quality），SDK `export_report()` 与 CLI `report export --as json` 无差异消费；Markdown 表格化摘要（26.1）、HTML 自包含单文件（内嵌 CSS，8 节：Executive Summary/Quality Score 含 27.3 维度条形图与扣分悬停/Issue Breakdown/Critical Findings 等，Drift/规则/修复历史归 V1）
 - 报告默认落点 `<workspace>/.datasentry/reports/<run_id>.<ext>`（ADR-010），`--output` 可覆盖；HTML 全字段转义（XSS 安全）
 - `scoring/gate.py`：`QualityGateEvaluator`（22 章场景 C）——`fail_on` 精确严重度集合、`maximum_failed_rows_ratio`（受影响行比例上限，max over issues）、`maximum_issues` 按严重度上限；`require_repair_validation` MVP 不支持时显式失败
-- CLI：`scan --fail-on SEV [--max-failure-ratio R]` 激活门禁，失败退出码 1；`report export RUN_ID --as json|markdown|html [--output PATH]`
+- CLI：`scan --fail-on SEV [--max-failure-ratio R]` 激活门禁，失败退出码 1；`report export RUN_ID --as json|markdown|html|junit|sarif [--output PATH]`（Step 36：JUnit 每 issue 一个 failure testcase、SARIF 2.1.0 rules+results，CI 集成格式）
 
 ## 跨字段规则检测器（Step 14，11.10 + ADR-015）
 

@@ -81,4 +81,20 @@ __all__ = [
     "Report",
     "build_report",
     "critical_findings",
+    "render_junit",
+    "render_sarif",
 ]
+
+
+def render_junit(report: Report) -> str:
+    """26 章报告 → JUnit XML（28 章 CI）。"""
+    from datasentry_core.reporting.junit import render_junit as _render
+
+    return _render(report)
+
+
+def render_sarif(report: Report) -> dict[str, Any]:
+    """26 章报告 → SARIF 2.1.0 字典（28 章 CI）。"""
+    from datasentry_core.reporting.sarif import render_sarif as _render
+
+    return _render(report)
