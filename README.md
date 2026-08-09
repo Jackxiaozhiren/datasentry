@@ -11,6 +11,7 @@
 
 <p align="center">
   <img alt="Release" src="https://img.shields.io/github/v/release/Jackxiaozhiren/datasentry">
+  <img alt="PyPI" src="https://img.shields.io/pypi/v/datasentry-ai">
   <img alt="Python" src="https://img.shields.io/badge/python-3.12-blue">
   <img alt="License" src="https://img.shields.io/github/license/Jackxiaozhiren/datasentry">
   <img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/Jackxiaozhiren/datasentry/ci.yml?label=CI%20checks">
@@ -45,7 +46,7 @@ DataSentry scans your data (CSV / Parquet / JSONL / XLSX / DuckDB) and produces:
 ## Quick start
 
 ```bash
-pip install datasentry        # or: uv sync (source checkout)
+pip install datasentry-ai     # or: uv sync (source checkout)
 
 datasentry scan orders.csv               # detect → fuse → score → persist, one step
 datasentry issues list                   # issues by severity / dimension
