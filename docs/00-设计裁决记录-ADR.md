@@ -1099,3 +1099,31 @@
   结构要求构建步骤显式覆盖 workspace 成员。
 - **影响**：CHANGELOG + Makefile + CI；本地重建 dist 双 wheel
   并通过隔离安装冒烟（datasentry 0.1.0 + core 0.1.0）。
+
+## ADR-047：开源呈现（Step 47）
+
+- **状态**：已确认（Step 47）
+- **背景**：项目将推送到 GitHub 开源，需要开源门面：
+  仓库首页（README）与项目主页（GitHub Pages）的呈现形式。
+- **决策**：
+  1. **README 开源化**：技术开发笔记移入 docs/DEVELOPMENT.md，
+     README 重写为英文为主的开门结构——徽章行（版本/许可证/
+     Python/CI）、一句话定位 + 中文导读、功能矩阵、Mermaid
+     架构图、快速开始、真实 Demo 报告截图 + 链接、文档索引、
+     贡献指南（强调 human-in-the-loop 不变式）。
+  2. **GitHub Pages 主页**：docs/index.html 自包含单文件（无
+     CDN/构建链，深色 GitHub 风格），Hero + 能力卡片 + 真实
+     Demo 报告 iframe（10KB 自包含 HTML，零外部资源）+ 快速
+     开始终端块 + 文档链接；Pages 由 pages.yml workflow
+     （actions/configure-pages + deploy-pages）部署 docs/。
+  3. **真实素材优先**：Demo 报告是真实扫描产物（200 行注入
+     15 类问题的订单数据 → report export --as html），非手写
+     示例；缩略图由 qlmanage 生成，README 直接引用。
+  4. **品牌**：docs/assets/logo.svg 手写 SVG（盾牌 + 数据条 +
+     对勾 + 状态点），复用 GitHub 蓝绿品牌色系。
+- **理由**：开源项目的信任来自「真实产物 + 可复现命令」；
+  零构建链的静态站点与项目本地优先哲学一致；docs/ 目录
+  已有（设计文档），Pages 直接发布 docs/ 零迁移成本。
+- **影响**：README 重构、docs/index.html + pages.yml +
+  logo + demo 素材。待办：推送后替换 docs/index.html 中的
+  GitHub 链接占位与 README 徽章 URL。
