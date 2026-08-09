@@ -80,6 +80,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
 
     --contract 绑定契约（Step 35）：quality_gate 求值 + 契约 rules 进
     ScanConfig.custom_rules；显式 --fail-on/--max-failure-ratio 覆盖契约 gate。
+    契约 references（Step 40）触发跨表外键完整性检测。
     """
     client = DataSentry(args.project)
     config = ScanConfig(detectors=args.detector or None, seed=args.seed)
@@ -91,7 +92,12 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         if contract.rules:
             config.custom_rules = contract.rules
     try:
-        scan_run, runs, issues = client.scan_file(args.path, table_name=args.table, config=config)
+        scan_run, runs, issues = client.scan_file(
+            args.path,
+            table_name=args.table,
+            config=config,
+            references=contract.references if contract is not None else None,
+        )
     except FileNotFoundError as exc:
         _emit(_envelope("scan", {"error": str(exc)}), args.format)
         return EXIT_SOURCE_UNAVAILABLE

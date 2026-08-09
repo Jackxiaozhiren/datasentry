@@ -54,8 +54,7 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
 | `datasentry score latest` | 六维质量总分 |
 | `datasentry report export <run> --as json\|markdown\|html\|junit\|sarif` | 报告导出（含 CI 格式） |
 | `datasentry contract validate <file>` | 契约校验 |
-| `datasentry contract export <file> --as pandera\|ge` | 契约导出（Pandera 代码 / GE ExpectationSuite） |
-| `datasentry repair propose/preview/apply/rollback` | 修复闭环 |
+| `datasentry contract export <file> --as pandera\|ge` | 契约导出（Pandera 代码 / GE ExpectationSuite） || `datasentry repair propose/preview/apply/rollback` | 修复闭环 |
 | `datasentry rules propose/approve/list` | NL→规则候选 + 预运行审批（14.3/14.4） |
 | `datasentry llm status/invocations` | LLM 配置状态与审计 |
 | `datasentry drift compare <run_a> <run_b>` | 漂移：两历史扫描版本比较（schema/行数/分数/issue 分布） |
@@ -364,6 +363,14 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - **干净环境验收**：全新 Python 3.12 venv 安装本地 wheel → `datasentry --version` → `scan`（6 issues / score 94.8）→ `report export` HTML 全链路通过；importlib.metadata 校验 keywords/classifiers/readme 完整
 - **CHANGELOG.md**：Keep a Changelog 格式，0.1.0 汇总 Step 1–31 全部变更
 - 测试 408 例不变（发布面无逻辑变更），门禁 3 连绿
+
+## 跨表外键完整性（Step 40，integrity 维度首个真实检测器）
+
+- 契约 `references` 声明跨表外键：`name/path/table/schema/columns`（主表列→引用表列），DuckDB 引用文件需 `table`；`schema` 键兼容
+- 检测器 `foreign_key_violation`（INTEGRITY 维度）：主表非 NULL 但引用表无匹配 → 孤儿行，列级 issue + `constraint_violation` 证据（孤儿数/比例/引用名），无 references 时自动跳过
+- 主表/引用支持 CSV/Parquet/JSONL/DuckDB（XLSX 引用文件 MVP 不支持）；自建只读 executor，路径/标识符全部转义
+- 接入：`client.scan_file(..., references=[...])` 或 `scan --contract`（契约 references 自动透传）
+- 测试 `tests/test_cross_table.py` 9 例：孤儿/全匹配/未知列/多引用/duckdb 引用/SDK+CLI 端到端
 
 ## 漂移引擎（Step 39，18.2 历史版本比较，V1）
 

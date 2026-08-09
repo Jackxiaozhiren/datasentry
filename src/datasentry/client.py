@@ -23,7 +23,7 @@ from datasentry_core.connectors import (
 from datasentry_core.detectors import DetectionContext, DetectorRegistry
 from datasentry_core.detectors.initial import register_default_detectors
 from datasentry_core.detectors.runner import ScanRunner
-from datasentry_core.models.contract import QualityGate
+from datasentry_core.models.contract import QualityGate, TableReference
 from datasentry_core.models.drift import DriftReport
 from datasentry_core.models.enums import Severity
 from datasentry_core.models.issue import Issue
@@ -131,10 +131,12 @@ class DataSentry:
         dataset_id: str | None = None,
         table_name: str | None = None,
         config: ScanConfig | None = None,
+        references: list[TableReference] | None = None,
     ) -> tuple[ScanRun, list[DetectorRun], list[Issue]]:
         """导入 + 扫描 + 评分 + 落库（数据源不可用抛 FileNotFoundError 类异常）。
 
         table_name：DuckDB 文件连接器必填（Step 38）；其他格式忽略。
+        references：契约跨表引用（Step 40），触发外键完整性检测。
         """
         source_path = Path(path).expanduser()
         if not source_path.is_file():
@@ -160,6 +162,7 @@ class DataSentry:
                 columns=handle.schema().column_names,
                 handle=handle,
                 config=config or ScanConfig(),
+                references=references,
             )
             scan_run, runs, issues = self._runner.run_scan(context, config)
             self._store.save_scan(scan_run, runs, issues)

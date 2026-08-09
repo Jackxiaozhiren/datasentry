@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datasentry_core.detectors.base import Detector, DetectorRegistry
 from datasentry_core.detectors.cross_field import CrossFieldRuleDetector
+from datasentry_core.detectors.cross_table import ForeignKeyViolationDetector
 from datasentry_core.detectors.datetime import (
     DuplicateTimestampDetector,
     FutureDateDetector,
@@ -98,6 +99,7 @@ def build_initial_detectors() -> list[Detector]:
         FullwidthCharacterDetector(),
         MojibakeCharacterDetector(),
         InvalidNumericDetector(),
+        ForeignKeyViolationDetector(),
     ]
 
 

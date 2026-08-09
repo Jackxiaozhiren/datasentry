@@ -42,6 +42,10 @@ class DuckDBDataHandle(FileDataHandle):
         self._table_name = spec.table_name
         self._schema_name = spec.options.get("schema")
 
+    @property
+    def table_name(self) -> str | None:
+        return self._table_name
+
     def _ensure_view(self) -> None:
         if self._view_ready:
             return

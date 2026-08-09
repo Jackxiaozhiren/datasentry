@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from typing import ClassVar, Protocol, runtime_checkable
 
 from datasentry_core.connectors.base import DataHandle
+from datasentry_core.models.contract import TableReference
 from datasentry_core.models.detector import DetectorMeta, IssueCandidate
 from datasentry_core.models.enums import QualityDimension
 from datasentry_core.models.profile import DatasetProfile
@@ -32,6 +33,7 @@ class DetectionContext:
         config: ScanConfig | None = None,
         profile: DatasetProfile | None = None,
         sample_rows: int | None = None,
+        references: list[TableReference] | None = None,
     ) -> None:
         self.dataset_id = dataset_id
         self.table_name = table_name
@@ -40,6 +42,7 @@ class DetectionContext:
         self.config = config
         self.profile = profile
         self.sample_rows = sample_rows
+        self.references: list[TableReference] = references or []
 
 
 @runtime_checkable

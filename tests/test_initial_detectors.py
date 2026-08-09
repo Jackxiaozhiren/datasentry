@@ -96,7 +96,7 @@ def _detect(detector, ctx) -> list:
 class TestRegistryIntegration:
     def test_all_initial_detectors_registered(self, registry: DetectorRegistry) -> None:
         ids = [d.detector_id for d in registry.list()]
-        assert len(ids) == 36
+        assert len(ids) == 37
         assert "excessive_null_rate" in ids
         assert "suspicious_formula_injection" in ids
         assert "percentile_outlier" in ids

@@ -904,3 +904,35 @@
   client 两方法；CLI drift 子命令组；tests/test_drift_engine.py
   （10 例）+ tests/test_drift_integration.py（6 例）；测试
   453 → 469。
+
+## ADR-040：跨表外键完整性检测（契约 references）（Step 40）
+
+- **状态**：已确认（Step 40）
+- **背景**：integrity 维度长期空缺（quality_score 断言 consistency 等
+  为 None）；V1 清单含「跨表检测器 + 多表工作区」。检测器协议
+  （11 章）限定单数据源句柄，跨表需新的数据通道。
+- **决策**：
+  1. **契约声明式引用**：`Contract.references: list[TableReference]`
+     （name/path/table/schema/columns 主列→引用列），跨表关系随契约
+     版本化管理，检测器零配置发现。`schema` 键因遮蔽 pydantic
+     BaseModel 属性，字段名 `schema_name` + alias。
+  2. **引用由调用方显式声明**：references 属调用方信任域，检测器
+     自建只读 DuckDBExecutor（ATTACH/read_* 视图）执行 LEFT JOIN，
+     属协议「检测器不得自行打开数据源」的显式例外（只在调用方声明
+     引用时激活）；路径/标识符全转义防注入。
+  3. **外键语义**：主表列非 NULL ∧ 引用表列无匹配（引用列 NULL 不
+     参与匹配，LEFT JOIN ON 附加 IS NOT NULL）→ 孤儿行；列级 issue，
+     evidence=CONSTRAINT_VIOLATION（孤儿数/比例/引用名），HIGH。
+  4. **融合注册**：`foreign_key_violation` → family
+     `integrity_constraint` → INTEGRITY 维度（此前无任何家族）。
+  5. **接入面**：SDK `scan_file(references=...)`；CLI `scan --contract`
+     自动透传契约 references。
+- **理由**：跨表完整性是「质量」最硬的信号之一（孤儿行 = 业务断裂）；
+  契约承载引用使多表工作区成为契约的天然扩展，而非新 API 面。
+  自建 executor 换来了零侵入的单表架构不动，成本可控（只读、显式
+  生命周期）。
+- **影响**：契约模型 + DetectionContext.references + DataHandle
+  Protocol.table_name（CSV 等返回 None）+ 新检测器（37 个）；
+  fusion 新增 family/dimension/title 映射；测试 469 → 478（+9）。
+  已知边界：XLSX 引用文件不支持、duckdb 引用需 table 名、多列
+  映射逐列独立比较。

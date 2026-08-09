@@ -71,6 +71,11 @@ class FileDataHandle:
     def source_path(self) -> Path | None:
         return self._path
 
+    @property
+    def table_name(self) -> str | None:
+        """DuckDB 等需要表名的数据源返回表名，其他返回 None（Step 40）。"""
+        return self._spec.table_name
+
     # ---- 子类契约 ------------------------------------------------------
 
     def _ensure_view(self) -> None:

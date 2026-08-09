@@ -111,6 +111,11 @@ class CsvDataHandle:
     def source_path(self) -> Path | None:
         return self._path
 
+    @property
+    def table_name(self) -> str | None:
+        """CSV 无表名语义（Step 40 协议成员）。"""
+        return None
+
     def _ensure_view(self) -> None:
         """注册只读 view。注意：duckdb 默认将空字符串视为 NULL，
         pyarrow 读取路径保留空字符串——两路径语义差异在检测器层统一（Step 6 文档约定）。"""

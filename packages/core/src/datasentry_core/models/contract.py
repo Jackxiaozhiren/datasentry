@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from datasentry_core.models.enums import BusinessCriticality, Severity
 from datasentry_core.models.rules import Rule
@@ -61,6 +61,22 @@ class QualityGate(BaseModel):
     require_repair_validation: bool = False
 
 
+class TableReference(BaseModel):
+    """跨表引用（外键语义，Step 40）：主表列 → 引用表列。
+
+    path 为引用数据文件；table/schema_name 仅在引用文件为 DuckDB 时
+    使用（表名必填）。columns 为「主表列名 → 引用表列名」映射。
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str
+    path: str
+    table: str | None = None
+    schema_name: str | None = Field(default=None, alias="schema")
+    columns: dict[str, str] = Field(default_factory=dict)
+
+
 class Contract(BaseModel):
     """数据契约（16.1）：version 与 checksum 用于差异比较。"""
 
@@ -68,5 +84,6 @@ class Contract(BaseModel):
     dataset: DatasetContract
     columns: dict[str, ColumnContract] = Field(default_factory=dict)
     rules: list[Rule] = Field(default_factory=list)
+    references: list[TableReference] = Field(default_factory=list)
     quality_gate: QualityGate | None = None
     metadata: dict[str, str] = Field(default_factory=dict)
