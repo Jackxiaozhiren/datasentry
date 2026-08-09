@@ -24,6 +24,7 @@ from datasentry_core.detectors import DetectionContext, DetectorRegistry
 from datasentry_core.detectors.initial import register_default_detectors
 from datasentry_core.detectors.runner import ScanRunner
 from datasentry_core.models.contract import QualityGate
+from datasentry_core.models.drift import DriftReport
 from datasentry_core.models.enums import Severity
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.llm import LLMInvocation
@@ -198,6 +199,48 @@ class DataSentry:
     def list_scan_runs(self) -> list[ScanRun]:
         """ScanRun 列表（按创建时间降序）。"""
         return self._store.list_scan_runs()
+
+    def drift_compare(
+        self,
+        reference_run_id: str,
+        current_run_id: str,
+        *,
+        row_ratio_threshold: float = 0.20,
+        score_threshold: float = 5.0,
+    ) -> DriftReport:
+        """Step 39：两历史扫描版本漂移比较（18.2，V1）。"""
+        from datasentry_core.drift import compare_scans
+
+        reference = self._store.get_scan_run(reference_run_id)
+        current = self._store.get_scan_run(current_run_id)
+        if reference is None or current is None:
+            raise KeyError("scan run not found")
+        return compare_scans(
+            reference,
+            current,
+            self._store.get_issues(reference_run_id),
+            self._store.get_issues(current_run_id),
+            row_ratio_threshold=row_ratio_threshold,
+            score_threshold=score_threshold,
+        )
+
+    def drift_latest(
+        self,
+        dataset_id: str,
+        *,
+        row_ratio_threshold: float = 0.20,
+        score_threshold: float = 5.0,
+    ) -> DriftReport:
+        """最近两次该数据集的扫描比较；不足两次抛 ValueError。"""
+        runs = [r for r in self._store.list_scan_runs(dataset_id) if r.status == "completed"]
+        if len(runs) < 2:
+            raise ValueError(f"dataset {dataset_id!r} has fewer than 2 completed scans")
+        return self.drift_compare(
+            runs[-1].id,
+            runs[0].id,
+            row_ratio_threshold=row_ratio_threshold,
+            score_threshold=score_threshold,
+        )
 
     def get_detector_runs(self, scan_run_id: str) -> list[DetectorRun]:
         return self._store.get_detector_runs(scan_run_id)

@@ -872,3 +872,35 @@
   新增；registry/__init__/client/cli 接入；tests/test_duckdb_
   connector.py 12 例（协议/流式/schema 表/注入/registry/client/
   缺表名）；测试 441 → 453。
+
+## ADR-039：漂移引擎（历史版本比较）（Step 39）
+
+- **状态**：已确认（Step 39）
+- **背景**：V1 交付物「漂移引擎 + 历史版本比较 + 趋势 UI」。
+  drift 模型（18.2）MVP 已先行定义；scan 历史与 issues 已随
+  每次扫描落库——比较引擎无需新存储，纯读历史即可。
+- **决策**：
+  1. **纯函数比较**：`drift/engine.py` `compare_scans(ref,
+     cur, ref_issues, cur_issues)` → `DriftReport`，不落库、
+     零状态。四类信号：
+     - schema 变更：column_signature 逐列 diff，只报告可确证
+       的 added/removed/dtype_changed/order_changed（renamed
+       需相似度启发式，MVP 不伪造）；
+     - 行数漂移：变化率 ≥ row_ratio_threshold（默认 20%）；
+     - 质量漂移：overall 变化 ≥ score_threshold（默认 5 分），
+       方向 decrease/increase；
+     - issue 分布漂移：issue_type 计数增减——出现=新问题
+       （HIGH）/消失=已解决，增/减方向。
+  2. **接入面**：SDK `drift_compare` / `drift_latest`
+     （最近两次 completed 扫描，不足两次 ValueError）；CLI
+     `drift compare <a> <b>` / `drift latest <dataset>`，
+     阈值可传参，缺扫描 → 退出码 2。
+  3. **趋势 UI 归 V1 后续**：引擎先行，UI（跨扫描趋势图）
+     待可视化迭代，README 注明范围。
+- **理由**：漂移的核心价值在「版本间可解释差异」；比较引擎
+  只依赖已有 scan 历史，交付风险最低，且为后续趋势 UI 提供
+  唯一数据源。诚实边界（不伪造 renamed）保证信号可信。
+- **影响**：新增 `drift/engine.py` + `drift/__init__.py`；
+  client 两方法；CLI drift 子命令组；tests/test_drift_engine.py
+  （10 例）+ tests/test_drift_integration.py（6 例）；测试
+  453 → 469。

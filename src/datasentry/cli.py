@@ -448,6 +448,70 @@ def _cmd_repair_list(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_drift_compare(args: argparse.Namespace) -> int:
+    """Step 39：两历史扫描版本漂移比较（18.2，V1）。"""
+    client = DataSentry(args.project)
+    try:
+        report = client.drift_compare(
+            args.reference_run_id,
+            args.current_run_id,
+            row_ratio_threshold=args.row_ratio_threshold,
+            score_threshold=args.score_threshold,
+        )
+    except KeyError as exc:
+        _emit(_envelope("drift compare", {"error": str(exc)}), args.format)
+        return EXIT_CONFIG
+    data = {
+        "drift_report_id": report.id,
+        "reference_dataset_id": report.reference_dataset_id,
+        "current_dataset_id": report.current_dataset_id,
+        "schema_changes": [
+            {
+                "change_type": c.change_type,
+                "column": c.column,
+                "before": c.before,
+                "after": c.after,
+            }
+            for c in report.schema_changes
+        ],
+        "column_drifts": [
+            {
+                "column": d.column,
+                "drift_type": d.drift_type,
+                "metric": d.metric,
+                "value": d.value,
+                "threshold": d.threshold,
+                "direction": d.direction,
+                "severity": d.severity.value,
+            }
+            for d in report.column_drifts
+        ],
+    }
+    _emit(_envelope("drift compare", data), args.format)
+    return EXIT_OK
+
+
+def _cmd_drift_latest(args: argparse.Namespace) -> int:
+    """最近两次扫描比较；不足两次退出码 2。"""
+    client = DataSentry(args.project)
+    try:
+        report = client.drift_latest(
+            args.dataset_id,
+            row_ratio_threshold=args.row_ratio_threshold,
+            score_threshold=args.score_threshold,
+        )
+    except ValueError as exc:
+        _emit(_envelope("drift latest", {"error": str(exc)}), args.format)
+        return EXIT_CONFIG
+    data = {
+        "drift_report_id": report.id,
+        "schema_changes": len(report.schema_changes),
+        "column_drifts": len(report.column_drifts),
+    }
+    _emit(_envelope("drift latest", data), args.format)
+    return EXIT_OK
+
+
 def _cmd_llm_status(args: argparse.Namespace) -> int:
     """LLM 提供方状态与配置来源（13.11 审计查询入口）。"""
     from datasentry.llm_providers import load_llm_config
@@ -736,6 +800,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_export.add_argument("--output", type=str, default=None, help="output file path")
     p_export.set_defaults(func=_cmd_contract_export)
+
+    p_drift = sub.add_parser("drift", help="drift engine (18.2, V1): historical scan comparison")
+    drift_sub = p_drift.add_subparsers(dest="drift_cmd", required=True)
+    p_compare = drift_sub.add_parser("compare", help="compare two scan runs")
+    p_compare.add_argument("reference_run_id", type=str)
+    p_compare.add_argument("current_run_id", type=str)
+    p_compare.add_argument("--row-ratio-threshold", type=float, default=0.20)
+    p_compare.add_argument("--score-threshold", type=float, default=5.0)
+    p_compare.set_defaults(func=_cmd_drift_compare)
+    p_latest = drift_sub.add_parser("latest", help="compare the two most recent scans of a dataset")
+    p_latest.add_argument("dataset_id", type=str)
+    p_latest.add_argument("--row-ratio-threshold", type=float, default=0.20)
+    p_latest.add_argument("--score-threshold", type=float, default=5.0)
+    p_latest.set_defaults(func=_cmd_drift_latest)
 
     p_repair = sub.add_parser(
         "repair", help="repair engine (15 章, ADR-020; propose→preview→apply→rollback)"

@@ -58,6 +58,8 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
 | `datasentry repair propose/preview/apply/rollback` | 修复闭环 |
 | `datasentry rules propose/approve/list` | NL→规则候选 + 预运行审批（14.3/14.4） |
 | `datasentry llm status/invocations` | LLM 配置状态与审计 |
+| `datasentry drift compare <run_a> <run_b>` | 漂移：两历史扫描版本比较（schema/行数/分数/issue 分布） |
+| `datasentry drift latest <dataset>` | 最近两次扫描漂移（不足两次 → 退出码 2） |
 | `datasentry detectors` | 检测器注册表（内置 + 插件） |
 | `datasentry-server` | FastAPI 服务 + Web UI（或 Docker compose 一键起） |
 
@@ -362,6 +364,12 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - **干净环境验收**：全新 Python 3.12 venv 安装本地 wheel → `datasentry --version` → `scan`（6 issues / score 94.8）→ `report export` HTML 全链路通过；importlib.metadata 校验 keywords/classifiers/readme 完整
 - **CHANGELOG.md**：Keep a Changelog 格式，0.1.0 汇总 Step 1–31 全部变更
 - 测试 408 例不变（发布面无逻辑变更），门禁 3 连绿
+
+## 漂移引擎（Step 39，18.2 历史版本比较，V1）
+
+- `drift/engine.py` `compare_scans`：纯函数式比较两个历史扫描 → `DriftReport`——schema 变更（added/removed/dtype_changed/order_changed，renamed 需启发式不伪造）、行数变化率（默认 20% 阈值）、质量分变化（默认 5 分阈值）、issue_type 分布增减（新问题=HIGH / 已解决）；阈值可传参
+- SDK：`client.drift_compare(run_a, run_b)` / `drift_latest(dataset_id)`（最近两次，不足两次 ValueError）；CLI：`drift compare` / `drift latest`（不足两次 → 退出码 2）
+- 不落库、零耦合：比较只读 scan 历史与 issues（`tests/test_drift_engine.py` 10 例 + 集成 6 例）
 
 ## 电商订单域场景示例（Step 34，34 章场景 B/C 真实化）
 
