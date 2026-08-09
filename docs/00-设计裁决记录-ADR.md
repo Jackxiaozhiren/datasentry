@@ -1024,3 +1024,33 @@
   测试 491 → 502（+11）。
   已知边界：只实现 tools 能力（无 resources/prompts）；
   单进程阻塞读 stdin，无并发（MCP 客户端串行调用工具）。
+
+## ADR-044：AI 修复候选（Step 44）
+
+- **状态**：已确认（Step 44）
+- **背景**：V1 清单「AI 修复候选」。RepairEngine.propose 仅对 5 类
+  issue 给确定性提案；其余 issue 无修复建议。LLM 面（rules_ai）
+  已有 38 章脱敏 + 审计骨架可复用。
+- **决策**：
+  1. **上下文白名单操作集**：AI 只能从 `_CONTEXT_OPS`（按 issue
+     detector_ids 派生，与规则引擎 `_PROPOSAL_MAP` 同款 5 操作）
+     中选择——LLM 不新增表达式能力，杜绝任意 SQL/代码注入。
+  2. **参数白名单**：仅 clip_value 接受数值 lower/upper（且
+     isfinite + lower<=upper 校验），其余操作强制空参数；与
+     `RepairEngine._after_expr` 支持面严格一致（语义复用 engine
+     的 `_after_expr`，不复制实现防漂移）。
+  3. **全流程安全**：画像 + 样例整体脱敏（mask_profile，映射表
+     不落盘）；evidence 摘要中 str 值就地 `{{REDACTED}}`；
+     llm_cache + llm_invocations 审计（task_type=repair_candidate）；
+     JSON 严格 pydantic 校验；受影响行数落库前真实估算（<=0 拒绝）。
+  4. **落库语义**：候选 save_repair_proposal（status=proposed），
+     与规则提案对称；apply 仍走确定性引擎（AI 候选是顾问性质）。
+  5. **CLI**：`repair propose --ai`；未配置 LLM → LLMNotConfiguredError
+     清晰提示（与 rules propose 同行为）。
+- **理由**：把「修复建议」从确定性枚举扩展到 LLM 兜底，同时把
+  注入面锁死在 5 操作 + 2 参数内；复用已有脱敏/缓存/审计设施，
+  不新建机制。
+- **影响**：新增 src/datasentry/repair_ai.py + client.repair_propose_ai
+  + CLI `--ai`；测试 502 → 514（+12）。
+  已知边界：AI 候选不直接 apply（apply 由确定性引擎重新 propose）；
+  复杂操作（impute/map_category 等）未开放给 LLM。

@@ -372,6 +372,13 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - 输出统一 JSON 序列化（datetime/Path 安全）；工具异常 → JSON-RPC error；未知工具 → -32602
 - 测试 `tests/test_mcp_server.py` 11 例（握手/工具/真子进程 stdio 循环）
 
+## AI 修复候选（Step 44，规则引擎兜底 + LLM 参数/理由）
+
+- `datasentry repair propose <issue_id> --file <data> --ai`：规则引擎无提案时，LLM 生成修复候选（35 章闭环的 AI 增强）
+- 安全边界：AI 只能从该 issue 检测器对应的操作集内选择（`_CONTEXT_OPS`，与规则引擎同款 5 操作）；仅 clip_value 接受数值边界，其余强制空参数——杜绝任意表达式注入
+- 流程复用 rules_ai 骨架：画像 + 样例整体脱敏（38 章）→ llm_cache → 审计（task_type=repair_candidate）→ JSON 严格校验 → 候选落库（status=proposed）
+- `repair propose --ai` 未配置 LLM 时抛 LLMNotConfiguredError，CLI 清晰提示不崩溃
+
 ## 模型异常检测（Step 42，IF/LOF，distribution_stability 维度首个检测器）
 
 - 检测器 `model_outlier`：单列 Isolation Forest（默认）/ LocalOutlierFactor，与统计法（IQR/z-score）互补，捕获任意形状分布的偏离点

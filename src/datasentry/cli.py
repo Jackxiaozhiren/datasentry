@@ -19,6 +19,7 @@ from typing import Any, cast
 from datasentry import __version__
 from datasentry.client import DataSentry
 from datasentry_core.connectors.errors import DataSourceNotFoundError
+from datasentry_core.llm.provider import LLMError
 from datasentry_core.models.contract import Contract, QualityGate
 from datasentry_core.models.enums import Severity
 from datasentry_core.models.issue import Issue
@@ -323,11 +324,17 @@ def _cmd_contract_export(args: argparse.Namespace) -> int:
 
 
 def _cmd_repair_propose(args: argparse.Namespace) -> int:
-    """15 章：issue → 修复提案。"""
+    """15 章：issue → 修复提案（--ai 走 AI 修复候选，Step 44）。"""
     client = DataSentry(args.project)
     try:
-        proposal = client.repair_propose(args.issue_id, args.file)
+        if args.ai:
+            proposal = client.repair_propose_ai(args.issue_id, args.file)
+        else:
+            proposal = client.repair_propose(args.issue_id, args.file)
     except (KeyError, ValueError) as exc:
+        _emit(_envelope("repair propose", {"error": str(exc)}), args.format)
+        return EXIT_CONFIG
+    except LLMError as exc:
         _emit(_envelope("repair propose", {"error": str(exc)}), args.format)
         return EXIT_CONFIG
     if proposal is None:
@@ -338,6 +345,7 @@ def _cmd_repair_propose(args: argparse.Namespace) -> int:
             "repair propose",
             {
                 "proposed": True,
+                "ai": bool(getattr(args, "ai", False)),
                 "proposal_id": proposal.proposal_id,
                 "issue_id": proposal.issue_id,
                 "issue_type": proposal.issue_type,
@@ -828,6 +836,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_propose = repair_sub.add_parser("propose", help="issue → repair proposal")
     p_propose.add_argument("issue_id", type=str)
     p_propose.add_argument("--file", type=str, required=True, help="source data file")
+    p_propose.add_argument(
+        "--ai", action="store_true", help="AI repair candidate (Step 44, needs LLM)"
+    )
     p_propose.set_defaults(func=_cmd_repair_propose)
     p_preview = repair_sub.add_parser("preview", help="proposal + preview panel (rule re-run)")
     p_preview.add_argument("issue_id", type=str)

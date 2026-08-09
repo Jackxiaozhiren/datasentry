@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from datasentry.repair_ai import AIRepairService
 from datasentry_core.connectors import (
     DataSourceSpec,
     DataSourceType,
@@ -23,6 +24,7 @@ from datasentry_core.connectors import (
 from datasentry_core.detectors import DetectionContext, DetectorRegistry
 from datasentry_core.detectors.initial import register_default_detectors
 from datasentry_core.detectors.runner import ScanRunner
+from datasentry_core.llm.provider import LLMError
 from datasentry_core.models.contract import QualityGate, TableReference
 from datasentry_core.models.drift import DriftReport
 from datasentry_core.models.enums import Severity
@@ -327,6 +329,22 @@ class DataSentry:
         if proposal is not None:
             self._store.save_repair_proposal(proposal)
         return proposal
+
+    def repair_propose_ai(
+        self,
+        issue_id: str,
+        source_path: str | Path,
+    ) -> RepairProposal | None:
+        """Issue → AI 修复候选（Step 44）；未配置 LLM 抛 LLMNotConfiguredError。
+
+        规则引擎兜底：LLM 只在检测器对应的操作集内选择（clip 边界 /
+        rationale 可生成），候选经审计并落库（status=proposed）。
+        """
+        service = AIRepairService(self._store)
+        result = service.propose(issue_id, str(source_path))
+        if result.llm_error is not None:
+            raise LLMError(result.llm_error)
+        return result.proposal
 
     def repair_preview(
         self,
