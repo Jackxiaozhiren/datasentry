@@ -1,0 +1,207 @@
+"""Step 43：MCP stdio 服务器（JSON-RPC 2.0 over stdio）。"""
+
+from __future__ import annotations
+
+import csv
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from datasentry.mcp_server import McpServer
+
+
+def _write_csv(path: Path, columns: list[str], rows: list[list[object]]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(columns)
+        writer.writerows(rows)
+
+
+@pytest.fixture()
+def sample_csv(tmp_path: Path) -> Path:
+    path = tmp_path / "orders.csv"
+    _write_csv(
+        path,
+        ["id", "amount"],
+        [[1, 10.0], [2, 20.0], [2, 30.0], [None, None]],
+    )
+    return path
+
+
+def _call(server: McpServer, message_id: int, method: str, params: dict | None = None) -> dict:
+    message: dict = {"jsonrpc": "2.0", "id": message_id, "method": method}
+    if params is not None:
+        message["params"] = params
+    response = server._handle_message(message)
+    assert response is not None
+    return response
+
+
+class TestHandshake:
+    def test_initialize(self, tmp_path: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            response = _call(server, 1, "initialize")
+            assert response["result"]["protocolVersion"] == "2024-11-05"
+            assert response["result"]["serverInfo"]["name"] == "datasentry"
+        finally:
+            server.close()
+
+    def test_initialized_notification_no_response(self, tmp_path: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            assert (
+                server._handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"})
+                is None
+            )
+        finally:
+            server.close()
+
+    def test_ping(self, tmp_path: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            assert _call(server, 2, "ping")["result"] == {}
+        finally:
+            server.close()
+
+    def test_unknown_method_error(self, tmp_path: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            response = _call(server, 3, "nope")
+            assert response["error"]["code"] == -32601
+        finally:
+            server.close()
+
+
+class TestTools:
+    def test_tools_list_shape(self, tmp_path: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            result = _call(server, 4, "tools/list")["result"]
+            tools = result["tools"]
+            names = {t["name"] for t in tools}
+            assert {
+                "scan_file",
+                "list_issues",
+                "quality_score",
+                "drift_compare",
+                "drift_latest",
+                "detectors_list",
+                "contract_validate",
+            } == names
+            for tool in tools:
+                assert tool["inputSchema"]["type"] == "object"
+        finally:
+            server.close()
+
+    def test_scan_file_tool(self, tmp_path: Path, sample_csv: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            response = _call(
+                server,
+                5,
+                "tools/call",
+                {"name": "scan_file", "arguments": {"path": str(sample_csv)}},
+            )
+            text = response["result"]["content"][0]["text"]
+            payload = json.loads(text)
+            assert payload["status"] == "completed"
+            assert payload["row_count"] == 4
+            assert payload["total_issues"] >= 1
+            assert "scan_run_id" in payload
+        finally:
+            server.close()
+
+    def test_list_issues_tool(self, tmp_path: Path, sample_csv: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            _call(
+                server,
+                6,
+                "tools/call",
+                {"name": "scan_file", "arguments": {"path": str(sample_csv)}},
+            )
+            response = _call(server, 7, "tools/call", {"name": "list_issues", "arguments": {}})
+            issues = json.loads(response["result"]["content"][0]["text"])
+            assert issues
+            assert all("issue_type" in i and "severity" in i for i in issues)
+        finally:
+            server.close()
+
+    def test_detectors_list_tool(self, tmp_path: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            response = _call(server, 8, "tools/call", {"name": "detectors_list", "arguments": {}})
+            detectors = json.loads(response["result"]["content"][0]["text"])
+            assert len(detectors) == 39
+            ids = {d["detector_id"] for d in detectors}
+            assert "foreign_key_violation" in ids
+            assert "model_outlier" in ids
+        finally:
+            server.close()
+
+    def test_unknown_tool_error(self, tmp_path: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            response = _call(server, 9, "tools/call", {"name": "ghost", "arguments": {}})
+            assert response["error"]["code"] == -32602
+        finally:
+            server.close()
+
+    def test_tool_exception_maps_to_error(self, tmp_path: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            response = _call(
+                server,
+                10,
+                "tools/call",
+                {"name": "scan_file", "arguments": {"path": str(tmp_path / "nope.csv")}},
+            )
+            assert response["error"]["code"] == -32603
+        finally:
+            server.close()
+
+
+class TestStdioLoop:
+    def test_serve_stdio_real_process(self, tmp_path: Path, sample_csv: Path) -> None:
+        workspace = tmp_path / "ws"
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "datasentry.cli", "mcp", "--project", str(workspace)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        assert proc.stdin is not None and proc.stdout is not None
+        try:
+            proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"}) + "\n")
+            proc.stdin.flush()
+            init_line = proc.stdout.readline()
+            init = json.loads(init_line)
+            assert init["result"]["serverInfo"]["name"] == "datasentry"
+
+            proc.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "scan_file",
+                            "arguments": {"path": str(sample_csv)},
+                        },
+                    }
+                )
+                + "\n"
+            )
+            proc.stdin.flush()
+            scan_line = proc.stdout.readline()
+            scan = json.loads(scan_line)
+            payload = json.loads(scan["result"]["content"][0]["text"])
+            assert payload["status"] == "completed"
+        finally:
+            proc.stdin.close()
+            proc.wait(timeout=10)

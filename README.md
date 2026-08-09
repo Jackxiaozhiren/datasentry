@@ -59,6 +59,7 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
 | `datasentry llm status/invocations` | LLM 配置状态与审计 |
 | `datasentry drift compare <run_a> <run_b>` | 漂移：两历史扫描版本比较（schema/行数/分数/issue 分布） |
 | `datasentry drift latest <dataset>` | 最近两次扫描漂移（不足两次 → 退出码 2） |
+| `datasentry mcp` | MCP stdio 服务器（JSON-RPC 2.0，LLM 代理可调 7 工具） |
 | `datasentry detectors` | 检测器注册表（内置 + 插件） |
 | `datasentry-server` | FastAPI 服务 + Web UI（或 Docker compose 一键起） |
 
@@ -363,6 +364,13 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - **干净环境验收**：全新 Python 3.12 venv 安装本地 wheel → `datasentry --version` → `scan`（6 issues / score 94.8）→ `report export` HTML 全链路通过；importlib.metadata 校验 keywords/classifiers/readme 完整
 - **CHANGELOG.md**：Keep a Changelog 格式，0.1.0 汇总 Step 1–31 全部变更
 - 测试 408 例不变（发布面无逻辑变更），门禁 3 连绿
+
+## MCP Server（Step 43，LLM 生态集成面）
+
+- `datasentry mcp [--project DIR]`：零依赖自实现 JSON-RPC 2.0 over stdio（MCP 2024-11-05 核心子集：initialize / tools/list / tools/call / ping），供 Claude Code 等 LLM 代理以 stdio 方式挂载
+- 7 工具：scan_file / list_issues / quality_score / drift_compare / drift_latest / detectors_list / contract_validate——全部复用 DataSentry SDK（与 CLI/REST 同源）
+- 输出统一 JSON 序列化（datetime/Path 安全）；工具异常 → JSON-RPC error；未知工具 → -32602
+- 测试 `tests/test_mcp_server.py` 11 例（握手/工具/真子进程 stdio 循环）
 
 ## 模型异常检测（Step 42，IF/LOF，distribution_stability 维度首个检测器）
 

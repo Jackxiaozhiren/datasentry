@@ -854,6 +854,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_detectors = sub.add_parser("detectors", help="list registered detectors (built-in + plugins)")
     p_detectors.set_defaults(func=_cmd_detectors_list)
 
+    from datasentry.mcp_server import build_mcp_parser, run_mcp
+
+    p_mcp = build_mcp_parser(sub)
+    p_mcp.set_defaults(func=run_mcp)
+
     p_rules = sub.add_parser("rules", help="data quality rules (14.1/14.4)")
     rules_sub = p_rules.add_subparsers(dest="rules_cmd", required=True)
     p_propose = rules_sub.add_parser(

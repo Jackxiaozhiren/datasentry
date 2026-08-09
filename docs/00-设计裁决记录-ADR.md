@@ -993,3 +993,34 @@
 - **影响**：新检测器（39 个）+ fusion 家族映射；core 新增
   scikit-learn≥1.5 依赖（IF/LOF 标准实现，不手写）；ScanConfig
   新增 detector_params 通道；测试 484 → 491（+7）。
+
+## ADR-043：MCP stdio 服务器（Step 43）
+
+- **状态**：已确认（Step 43）
+- **背景**：V1 清单「MCP Server」。LLM 生态（Claude Code 等）经
+  MCP 挂载工具是 Agent 化数据质量的接入面；项目已有 CLI/REST
+  双面，MCP 是第三面。
+- **决策**：
+  1. **零依赖自实现**：JSON-RPC 2.0 over stdio（每行一个 JSON），
+     实现 MCP 2024-11-05 核心子集——initialize /
+     notifications/initialized / ping / tools/list / tools/call。
+     不引入 mcp SDK：协议子集小且稳定，自实现 ~300 行可控，
+     与 SafeExpressionEvaluator、drift 引擎同风格。
+  2. **单工作区门面**：McpServer 持有一个 DataSentry 实例（与
+     REST create_app 同构），工具复用 SDK 方法，CLI/REST/MCP
+     三面同源。
+  3. **工具面**：scan_file / list_issues / quality_score /
+     drift_compare / drift_latest / detectors_list /
+     contract_validate——覆盖「扫描→查询→比较→验证」闭环，
+     工具 schema 手写 JSON Schema（type/properties/required）。
+  4. **JSON 安全**：datetime/Path/set 统一 _json_safe 序列化；
+     工具内部异常映射 -32603，未知工具 -32602，未知方法
+     -32601；notification 无响应（id 缺失不回复）。
+  5. **CLI 集成**：`datasentry mcp` 子命令（--project）。
+- **理由**：零依赖换取协议子集锁定（不在依赖升级中漂移）；
+  与 SDK 同源保证行为与 CLI/REST 一致；测试含真实子进程
+  stdio 循环，协议符合性可回归。
+- **影响**：新增 src/datasentry/mcp_server.py + CLI 子命令；
+  测试 491 → 502（+11）。
+  已知边界：只实现 tools 能力（无 resources/prompts）；
+  单进程阻塞读 stdin，无并发（MCP 客户端串行调用工具）。
