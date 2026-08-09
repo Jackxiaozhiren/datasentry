@@ -61,6 +61,7 @@ FAMILY_MAP: Mapping[str, str] = {
     "mixed_date_format": "datetime_anomaly",
     "duplicate_timestamp": "datetime_anomaly",
     "foreign_key_violation": "integrity_constraint",
+    "model_outlier": "distribution_anomaly",
 }
 
 FAMILY_DIMENSIONS: Mapping[str, QualityDimension] = {
@@ -72,6 +73,7 @@ FAMILY_DIMENSIONS: Mapping[str, QualityDimension] = {
     "cross_field_constraint": QualityDimension.VALIDITY,
     "datetime_anomaly": QualityDimension.VALIDITY,
     "integrity_constraint": QualityDimension.INTEGRITY,
+    "distribution_anomaly": QualityDimension.DISTRIBUTION_STABILITY,
 }
 
 FAMILY_TITLES: Mapping[str, str] = {
@@ -83,6 +85,7 @@ FAMILY_TITLES: Mapping[str, str] = {
     "cross_field_constraint": "Cross-field rule violation",
     "datetime_anomaly": "Datetime anomaly",
     "integrity_constraint": "Integrity constraint violation",
+    "distribution_anomaly": "Distribution anomaly",
 }
 
 

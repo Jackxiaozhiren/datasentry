@@ -17,6 +17,7 @@ from datasentry_core.detectors.datetime import (
     MixedDateFormatDetector,
     StaleDateDetector,
 )
+from datasentry_core.detectors.initial.anomaly_ml import ModelOutlierDetector
 from datasentry_core.detectors.initial.categorical import (
     CategoryExplosionDetector,
     InconsistentCaseDetector,
@@ -104,6 +105,7 @@ def build_initial_detectors() -> list[Detector]:
         MojibakeCharacterDetector(),
         InvalidNumericDetector(),
         ForeignKeyViolationDetector(),
+        ModelOutlierDetector(),
     ]
 
 

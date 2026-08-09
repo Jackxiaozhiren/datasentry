@@ -56,6 +56,7 @@ class ScanConfig(BaseModel):
     llm_budget_tokens: int = Field(default=20000, ge=0)
     custom_rules: list[Rule] = Field(default_factory=list)
     scan_tags: dict[str, str] = Field(default_factory=dict)
+    detector_params: dict[str, str | int | float] = Field(default_factory=dict)
 
 
 class DetectorRun(BaseModel):

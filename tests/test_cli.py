@@ -35,7 +35,7 @@ class TestClient:
         scan, runs, issues = client.scan_file(sample_csv)
         assert scan.status == "completed"
         assert scan.fingerprint.row_count == 4
-        assert len(runs) == 38
+        assert len(runs) == 39
         assert issues, "脏数据应产生 Issue"
         assert scan.id in scan_run_ids(client)
         assert all(i.priority_score > 0 for i in issues)

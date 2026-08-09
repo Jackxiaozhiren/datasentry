@@ -364,6 +364,14 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - **CHANGELOG.md**：Keep a Changelog 格式，0.1.0 汇总 Step 1–31 全部变更
 - 测试 408 例不变（发布面无逻辑变更），门禁 3 连绿
 
+## 模型异常检测（Step 42，IF/LOF，distribution_stability 维度首个检测器）
+
+- 检测器 `model_outlier`：单列 Isolation Forest（默认）/ LocalOutlierFactor，与统计法（IQR/z-score）互补，捕获任意形状分布的偏离点
+- 默认 contamination 2%（显式，auto 对单变量数据过度标记）、min_anomalies 3、异常比例上限 5%、>20k 行采样；配置走 `ScanConfig.detector_params`
+- 每列一条 issue：affected_count=异常行数，evidence=STATISTICAL_MEASURE（模型/异常数/比例/样例值），severity LOW（模型提示性信号，供人工确认）
+- 融合新家族 `distribution_anomaly` → DISTRIBUTION_STABILITY（此前无检测器的维度）
+- 新依赖 scikit-learn≥1.5（core 包）；测试 `tests/test_anomaly_ml.py` 7 例（IF/LOF/采样/端到端）
+
 ## 模糊重复检测（Step 41，uniqueness Level 3）
 
 - 检测器 `fuzzy_duplicate`：SQL 下推归一化分组（lower + 去空白/标点，保留字母数字与 CJK，'g' flag 全替换），组大小 ≥ 2 且组内原始值 ≥ 2 种，归一化键 ≥ 2 字符

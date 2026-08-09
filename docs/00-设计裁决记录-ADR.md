@@ -963,3 +963,33 @@
   uniqueness；测试 478 → 484（+6）。
   已知边界：不处理拼写变体（level-3 语义相似），仅归一化变体；
   跨列复合键重复（两列联合）不在本检测器。
+
+## ADR-042：模型异常检测器（IF/LOF）（Step 42）
+
+- **状态**：已确认（Step 42）
+- **背景**：V1 清单「Isolation Forest / LOF」。数值异常现有统计法
+  （IQR/z-score/百分位/直方图）假设分布形态；模型法捕获任意形状
+  分布中的偏离点，且 distribution_stability 维度此前无检测器。
+- **决策**：
+  1. **单列单变量建模**：每数值列独立 fit_predict。IsolationForest
+     默认（n_estimators=100），LocalOutlierFactor 可选
+     （ScanConfig.detector_params["model"]）。
+  2. **显式 contamination=0.02**：sklearn "auto" 用 MCD 估计，对
+     单变量数据系统性过度标记（实测 200 正态点标 13 个，6.4%，
+     远超直觉），显式小值 + anomaly_ratio 上限 5% + min_anomalies 3
+     三重护栏。
+  3. **物化路径**：capabilities 标 supports_sampling +
+     requires_row_materialization（非 SQL 下推，打破全局
+     pushdown 假设的既有测试断言，改为结构断言）。
+  4. **模型信号 = LOW 提示**：confidence 0.7 / FPR 0.3，severity
+     LOW——模型输出是「值得人工看」的信号，不是确证异常；样例
+     异常值进 evidence 便于人工复核。
+  5. **性能**：>20k 行采样（seed 可复现）；LOF n_neighbors 随
+     样本自适应。
+  6. **新 family** `distribution_anomaly` → DISTRIBUTION_STABILITY
+     （fusion 三表同步扩展）。
+- **理由**：与统计法互补而非替代；把模型不确定性诚实编码进
+  严重度与置信；采样+护栏保证大表可用性。
+- **影响**：新检测器（39 个）+ fusion 家族映射；core 新增
+  scikit-learn≥1.5 依赖（IF/LOF 标准实现，不手写）；ScanConfig
+  新增 detector_params 通道；测试 484 → 491（+7）。

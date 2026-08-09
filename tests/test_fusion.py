@@ -213,7 +213,7 @@ class TestScanRunner:
         register_default_detectors(reg)
         runner = ScanRunner(reg)
         runs, issues = runner.run(scan_ctx, ScanConfig(), scan_run_id="scan_1")
-        assert len(runs) == 38
+        assert len(runs) == 39
         assert all(r.scan_run_id == "scan_1" for r in runs)
         assert all(r.detector_id for r in runs)
         assert all(r.duration_ms >= 0 for r in runs)

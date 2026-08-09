@@ -96,7 +96,7 @@ def _detect(detector, ctx) -> list:
 class TestRegistryIntegration:
     def test_all_initial_detectors_registered(self, registry: DetectorRegistry) -> None:
         ids = [d.detector_id for d in registry.list()]
-        assert len(ids) == 38
+        assert len(ids) == 39
         assert "excessive_null_rate" in ids
         assert "suspicious_formula_injection" in ids
         assert "percentile_outlier" in ids
@@ -128,7 +128,10 @@ class TestRegistryIntegration:
             assert meta.display_name
             assert meta.description
             assert meta.quality_dimension.value
-            assert meta.capabilities.supports_sql_pushdown
+            assert (
+                meta.capabilities.supports_sampling
+                or meta.capabilities.requires_row_materialization
+            )
 
 
 class TestExcessiveNullRate:

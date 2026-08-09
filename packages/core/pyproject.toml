@@ -19,6 +19,7 @@ dependencies = [
     "pyarrow>=16.0",
     "charset-normalizer>=3.3",
     "openpyxl>=3.1",
+    "scikit-learn>=1.5",
 ]
 
 [build-system]
