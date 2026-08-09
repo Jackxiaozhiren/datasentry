@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from html import escape
 
+from datasentry.trends import DatasetTrend
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
 from datasentry_core.models.scan import ScanRun
@@ -33,6 +34,8 @@ nav a { margin-right: 1rem; }
 a { color: #0969da; }
 .badge { display: inline-block; padding: .1rem .45rem; border-radius: .6rem;
          font-size: .75rem; font-weight: 600; color: #fff; }
+.badge-ok { background: #1a7f37; }
+.badge-err { background: #cf222e; }
 .badge-critical { background: #cf222e; }
 .badge-high { background: #bc4c00; }
 .badge-medium { background: #9a6700; }
@@ -61,6 +64,11 @@ footer { margin-top: 3rem; font-size: .8rem; color: #57606a; border-top: 1px sol
 .alert { border-radius: .4rem; padding: .6rem 1rem; margin: .8rem 0; font-size: .9rem; }
 .alert-ok { background: #dafbe1; color: #1a7f37; }
 .alert-err { background: #ffebe9; color: #cf222e; }
+.trend-bars { margin: .6rem 0 1rem; }
+.trend-bar { background: #d0d7de; border-radius: .3rem; margin: .15rem 0; height: 1.1rem;
+             overflow: hidden; }
+.trend-bar span { display: block; background: #0969da; color: #fff; font-size: .7rem;
+                  line-height: 1.1rem; padding-left: .3rem; white-space: nowrap; }
 """
 
 
@@ -78,6 +86,7 @@ def _page(title: str, body: str, *, active: str = "") -> str:
             "<nav>"
             '<a href="/ui/">Home</a>'
             '<a href="/ui/scans">Scans</a>'
+            '<a href="/ui/trends">Trends</a>'
             '<a href="/api/docs">API docs</a>'
             "</nav>",
             f"<h1>{escape(title)}</h1>",
@@ -122,6 +131,54 @@ def render_home(scans: list[ScanRun]) -> str:
         "</form>",
     ]
     return _page("Home", "\n".join(body))
+
+
+def _direction_badge(direction: str) -> str:
+    if direction == "up":
+        return '<span class="badge badge-ok">up</span>'
+    if direction == "down":
+        return '<span class="badge badge-err">down</span>'
+    return '<span class="badge">flat</span>'
+
+
+def render_trends(trends: list[DatasetTrend]) -> str:
+    """跨扫描趋势页（Step 45，18.2 V1）。trends 来自 trends.build_trends。"""
+    if not trends:
+        body = ['<p class="meta">No trend data yet — run at least one completed scan.</p>']
+        return _page("Trends", "\n".join(body))
+    sections: list[str] = []
+    for trend in trends:
+        points = trend.points
+        rows = []
+        bars = []
+        for point in points:
+            width = max(0.0, min(100.0, point.score))
+            rows.append(
+                "<tr>"
+                f'<td><a href="/ui/scans/{escape(point.run_id)}">{escape(point.run_id)}</a></td>'
+                f"<td>{point.finished_at:%Y-%m-%d %H:%M}</td>"
+                f'<td class="priority">{point.score:.1f}</td>'
+                f"<td>{point.issues_total}</td>"
+                "</tr>"
+            )
+            bars.append(
+                f'<div class="trend-bar"><span style="width:{width:.1f}%">'
+                f"{point.score:.1f}</span></div>"
+            )
+        latest = trend.latest_score
+        sections.append(
+            "<section>"
+            f"<h2>{escape(trend.dataset_id)} "
+            f"{_direction_badge(trend.direction)} "
+            f'<span class="meta">delta {trend.delta:+.1f}</span></h2>'
+            f'<p class="meta">{len(points)} completed scans · latest score '
+            f"{latest:.1f} · latest issues {trend.latest_issues}</p>"
+            '<div class="trend-bars">' + "".join(bars) + "</div>"
+            "<table><tr><th>Run ID</th><th>Finished</th><th>Score</th>"
+            "<th>Issues</th></tr>" + "".join(rows) + "</table>"
+            "</section>"
+        )
+    return _page("Trends", "\n".join(sections))
 
 
 def _issue_rows(issues: list[Issue], run_id: str) -> str:

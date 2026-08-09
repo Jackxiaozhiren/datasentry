@@ -372,6 +372,12 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - 输出统一 JSON 序列化（datetime/Path 安全）；工具异常 → JSON-RPC error；未知工具 → -32602
 - 测试 `tests/test_mcp_server.py` 11 例（握手/工具/真子进程 stdio 循环）
 
+## 趋势 UI（Step 45，跨扫描质量趋势，V1 收官）
+
+- `datasentry ui` → `/ui/trends`：每数据集的质量分跨扫描趋势（条形图 + 表格 + up/down/flat 徽章）
+- 数据层 `trends.build_trends` 纯函数：只消费 ScanRun 列表（quality_score 随扫描落库，历史保留原权重），按数据集最近活动排序
+- 与漂移引擎分工：趋势页是轻量概览面；完整信号（行数/分数/覆盖/异常）走 `drift compare/latest`
+
 ## AI 修复候选（Step 44，规则引擎兜底 + LLM 参数/理由）
 
 - `datasentry repair propose <issue_id> --file <data> --ai`：规则引擎无提案时，LLM 生成修复候选（35 章闭环的 AI 增强）

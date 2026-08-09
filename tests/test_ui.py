@@ -144,3 +144,27 @@ class TestUiSecurity:
         assert resp.status_code == 200
         assert "<script>alert(1)</script>" not in resp.text
         assert "&lt;script&gt;" in resp.text
+
+
+class TestTrendsPage:
+    def test_trends_empty(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        resp = client.get("/ui/trends")
+        assert resp.status_code == 200
+        assert "No trend data yet" in resp.text
+
+    def test_trends_after_two_scans(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        _scan(client, tmp_path)
+        _scan(client, tmp_path)
+        resp = client.get("/ui/trends")
+        assert resp.status_code == 200
+        assert "Trends" in resp.text
+        assert "delta" in resp.text
+        assert "completed scans" in resp.text
+
+    def test_home_nav_links_to_trends(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        resp = client.get("/ui/")
+        assert resp.status_code == 200
+        assert 'href="/ui/trends"' in resp.text

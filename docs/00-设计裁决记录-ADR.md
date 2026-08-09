@@ -1054,3 +1054,28 @@
   + CLI `--ai`；测试 502 → 514（+12）。
   已知边界：AI 候选不直接 apply（apply 由确定性引擎重新 propose）；
   复杂操作（impute/map_category 等）未开放给 LLM。
+
+## ADR-045：跨扫描趋势 UI（Step 45）
+
+- **状态**：已确认（Step 45）
+- **背景**：V1 清单「趋势 UI」。漂移引擎（Step 39）已有完整信号，
+  Web UI（Step 24）只有单扫描视图；「跨扫描趋势」是 V1 收官项。
+- **决策**：
+  1. **纯函数数据层**：`trends.build_trends(scans)` 只消费 ScanRun
+     列表（quality_score 随扫描落库，历史保留原权重与 score_version），
+     输出每数据集的时间升序 ScanPoint 序列 + delta/direction/latest
+     汇总——不碰 store、可离线测试。
+  2. **过滤语义**：只收 status=completed 且 quality_score 非空；
+     非 completed/未打分扫描不进趋势（与 drift 引擎口径一致）。
+  3. **方向阈值**：delta >= +0.5 → up，<= -0.5 → down，否则 flat
+     （展示用 0.5，与 drift 的 score_threshold=5.0 是不同层语义）。
+  4. **渲染层**：ui.render_trends 复用 _page/_CSS（XSS 转义一致），
+     内联 CSS 条形图（宽度=score%）+ 历史表 + 徽章，零 JS 依赖；
+     nav 增加 Trends 入口；`/ui/trends` 路由在 api.create_app 内。
+  5. **与漂移引擎分工**：趋势页是轻量概览（score/issues 序列）；
+     行数/覆盖/异常等完整信号仍走 drift compare/latest，不重复实现。
+- **理由**：质量分随 ScanRun 落库使趋势可纯函数推导（零新存储）；
+  纯函数 + 服务端渲染保持项目零前端构建链风格；UI 与漂移引擎
+  边界清晰不重叠。
+- **影响**：新增 src/datasentry/trends.py + /ui/trends 路由 +
+  render_trends；测试 513 → 522（+9）。

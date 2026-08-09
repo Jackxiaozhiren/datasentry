@@ -266,6 +266,12 @@ def create_app(project: str | Path | None = None) -> FastAPI:
     def ui_scans_list() -> HTMLResponse:
         return HTMLResponse(ui.render_home(client.list_scan_runs()))
 
+    @app.get("/ui/trends", response_class=HTMLResponse, tags=["ui"])
+    def ui_trends() -> HTMLResponse:
+        from datasentry.trends import build_trends
+
+        return HTMLResponse(ui.render_trends(build_trends(client.list_scan_runs())))
+
     @app.get("/ui/scans/{run_id}", response_class=HTMLResponse, tags=["ui"])
     def ui_scan_detail(run_id: str, severity: str | None = Query(default=None)) -> HTMLResponse:
         scan = client.get_scan(run_id)
