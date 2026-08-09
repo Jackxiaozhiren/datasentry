@@ -1079,3 +1079,23 @@
   边界清晰不重叠。
 - **影响**：新增 src/datasentry/trends.py + /ui/trends 路由 +
   render_trends；测试 513 → 522（+9）。
+
+## ADR-046：V1 发布收尾（Step 46）
+
+- **状态**：已确认（Step 46）
+- **背景**：V1 功能收官（Step 45）后发现 dist/ 中 datasentry_core
+  wheel 是 Step 40 之前的旧产物（缺 TableReference 等新模型），
+  隔离安装冒烟直接 ImportError —— 发布工程（Step 32）只做过一次
+  本地构建，没有可复现的构建流程与 CI 验证。
+- **决策**：
+  1. **CHANGELOG 补齐**：[0.1.0] 条目扩展覆盖 Step 32–45（漂移/
+     跨表/AI 修复/MCP/趋势 UI 等 14 项），日期更新至发布日。
+  2. **Makefile build 目标**：`make build` = `uv build` + 
+     `uv build packages/core`——双包固定顺序构建，消除
+     workspace 单包构建漏包问题。
+  3. **CI 第 11 阶段**：wheel 构建 + 隔离 venv 安装 + CLI 冒烟
+     （scan 真实执行），此后任何 commit 的 wheel 可安装性都受门禁。
+- **理由**：发布物必须是 CI 验证的产物而非一次性本地命令；双包
+  结构要求构建步骤显式覆盖 workspace 成员。
+- **影响**：CHANGELOG + Makefile + CI；本地重建 dist 双 wheel
+  并通过隔离安装冒烟（datasentry 0.1.0 + core 0.1.0）。
