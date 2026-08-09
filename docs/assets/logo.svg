@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="DataSentry logo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0969da"/>
+      <stop offset="100%" stop-color="#0d3a7d"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="96" fill="url(#bg)"/>
+  <path d="M148 196 a108 108 0 0 1 216 0 v16 h-36 v-16 a72 72 0 0 0 -144 0 v16 h-36 z" fill="#ffffff"/>
+  <path d="M148 212 h216 v112 a108 108 0 0 1 -216 0 z" fill="#ffffff"/>
+  <g stroke="#0d3a7d" stroke-width="26" stroke-linecap="round" fill="none">
+    <path d="M196 268 h24 l22 34 30 -54 24 44 h26" />
+  </g>
+  <g fill="#1f883d">
+    <circle cx="256" cy="364" r="26"/>
+    <path d="M246 366 l8 8 l16 -20" stroke="#ffffff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+</svg>
