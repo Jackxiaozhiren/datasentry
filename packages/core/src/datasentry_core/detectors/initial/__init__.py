@@ -45,7 +45,10 @@ from datasentry_core.detectors.initial.textual import (
     RepeatedWhitespaceDetector,
     UnusualLengthDetector,
 )
-from datasentry_core.detectors.initial.uniqueness import UniquenessViolationDetector
+from datasentry_core.detectors.initial.uniqueness import (
+    FuzzyDuplicateDetector,
+    UniquenessViolationDetector,
+)
 from datasentry_core.detectors.missingness import (
     ConditionalMissingnessDetector,
     CorrelatedMissingnessDetector,
@@ -70,6 +73,7 @@ def build_initial_detectors() -> list[Detector]:
         ConditionalMissingnessDetector(),
         CorrelatedMissingnessDetector(),
         UniquenessViolationDetector(),
+        FuzzyDuplicateDetector(),
         SuspiciousPlaceholderDetector(),
         RareCategoryDetector(),
         CategoryExplosionDetector(),

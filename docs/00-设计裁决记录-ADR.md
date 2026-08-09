@@ -936,3 +936,30 @@
   fusion 新增 family/dimension/title 映射；测试 469 → 478（+9）。
   已知边界：XLSX 引用文件不支持、duckdb 引用需 table 名、多列
   映射逐列独立比较。
+
+## ADR-041：模糊重复检测器（uniqueness Level 3）（Step 41）
+
+- **状态**：已确认（Step 41）
+- **背景**：V1 清单「模糊重复（Level 3）」。精确重复（uniqueness_violation）
+  无法捕获大小写/空白/标点变体——脏数据最常见的重复形态。
+- **决策**：
+  1. **归一化分组（SQL 下推）**：`lower(regexp_replace(col,
+     '[^0-9A-Za-z\u4e00-\u9fff]', '', 'g'))` 归一化后 GROUP BY。
+    选择字符类归一化而非编辑距离：O(n) 可下推、确定性强、
+     中文天然支持；编辑距离两两比较 O(n²) 且需采样，MVP 不做。
+    注意 duckdb regexp_replace 需 'g' flag 才全局替换（踩坑记录）。
+  2. **判定**：组大小 ≥ 2 ∧ 组内 DISTINCT 原始值 ≥ 2 ∧ 归一化键
+     长度 ≥ 2（中文名 2 字常见，阈值不设 3）。可去重行数 =
+     Σ(组行数 − 1)，即每组保留一行。
+  3. **输出**：列级 issue，evidence=DUPLICATE_MATCH（归一化键 +
+     原始样例 ≤ 3）；置信 0.9 / FPR 0.15（归一化可能误并，如
+     「AC/DC」类有语义的标点差异）；融合并入既有 uniqueness 家族
+     （标题统一，维度归 UNIQUENESS，不新建 family）。
+  4. **范围**：仅字符串列（VARCHAR 族），组上限 50 防长尾。
+- **理由**：字符类归一化以最低复杂度覆盖最高频的模糊重复形态，
+  全量可下推、无采样噪声；与精确重复共用 uniqueness 家族保证
+  融合/评分语义一致。
+- **影响**：检测器 37 → 38；FAMILY_MAP 加 fuzzy_duplicate→
+  uniqueness；测试 478 → 484（+6）。
+  已知边界：不处理拼写变体（level-3 语义相似），仅归一化变体；
+  跨列复合键重复（两列联合）不在本检测器。

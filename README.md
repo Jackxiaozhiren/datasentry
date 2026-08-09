@@ -364,6 +364,13 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - **CHANGELOG.md**：Keep a Changelog 格式，0.1.0 汇总 Step 1–31 全部变更
 - 测试 408 例不变（发布面无逻辑变更），门禁 3 连绿
 
+## 模糊重复检测（Step 41，uniqueness Level 3）
+
+- 检测器 `fuzzy_duplicate`：SQL 下推归一化分组（lower + 去空白/标点，保留字母数字与 CJK，'g' flag 全替换），组大小 ≥ 2 且组内原始值 ≥ 2 种，归一化键 ≥ 2 字符
+- 每列一条 issue：affected_count = 组内行数 − 组数（可去重行数），evidence=DUPLICATE_MATCH（归一化键 + 原始样例）；融合归入 uniqueness 维度家族
+- 覆盖：大小写变体（Alice/alice）、空白变体（"张三"/"张三 "）、标点变体（李四/李四!）；数值列与短键自动跳过
+- 测试 `tests/test_fuzzy_duplicate.py` 6 例（含中文、端到端）
+
 ## 跨表外键完整性（Step 40，integrity 维度首个真实检测器）
 
 - 契约 `references` 声明跨表外键：`name/path/table/schema/columns`（主表列→引用表列），DuckDB 引用文件需 `table`；`schema` 键兼容

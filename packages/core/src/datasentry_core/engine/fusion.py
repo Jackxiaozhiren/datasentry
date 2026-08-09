@@ -35,6 +35,7 @@ FAMILY_MAP: Mapping[str, str] = {
     "conditional_missingness": "missingness",
     "correlated_missingness": "missingness",
     "uniqueness_violation": "uniqueness",
+    "fuzzy_duplicate": "uniqueness",
     "suspicious_placeholder": "categorical_anomaly",
     "rare_category": "categorical_anomaly",
     "category_explosion": "categorical_anomaly",
