@@ -10,12 +10,12 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0-blue">
+  <img alt="Release" src="https://img.shields.io/github/v/release/Jackxiaozhiren/datasentry">
   <img alt="Python" src="https://img.shields.io/badge/python-3.12-blue">
-  <img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-green">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-522%20passed-brightgreen">
+  <img alt="License" src="https://img.shields.io/github/license/Jackxiaozhiren/datasentry">
+  <img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/Jackxiaozhiren/datasentry/ci.yml?label=CI%20checks">
   <img alt="Coverage" src="https://img.shields.io/badge/coverage-95%25-brightgreen">
-  <img alt="CI" src="https://img.shields.io/badge/CI-11%20stages-success">
+  <img alt="GitHub Pages" src="https://img.shields.io/github/actions/workflow/status/Jackxiaozhiren/datasentry/pages.yml?label=Pages">
 </p>
 
 ---
