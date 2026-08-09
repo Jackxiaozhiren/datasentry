@@ -8,7 +8,7 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "datasentry",
+    "datasentry-ai",
     "datasentry-core",
 ]
 
@@ -245,7 +245,7 @@ wheels = [
 ]
 
 [[package]]
-name = "datasentry"
+name = "datasentry-ai"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
