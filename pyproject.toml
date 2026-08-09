@@ -1,5 +1,5 @@
 [project]
-name = "datasentry"
+name = "datasentry-ai"
 version = "0.1.0"
 description = "An evidence-driven, local-first AI copilot for detecting, explaining, validating, and safely repairing data quality problems."
 readme = "README.md"
@@ -30,9 +30,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/DataSentry-AI/datasentry"
-Source = "https://github.com/DataSentry-AI/datasentry"
-Issues = "https://github.com/DataSentry-AI/datasentry/issues"
+Homepage = "https://github.com/Jackxiaozhiren/datasentry"
+Source = "https://github.com/Jackxiaozhiren/datasentry"
+Issues = "https://github.com/Jackxiaozhiren/datasentry/issues"
 
 [project.scripts]
 datasentry = "datasentry.cli:main"

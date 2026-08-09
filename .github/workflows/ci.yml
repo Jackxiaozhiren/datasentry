@@ -98,7 +98,7 @@ jobs:
           SMOKE=$(mktemp -d)
           uv venv "$SMOKE/venv"
           uv pip install --python "$SMOKE/venv/bin/python" \
-            dist/datasentry-*.whl dist/datasentry_core-*.whl
+            dist/datasentry_ai-*.whl dist/datasentry_core-*.whl
           TMP=$(mktemp -d)
           printf 'name,price\n" alice ",10\nbob,n/a\n' > "$TMP/d.csv"
           "$SMOKE/venv/bin/datasentry" --project "$TMP/ws" scan "$TMP/d.csv" >/dev/null
