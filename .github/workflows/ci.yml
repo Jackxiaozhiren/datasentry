@@ -89,3 +89,17 @@ jobs:
           test -f "$TMP/report.html"
           test -f "$TMP/customers.csv"
           echo "artifacts ok"
+
+      - name: 11 · wheel build + isolated install smoke (both packages)
+        run: |
+          set -e
+          uv build
+          uv build packages/core
+          SMOKE=$(mktemp -d)
+          uv venv "$SMOKE/venv"
+          uv pip install --python "$SMOKE/venv/bin/python" \
+            dist/datasentry-*.whl dist/datasentry_core-*.whl
+          TMP=$(mktemp -d)
+          printf 'name,price\n" alice ",10\nbob,n/a\n' > "$TMP/d.csv"
+          "$SMOKE/venv/bin/datasentry" --project "$TMP/ws" scan "$TMP/d.csv" >/dev/null
+          "$SMOKE/venv/bin/datasentry" --version

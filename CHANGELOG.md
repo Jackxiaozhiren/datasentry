@@ -4,10 +4,43 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.1.0] - 2026-08-05
+## [0.1.0] - 2026-08-09
 
 MVP 里程碑：九项硬性验收 M1–M9 全达成（36+ 检测器、融合评分、
 质量门禁、修复闭环、报告引擎、Docker、CI 十阶段、M9 Demo）。
+V1 收官：漂移引擎、跨表完整性、AI 修复候选、MCP 生态面、趋势 UI。
+
+### 新增（Step 32–45，V1 收官）
+
+- **Step 45**：跨扫描趋势 UI —— `/ui/trends` 质量分趋势页
+  （纯函数数据层 `trends.build_trends`，ADR-045）
+- **Step 44**：AI 修复候选 —— `repair propose --ai`，LLM 在
+  检测器对应的操作白名单内生成操作/参数/理由（脱敏 + 审计 +
+  缓存，ADR-044）
+- **Step 43**：MCP stdio 服务器 —— 零依赖 JSON-RPC 2.0，
+  `datasentry mcp` 7 工具供 LLM 代理调用（ADR-043）
+- **Step 42**：模型异常检测 —— IsolationForest / LOF 单变量
+  离群（`ScanConfig.detector_params`，scikit-learn 依赖，
+  ADR-042）
+- **Step 41**：模糊重复检测 —— 归一化分组（大小写/标点/全半角），
+  uniqueness Level 3（ADR-041）
+- **Step 40**：跨表外键完整性 —— `Contract.references` +
+  `ForeignKeyViolationDetector`（DuckDB LEFT JOIN 孤儿行，
+  ADR-040）
+- **Step 39**：漂移引擎 —— `drift compare/latest`，两历史扫描
+  schema/行数/分数/issue 分布四类信号（ADR-039）
+- **Step 38**：DuckDB 文件连接器 —— `.duckdb` READ_ONLY ATTACH
+  + `scan --table`（ADR-038）
+- **Step 37**：契约导出 —— `contract export --as pandera|ge`
+  （ADR-037）
+- **Step 36**：CI 报告导出 —— JUnit / SARIF 两格式（ADR-036）
+- **Step 35**：契约门禁修复证据释放 —— gate 报告携带修复建议
+  （ADR-035）
+- **Step 34**：电商订单域多文件场景演示（契约 + 门禁 + 修复闭环
+  真实化，ADR-034）
+- **Step 33**：产品 README 用户优先重构 + 路线图（ADR-033）
+- **Step 32**：发布工程 —— wheel 构建、元数据、changelog
+  （ADR-032）
 
 ### 新增（Step 25–31，V1 第一阶段收尾）
 
@@ -50,5 +83,5 @@ MVP 里程碑：九项硬性验收 M1–M9 全达成（36+ 检测器、融合评
 
 - Python >= 3.12，DuckDB 执行引擎（ADR-005/007）
 - 门禁：ruff + mypy --strict + pytest 覆盖率 >= 85%
-  （当前 408 例，96.35%）
+  （当前 522 例，95%）
 - Docker 一键启动（`datasentry-server` 入口）

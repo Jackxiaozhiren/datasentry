@@ -1,4 +1,4 @@
-.PHONY: lint type test check check-all demo bench serve
+.PHONY: lint type test check check-all demo bench serve build
 
 sync:
 	uv sync
@@ -14,6 +14,10 @@ test:
 	uv run pytest --cov=datasentry_core --cov-fail-under=85 --cov-report=term
 
 check: lint type test
+
+build:
+	uv build
+	uv build packages/core
 
 demo:
 	uv run python examples/demo/demo.py
