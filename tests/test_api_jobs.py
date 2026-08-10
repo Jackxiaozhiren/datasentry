@@ -181,10 +181,11 @@ class TestJobLifecycle:
             assert crashed is not None
             assert crashed.status == RunStatus.FAILED
             assert "interrupted" in (crashed.error or "")
-            # 恢复后可再次手动触发
+            # 恢复后可再次手动触发（按 run_id 断言，避免同秒 DESC 排序竞态）
             resp = client2.post(f"/jobs/{job_id}/trigger")
             assert resp.status_code == 202
-            assert client2.get(f"/jobs/{job_id}").json()["runs"][0]["status"] == "completed"
+            new_run = store.get_run(resp.json()["run_id"])
+            assert new_run is not None and new_run.status == RunStatus.COMPLETED
 
     def test_worker_tick_runs_due_job_after_startup(self, tmp_path: Path) -> None:
         """startup 起 worker：到期任务自动执行（无需手动触发）。"""
