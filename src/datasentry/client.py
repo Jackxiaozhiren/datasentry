@@ -71,12 +71,27 @@ class DataSentry:
         self._ensure_gitignore()
 
     def _registry_with_plugins(self) -> DetectorRegistry:
-        """内置检测器 + <workspace>/plugins/ 目录插件（Step 31，ADR-031）。"""
-        from datasentry_core.plugins import load_plugin_detectors
+        """内置 + 目录插件（Step 31）+ entry points 插件（Step 50，V2-C）。
+
+        目录插件保持 fail-fast（ADR-031 语义）；entry points 插件优雅降级，
+        失败项经 `list_plugins()` 可观测（ADR-050）。
+        """
+        from datasentry_core.plugins import (
+            DETECTOR_ENTRY_POINT_GROUP,
+            discover_entrypoint_detectors,
+            load_plugin_detectors,
+        )
 
         registry = DetectorRegistry()
         register_default_detectors(registry)
-        load_plugin_detectors(registry, [self._workspace / "plugins"])
+        self._source_map = {d.detector_id: "builtin" for d in registry.list()}
+        self._plugin_errors: list[dict[str, str]] = []
+        for detector_id in load_plugin_detectors(registry, [self._workspace / "plugins"]):
+            self._source_map[detector_id] = "dir"
+        report = discover_entrypoint_detectors(registry, group=DETECTOR_ENTRY_POINT_GROUP)
+        for detector_id in report.loaded:
+            self._source_map[detector_id] = "entrypoint"
+        self._plugin_errors = [{"name": err.name, "error": err.message} for err in report.errors]
         return registry
 
     @property
@@ -120,9 +135,19 @@ class DataSentry:
                     "quality_dimension": meta.quality_dimension.value,
                     "version": detector.detector_version,
                     "enabled": self._registry.is_enabled(detector.detector_id),
+                    "source": self._source_map.get(detector.detector_id, "builtin"),
                 }
             )
         return result
+
+    def list_plugins(self) -> dict[str, Any]:
+        """插件清单（Step 50，V2-C）：已加载插件 + 失败项（entry points 优雅降级）。"""
+        plugins = [d for d in self.list_detectors() if d["source"] in ("dir", "entrypoint")]
+        return {
+            "plugins": plugins,
+            "errors": self._plugin_errors,
+            "workspace_plugins_dir": str(self._workspace / "plugins"),
+        }
 
     # ---- 扫描 ----------------------------------------------------------
 

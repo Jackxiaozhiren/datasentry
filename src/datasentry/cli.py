@@ -687,6 +687,17 @@ def _cmd_detectors_list(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_plugin_list(args: argparse.Namespace) -> int:
+    """列出已发现插件（Step 50，V2-C，ADR-050）：目录 + entry points，含失败项。"""
+    client = DataSentry(args.project)
+    try:
+        result = client.list_plugins()
+    finally:
+        client.close()
+    _emit(_envelope("plugin list", result), args.format)
+    return EXIT_OK
+
+
 def _cmd_rules_propose(args: argparse.Namespace) -> int:
     """自然语言 → 规则候选（14.4）：脱敏 → LLM → 严格校验 → 预运行，不落库。"""
     from datasentry.rules_ai import RuleProposalService
@@ -975,6 +986,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_detectors = sub.add_parser("detectors", help="list registered detectors (built-in + plugins)")
     p_detectors.set_defaults(func=_cmd_detectors_list)
+
+    p_plugin = sub.add_parser("plugin", help="list discovered plugins (dir + entry points, V2-C)")
+    plugin_sub = p_plugin.add_subparsers(dest="plugin_cmd", required=True)
+    p_plugin_list = plugin_sub.add_parser("list", help="list plugins & load failures")
+    p_plugin_list.set_defaults(func=_cmd_plugin_list)
 
     from datasentry.mcp_server import build_mcp_parser, run_mcp
 

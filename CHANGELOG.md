@@ -8,6 +8,18 @@
 
 V2 四大方向（PII 加密还原 / HTML 报告交互 / 插件生态 / 云侧调度）。
 
+### 新增（Step 50，V2-C 插件生态）
+
+- **Step 50**：插件 entry point 自动发现 —— `datasentry.detectors`
+  entry points 组自动加载（类/实例/工厂三形态），逐失败优雅降级
+  （`PluginDiscoveryReport` 汇总 loaded/failed/errors）；`plugin list`
+  支持 `--format json` 并展示 `source`（builtin/dir/entrypoint）与
+  加载失败明细；`list_detectors()` 补 source 字段；提供可安装示例
+  插件包 `examples/plugins/datasentry-sample-detector`
+  （`uv pip install -e` → 自动发现 → 扫描自动启用，无配置；
+  验证：隔离环境 39 内置 + 1 插件 = 40 个 detector runs）；
+  目录插件与内置检测器保持原样（ADR-050）
+
 ### 新增（Step 49，V2-B HTML 报告交互）
 
 - **Step 49**：交互式 HTML 报告 —— Issue Breakdown 升级为可交互表格

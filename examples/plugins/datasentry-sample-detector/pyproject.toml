@@ -1,0 +1,18 @@
+[project]
+name = "datasentry-sample-detector"
+version = "0.1.0"
+description = "Sample detector plugin for DataSentry (entry points discovery, V2-C / ADR-050)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+dependencies = ["datasentry-core>=0.1.0"]
+
+[project.entry-points."datasentry.detectors"]
+negative_value = "datasentry_sample_detector:NegativeValueDetector"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/datasentry_sample_detector"]

@@ -468,3 +468,25 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - **server 联动**：`GET /scans/{run_id}/report.html`（api.py）以
   request.base_url 注入 `serverBaseUrl`，JS 为每行生成 workbench 链接；
   离线 `report export --as html` 默认 None 无链接
+
+## 插件 entry point 发现（Step 50，V2-C，ADR-050）
+
+- **发现机制**：`importlib.metadata.entry_points` 扫描 `datasentry.detectors`
+  组（`datasentry_core.plugins.discover_entrypoint_detectors`），返回
+  `PluginDiscoveryReport`（loaded / failed / errors 三清单）；
+  与目录插件（Step 31，`plugins/` 目录扫描）和内置检测器并存，
+  互不覆盖——同一 detector_id 冲突记入 errors 而非中断
+- **entry 值三形态**：实例 / 无参类 / 无参工厂（lambda 或函数）；
+  收敛在 `_coerce_entry_value`。**坑**：runtime-checkable Protocol 的
+  `isinstance(cls, Detector)` 对「类对象」会因方法签名匹配而误判为
+  True（返回类而非实例），必须先判 `isinstance(value, type)` 再实例化
+- **来源标记**：注册表快照统一带 `source`（builtin / dir / entrypoint）；
+  CLI `plugin list --format json` 输出 plugins + errors 明细，
+  便于审计"哪些插件在跑、谁失败了、为什么"
+- **示例插件包**：`examples/plugins/datasentry-sample-detector`
+  （pyproject 声明 `[project.entry-points."datasentry.detectors"]`，
+  依赖 datasentry-core，不进工作区包）；验证路径：
+  `uv pip install -e examples/plugins/datasentry-sample-detector` →
+  `plugin list` 显示 source=entrypoint → scan 自动启用
+  （detector runs = 39 内置 + 1 插件）；隔离验证用 `mktemp -d` + `uv venv`，
+  勿装进项目 venv（会改变现有测试对 run 数的断言）

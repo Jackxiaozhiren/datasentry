@@ -1210,3 +1210,41 @@
   export html 注入趋势；api.py 加 report.html 端点；测试
   tests/test_reporting_interactive.py（新增 ~30 例）+ test_reporting.py /
   test_api.py 更新。
+
+## ADR-050：插件 entry point 自动发现（V2-C，importlib.metadata entry points）（Step 50）
+
+- **状态**：已确认（Step 50）
+- **背景**：V2-C 目标为第三方 detector / 报告格式 / 连接器 / 修复操作
+  可插拔且不侵入核心。已有 `plugins/` 目录复制即用机制（Step 31，
+  ADR-031），但目录插件不进包、不可依赖第三方库、无法 pip 分发；
+  需统一发现机制与插件协议。
+- **决策**：
+  1. **entry points 自动发现**：core 用 `importlib.metadata.entry_points`
+     扫描 `datasentry.detectors` 组（未来可扩展 `datasentry.reporters` /
+     `datasentry.connectors`）；`PluginDiscoveryReport` 汇总
+     loaded / failed / errors，逐个失败优雅降级（缺失依赖等错误记录
+     并继续，不崩整个扫描）；目录插件（Step 31）与内置检测器保持
+     原样，entry points 是叠加层。
+  2. **三形态 entry 值**：entry 值可为 Detector 实例 / 无参类 /
+     无参工厂（`lambda: ...`），统一 `_coerce_entry_value` 收敛；
+     陷阱：`isinstance(cls, Detector)`（runtime-checkable Protocol）
+     对类对象误判，必须先判 `isinstance(value, type)` 再实例化。
+  3. **来源标记**：注册表快照/`plugin list`/`list_detectors` 输出
+     `source` 字段（`builtin` / `dir` / `entrypoint`），供 CLI/UI
+     展示与审计。
+  4. **示例插件包**：`examples/plugins/datasentry-sample-detector`
+     独立 pyproject（依赖 `datasentry-core`），声明 entry point，
+     以 `uv pip install -e` 演示安装 → 自动发现 → 扫描自动启用
+     （扫描 run 数 = 内置 + 插件，无需配置）。
+  5. **安全边界**：仅加载已安装分发（entry points 本身就是白名单
+     安装物），不执行任意代码路径；插件接口保持最小（复用
+     `Detector` Protocol 与 `DetectorMeta`）。
+- **理由**：entry points 是 Python 标准机制（`uv pip install -e`
+  即注册），零核心改动、无新依赖；优雅降级保证第三方插件缺陷
+  不拖垮核心扫描；来源标记满足审计诉求（哪些插件在跑、来自哪）。
+- **影响**：packages/core/src/datasentry_core/plugins.py 新增
+  `discover_entrypoint_detectors` / `PluginDiscoveryReport`；
+  cli.py `plugin list` 增 `--format json` + source/errors；
+  client.py `list_detectors()` 增 source 字段；示例插件包 +
+  README；测试 tests/test_plugins.py（发现/注册/CLI）+
+  tests/test_sample_plugin.py（包形态，新增 ~25 例）。
