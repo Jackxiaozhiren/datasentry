@@ -210,13 +210,14 @@ class TestJobLifecycle:
             )
         )
         with TestClient(create_app(project=tmp_path)) as client:
-            # worker 每 1s tick；轮询等待自动执行完成
-            for _ in range(20):
+            # worker 每 1s tick；轮询等待自动执行完成（CI 上单次扫描可达 20s+）
+            job: dict[str, object] = {"job": {"status": "idle"}, "runs": []}
+            for _ in range(120):
                 job = client.get("/jobs/job_due").json()
-                if job["job"]["status"] == "idle" and job["runs"]:
+                runs = job["runs"]
+                if runs and runs[0]["status"] == "completed":
                     break
                 import time
 
-                time.sleep(0.2)
-            job = client.get("/jobs/job_due").json()
+                time.sleep(0.5)
             assert job["runs"][0]["status"] == "completed"
