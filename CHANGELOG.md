@@ -4,7 +4,7 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.2.0] - unreleased
+## [0.2.0] - 2026-08-10
 
 V2 四大方向（PII 加密还原 / HTML 报告交互 / 插件生态 / 云侧调度）。
 
