@@ -1173,3 +1173,40 @@
   pyproject 主包加 cryptography 依赖；测试 522 → 553（+31）。
   已知边界：dev 密钥不落盘（进程重启后 dev 加密数据仍可解——
   密钥是常量）；还原仅覆盖 AI 输出引用（不覆盖文件本身）。
+
+## ADR-049：HTML 报告交互（V2-B，筛选/排序/分页/趋势，纯原生 JS）（Step 49）
+
+- **状态**：已确认（Step 49）
+- **背景**：26 章 HTML 报告是静态快照（审计驱动、零外部链接、单文件）。
+  V2 计划升级为可交互：severity/维度筛选、列排序、issue 详情折叠展开、
+  分页、迷你趋势图（复用 trends.py 数据）；server 模式下报告联动 REST
+  API（点击 issue 跳转修复工作台）。
+- **决策**：
+  1. **零依赖原生 JS，全部内联**：交互逻辑内嵌 `<script>`（无前端框架、
+     无外链、离线可用）；动态数据以 `<script type="application/json">`
+     内嵌，经 `json_script` 转义（`<`/`>`/`&` → `\uXXXX`），杜绝
+     `</script>` 注入；JS 只以 `textContent` 写单元格，severity 样式类
+     经白名单映射，双保险防 XSS。
+  2. **可测纯函数层**（`reporting/interactive.py`）：`issue_rows`
+     （视图模型，title/description PII 掩码）、`filter_issues`（severity /
+     维度 / 搜索，大小写不敏感）、`sort_issues`（priority / severity rank /
+     affected / title）、`paginate`（page 越界钳制）与 JS 行为一一对应，
+     作为单测与快照断言的语义参照（验收要求）。
+  3. **迷你趋势图**：`render_trend_svg` 消费 trends.py 序列化结构
+     （`DatasetTrend.to_report_dict()`）生成内联 SVG 折线；`render_html`
+     增可选参数 `trends`（列表）——core 不反向依赖应用层，CLI/API
+     注入数据。不足两点不渲染。
+  4. **server 联动可选**：`render_html(..., server_base_url=...)` 非空时
+     JS 为每行生成「workbench」链接（跳转修复预览端点）；默认 None =
+     纯离线报告，无任何链接。新增 `GET /scans/{run_id}/report.html`
+     （注入请求 base_url + 趋势）。
+  5. **报告仍是审计产物**：元数据/方法/可复现节保留，交互仅视图增强；
+     JSON 机器契约不变。
+- **理由**：交互逻辑与数据分离（JS 只渲染），Python 纯函数提供可测试的
+  同一语义；转义策略复用 Step 48 的「人类可读面打码」原则；无新依赖、
+  不破坏现有 CLI 行为（全部新参数可选），符合 V2 边界。
+- **影响**：新增 reporting/interactive.py（纯函数 + JS 常量）；html.py
+  集成交互表格/趋势区/CSS；trends.py 加 to_report_dict；cli.py report
+  export html 注入趋势；api.py 加 report.html 端点；测试
+  tests/test_reporting_interactive.py（新增 ~30 例）+ test_reporting.py /
+  test_api.py 更新。

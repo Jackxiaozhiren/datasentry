@@ -163,8 +163,10 @@ class TestHtml:
         html = render_html(_report())
         assert html.startswith("<!DOCTYPE html>")
         assert "DataSentry Data Quality Report" in html
-        assert "<link" not in html and "<script" not in html  # 内嵌 CSS，无外部资源
+        assert "<link" not in html  # 内嵌 CSS，无外部资源
         assert "<style>" in html
+        assert "<script src=" not in html  # 内联 JS 允许（Step 49），外部脚本不允许
+        assert "<script>" in html
 
     def test_quality_score_bar_and_tooltip(self) -> None:
         html = render_html(_report())
@@ -177,7 +179,7 @@ class TestHtml:
         report["issues"][0]["title"] = "<script>alert(1)</script>"
         html = render_html(report)
         assert "<script>alert(1)</script>" not in html
-        assert "&lt;script&gt;" in html
+        assert "\\u003cscript\\u003e" in html  # 内联数据 JSON 的 \\u003c 转义
 
     def test_sections_anchors(self) -> None:
         html = render_html(_report())

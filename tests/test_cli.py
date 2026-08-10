@@ -298,7 +298,8 @@ class TestCli:
         html = out.read_text(encoding="utf-8")
         assert html.startswith("<!DOCTYPE html>")
         assert "score-bar" in html and "executive_summary" in html
-        assert "<link" not in html and "<script" not in html  # 自包含单文件
+        assert "<link" not in html and "<script src=" not in html  # 自包含单文件
+        assert 'id="issue-table"' in html  # Step 49：交互式 Issue Breakdown
         assert "DataSentry Data Quality Report" in html
 
     def test_report_export_missing_exit_2(self, workspace: Path, capsys) -> None:

@@ -227,9 +227,11 @@ def _cmd_report_export(args: argparse.Namespace) -> int:
 
         content = json.dumps(render_sarif(report), ensure_ascii=False, indent=2)
     else:
+        from datasentry.trends import build_trends
         from datasentry_core.reporting.html import render_html
 
-        content = render_html(report)
+        trends = [t.to_report_dict() for t in build_trends(client.list_scan_runs())]
+        content = render_html(report, trends=trends or None)
     path = _report_output_path(client, args, args.as_format)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")

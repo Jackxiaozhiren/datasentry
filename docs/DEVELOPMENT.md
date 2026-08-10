@@ -449,3 +449,22 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - CLI：`llm restore`（无参=列表 / 会话摘要 / `--text` 还原 / `--delete`）、
   `llm rotate-key [--new-key]`、`llm status` 增 `pii_vault` 段
 - 依赖：cryptography≥42（仅主包；core 零依赖）；测试 522 → 553（+31）
+
+## HTML 报告交互（Step 49，V2-B）
+
+- **架构**：`reporting/interactive.py` = 可测纯函数层（`issue_rows` /
+  `filter_issues` / `sort_issues` / `paginate` / `json_script` /
+  `render_trend_svg` / `render_interactive_issue_table`）+ 内嵌原生 JS
+  常量 `_INTERACTIVE_JS`；`render_html` 新增可选参数 `trends` /
+  `page_size` / `server_base_url`（全可选，向后兼容）
+- **注入防护**：数据经 `json_script` 内嵌（dumps 后 replace `<`/`>`/`&`
+  为 `\uXXXX`，`</script>` 无法提前闭合）；JS 全部用 `textContent` 建
+  单元格、severity 样式类走白名单映射；服务端数据已过 `mask_text_pii`
+- **测试策略**：Python 纯函数与 JS 行为一一对应（同语义参照），单测 +
+  报告快照断言（容器存在 / 数据 JSON 正确 / 无 `<script src` / 注入样例
+  被转义）；无浏览器测试依赖
+- **趋势注入**：core 不导入应用层——CLI/API 调 `build_trends` 后经
+  `DatasetTrend.to_report_dict()` 序列化传入；不足两点不渲染 SVG
+- **server 联动**：`GET /scans/{run_id}/report.html`（api.py）以
+  request.base_url 注入 `serverBaseUrl`，JS 为每行生成 workbench 链接；
+  离线 `report export --as html` 默认 None 无链接

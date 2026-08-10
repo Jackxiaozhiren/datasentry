@@ -30,7 +30,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, Form, HTTPException, Query
+from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
@@ -184,6 +184,20 @@ def create_app(project: str | Path | None = None) -> FastAPI:
         if score is None:
             raise HTTPException(status_code=404, detail="quality score unavailable")
         return score.model_dump()
+
+    @app.get("/scans/{run_id}/report.html", response_class=HTMLResponse, tags=["ui"])
+    def ui_report_html(run_id: str, request: Request) -> HTMLResponse:
+        """交互式 HTML 报告（Step 49，V2-B）：server 模式注入工作台联动与趋势数据。"""
+        from datasentry.trends import build_trends
+        from datasentry_core.reporting.html import render_html
+
+        try:
+            report = client.export_report(run_id)
+        except Exception as exc:
+            raise _handle(exc) from exc
+        trends = [t.to_report_dict() for t in build_trends(client.list_scan_runs())]
+        base = str(request.base_url).rstrip("/")
+        return HTMLResponse(render_html(report, trends=trends or None, server_base_url=base))
 
     @app.get("/issues", response_model=list[Issue], tags=["issues"])
     def list_all_issues(
@@ -361,6 +375,7 @@ _ENDPOINTS = frozenset(
         "GET /scans/{run_id}",
         "GET /scans/{run_id}/issues",
         "GET /scans/{run_id}/report",
+        "GET /scans/{run_id}/report.html",
         "GET /scans/{run_id}/score",
         "GET /issues",
         "POST /scans/{run_id}/repairs/propose",

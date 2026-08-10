@@ -235,7 +235,8 @@ def render_scan_detail(
         )
         + "</div>",
         _issue_rows(issues, scan.id),
-        '<p class="meta"><a href="/api/reports/">JSON report</a></p>',
+        '<p class="meta"><a href="/api/reports/">JSON report</a> &middot; '
+        f'<a href="/scans/{escape(scan.id)}/report.html">Interactive HTML report</a></p>',
     ]
     return _page(f"Scan {scan.id}", "\n".join(body))
 

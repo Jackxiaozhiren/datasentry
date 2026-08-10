@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from datasentry_core.models.scan import ScanRun
 
@@ -61,6 +61,21 @@ class DatasetTrend:
         if not self.points:
             return 0
         return self.points[-1].issues_total
+
+    def to_report_dict(self) -> dict[str, Any]:
+        """JSON 可序列化视图（Step 49：HTML 报告迷你趋势图消费此结构）。"""
+        return {
+            "dataset_id": self.dataset_id,
+            "points": [
+                {
+                    "run_id": p.run_id,
+                    "score": p.score,
+                    "issues_total": p.issues_total,
+                    "finished_at": p.finished_at.isoformat(),
+                }
+                for p in self.points
+            ],
+        }
 
 
 def build_trends(scans: list[ScanRun]) -> list[DatasetTrend]:

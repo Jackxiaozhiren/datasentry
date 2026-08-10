@@ -8,6 +8,15 @@
 
 V2 四大方向（PII 加密还原 / HTML 报告交互 / 插件生态 / 云侧调度）。
 
+### 新增（Step 49，V2-B HTML 报告交互）
+
+- **Step 49**：交互式 HTML 报告 —— Issue Breakdown 升级为可交互表格
+  （severity/维度筛选、列排序、详情折叠、分页，纯原生 JS 零依赖内联，
+  离线可用）；Quality Trends 迷你 SVG 折线（复用 trends.py 数据）；
+  server 模式联动修复工作台（`GET /scans/{id}/report.html`）；
+  数据 JSON 经 `\u003c` 转义防 `</script>` 注入，JS 只以 textContent
+  写入、PII 掩码双保险；筛选/排序/分页 Python 纯函数可测（ADR-049）
+
 ### 新增（Step 48，V2-A PII 加密还原）
 
 - **Step 48**：PII 加密还原 —— 脱敏映射 AES-256-GCM 加密落库

@@ -4,6 +4,9 @@ MVP 节（26 章清单可填充部分）：Executive Summary / Dataset Overview 
 Quality Score（含 27.3 维度条形分解与「哪些 Issue 扣分」悬停）/ Issue Breakdown /
 Critical Findings / Column Profiles / Methodology / Reproducibility。
 Drift / Suggested Rules / Repair History 归 V1。
+Step 49（V2-B，ADR-049）：Issue Breakdown 升级为交互表格（severity/维度筛选、
+列排序、详情折叠、分页，原生 JS 零依赖内联）；可选 Quality Trends 迷你 SVG
+（消费 trends.py 序列化数据）；server_base_url 非空时 issue 行联动修复工作台。
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ from html import escape
 from typing import Any
 
 from datasentry_core.reporting import HTML_SECTIONS, Report, critical_findings, mask_text_pii
+from datasentry_core.reporting.interactive import render_interactive_issue_table, render_trend_svg
 
 _CSS = """
 :root { color-scheme: light; }
@@ -32,6 +36,24 @@ th { background: #f6f8fa; }
 footer { margin-top: 3rem; font-size: .8rem; color: #57606a; border-top: 1px solid #d0d7de; }
 .notes { font-size: .85rem; color: #57606a; background: #f6f8fa; padding: .6rem;
          border-radius: .4rem; }
+.issue-controls { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;
+                  margin: .6rem 0; }
+.issue-controls select, .issue-controls input[type=search] { padding: .25rem .45rem;
+                  font-size: .85rem; }
+.issue-row td { cursor: pointer; }
+.issue-detail td { background: #f6f8fa; font-size: .85rem; }
+.issue-detail.collapsed { display: none; }
+th[data-key] { cursor: pointer; user-select: none; white-space: nowrap; }
+th[data-key]::after { content: " \\21C5"; font-size: .7rem; color: #8c959f; }
+th[data-key].sorted-asc::after { content: " \\2191"; }
+th[data-key].sorted-desc::after { content: " \\2193"; }
+.trend-block { margin: 1rem 0; }
+.trend-svg { display: block; background: #fff; border: 1px solid #d0d7de;
+             border-radius: .4rem; padding: .3rem; }
+.issue-pager { display: flex; gap: .6rem; align-items: center; margin: .6rem 0; }
+.issue-pager button { background: #f6f8fa; color: #0969da; border: 1px solid #d0d7de;
+                      border-radius: .3rem; padding: .2rem .7rem; cursor: pointer; }
+.workbench-link { margin-left: .6rem; font-size: .8rem; }
 """
 
 _BAR_COLORS = [
@@ -44,8 +66,18 @@ _BAR_COLORS = [
 ]
 
 
-def render_html(report: Report) -> str:
-    """26 章报告 → 自包含 HTML（内嵌 CSS，无外部资源）。"""
+def render_html(
+    report: Report,
+    *,
+    trends: list[dict[str, Any]] | None = None,
+    page_size: int = 25,
+    server_base_url: str | None = None,
+) -> str:
+    """26 章报告 → 自包含 HTML（内嵌 CSS/JS，无外部资源）。
+
+    trends：trends.py `DatasetTrend.to_report_dict()` 列表 → Quality Trends 迷你 SVG；
+    server_base_url：非空时 issue 行附带修复工作台链接（server 模式联动 REST API）。
+    """
     parts = [
         "<!DOCTYPE html>",
         '<html lang="en"><head><meta charset="utf-8">',
@@ -55,14 +87,20 @@ def render_html(report: Report) -> str:
         _meta(report),
         _executive_summary(report),
         _quality_score(report),
-        _issue_breakdown(report),
-        _critical_findings(report),
-        _dataset_overview(report),
-        _methodology(report),
-        _reproducibility(report),
-        _footer(report),
-        "</body></html>",
     ]
+    if trends:
+        parts.append(_trends_section(trends))
+    parts.extend(
+        [
+            _issue_breakdown(report, page_size=page_size, server_base_url=server_base_url),
+            _critical_findings(report),
+            _dataset_overview(report),
+            _methodology(report),
+            _reproducibility(report),
+            _footer(report),
+            "</body></html>",
+        ]
+    )
     return "\n".join(parts)
 
 
@@ -141,24 +179,22 @@ def _contributions_tooltip(quality: dict[str, Any], dim: str) -> str:
     return f"{dim}: " + "; ".join(f"{i}: {v:.4f}" for i, v in items.items())
 
 
-def _issue_breakdown(report: Report) -> str:
-    rows = [
-        "<tr><th>Severity</th><th>Priority</th><th>Title</th>"
-        "<th>Columns</th><th>Detectors</th><th>Affected</th></tr>"
-    ]
-    for issue in report["issues"]:
-        rows.append(
-            "<tr>"
-            f'<td class="badge-{escape(issue["severity"])}">{escape(issue["severity"])}</td>'
-            f"<td>{issue['priority_score']:.1f}</td>"
-            f"<td>{escape(mask_text_pii(issue['title']))}</td>"
-            f"<td>{escape(', '.join(issue['columns']))}</td>"
-            f"<td>{escape(', '.join(issue['detector_ids']))}</td>"
-            f"<td>{issue['affected_count']} ({issue['affected_ratio']:.4f})</td>"
-            "</tr>"
-        )
-    body = "".join(rows) if report["issues"] else '<tr><td colspan="6">no issues</td></tr>'
-    return f'<h2 id="issue_breakdown">Issue Breakdown</h2><table>{body}</table>'
+def _trends_section(trends: list[dict[str, Any]]) -> str:
+    svgs = [svg for svg in (render_trend_svg(t) for t in trends) if svg]
+    if not svgs:
+        return ""
+    return '<h2 id="quality_trends">Quality Trends</h2>' + "".join(svgs)
+
+
+def _issue_breakdown(
+    report: Report,
+    *,
+    page_size: int = 25,
+    server_base_url: str | None = None,
+) -> str:
+    return render_interactive_issue_table(
+        report, page_size=page_size, server_base_url=server_base_url
+    )
 
 
 def _critical_findings(report: Report) -> str:
