@@ -118,21 +118,18 @@ def load_plugin_detectors(
 
 
 def _entry_points_for(group: str) -> Sequence[Any]:
-    """importlib.metadata.entry_points 跨版本兼容（<=3.11 select / >=3.12 dict）。"""
-    points = importlib.metadata.entry_points()
-    if hasattr(points, "select"):
-        return points.select(group=group)
-    return points.get(group, ())
+    """importlib.metadata.entry_points 按组筛选（3.10+ 均支持 select）。"""
+    return importlib.metadata.entry_points().select(group=group)
 
 
 def _coerce_entry_value(value: Any, name: str) -> Detector:
     """entry 值 → Detector 实例：类无参实例化 / 实例直通 / 工厂调用。"""
     if isinstance(value, type):
-        return value()
+        return cast(Detector, value())
     if isinstance(value, Detector):
         return value
     if callable(value):
-        detector = value()
+        detector = cast(Detector, value())
         if not isinstance(detector, Detector):
             raise TypeError(f"factory returned {type(detector).__name__}, expected Detector")
         return detector
