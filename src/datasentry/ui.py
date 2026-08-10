@@ -19,6 +19,7 @@ from datasentry.trends import DatasetTrend
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
 from datasentry_core.models.scan import ScanRun
+from datasentry_core.reporting import mask_text_pii
 
 _CSS = """
 :root { color-scheme: light; }
@@ -190,7 +191,7 @@ def _issue_rows(issues: list[Issue], run_id: str) -> str:
         rows.append(
             '<div class="issue-card">'
             f"<h3>{_severity_badge(issue.severity.value)} "
-            f"{escape(issue.title)}</h3>"
+            f"{escape(mask_text_pii(issue.title))}</h3>"
             f'<p class="meta">priority {issue.priority_score:.1f} · confidence '
             f"{issue.confidence:.2f} · affected {issue.affected_count} rows · "
             f"columns: {cols} · detectors: "
@@ -251,7 +252,7 @@ def render_workbench(
 ) -> str:
     cols = ", ".join(escape(c) for c in issue.columns) or "—"
     body = [
-        f"<p>{_severity_badge(issue.severity.value)} {escape(issue.title)}</p>",
+        f"<p>{_severity_badge(issue.severity.value)} {escape(mask_text_pii(issue.title))}</p>",
         f'<p class="meta">issue {escape(issue.id)} · priority {issue.priority_score:.1f} · '
         f"confidence {issue.confidence:.2f} · affected {issue.affected_count} rows · "
         f"columns: {cols}</p>",

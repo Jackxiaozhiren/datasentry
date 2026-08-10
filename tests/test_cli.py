@@ -525,3 +525,79 @@ class TestCli:
         assert code == 2
         payload = json.loads(capsys.readouterr().out)
         assert payload["data"]["valid"] is False
+
+    # ---- Step 48：llm restore / rotate-key（PII 加密还原） ----------------
+
+    def test_llm_status_shows_vault(self, workspace: Path, capsys) -> None:
+        code = main(["--project", str(workspace), "--format", "json", "llm", "status"])
+        assert code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["data"]["pii_vault"]["key_source"] == "dev"
+        assert payload["data"]["pii_vault"]["mappings"] == 0
+
+    def test_llm_restore_list_empty(self, workspace: Path, capsys) -> None:
+        code = main(["--project", str(workspace), "--format", "json", "llm", "restore"])
+        assert code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["data"]["sessions"] == []
+
+    def test_llm_restore_unknown_session_exit_3(self, workspace: Path, capsys) -> None:
+        code = main(["--project", str(workspace), "--format", "json", "llm", "restore", "pii_nope"])
+        assert code == 3
+
+    def test_llm_rotate_key_writes_key_file(
+        self, workspace: Path, capsys, monkeypatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
+        code = main(["--project", str(workspace), "--format", "json", "llm", "rotate-key"])
+        assert code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["command"] == "llm rotate-key"
+        assert payload["data"]["rotated"] == 0
+        assert len(payload["data"]["new_key"]) >= 32
+        assert (tmp_path / "vault.key").is_file()
+
+    def test_llm_rotate_key_reencrypts_mappings(
+        self, workspace: Path, capsys, monkeypatch, tmp_path: Path
+    ) -> None:
+        from datasentry import repair_ai
+        from datasentry.client import DataSentry as SDKClient
+        from datasentry.pii_vault import PIIVault
+
+        monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
+        pii_csv = workspace / "pii.csv"
+        pii_csv.write_text("name,email\n a1 ,a1@x.io\n a2 ,a2@x.io\n", encoding="utf-8")
+        provider = type(
+            "P",
+            (),
+            {
+                "provider_id": "fake",
+                "model": "fake-model",
+                "complete": lambda self, req: type(
+                    "R",
+                    (),
+                    {
+                        "text": '{"operation": "trim_whitespace", "parameters": {}, '
+                        '"rationale": "strip"}',
+                        "input_tokens": 1,
+                        "output_tokens": 1,
+                        "cache_hit": False,
+                        "model": "fake-model",
+                        "latency_ms": 1,
+                    },
+                )(),
+            },
+        )()
+        client = SDKClient(project=workspace)
+        try:
+            _, _, issues = client.scan_file(pii_csv)
+            issue = next(i for i in issues if "leading_or_trailing_whitespace" in i.detector_ids)
+            repair_ai.AIRepairService(
+                store=client._store, provider=provider, vault=PIIVault(client._store)
+            ).propose(issue.id, str(pii_csv))
+        finally:
+            client.close()
+        code = main(["--project", str(workspace), "--format", "json", "llm", "rotate-key"])
+        assert code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["data"]["rotated"] == 1

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 
@@ -182,6 +183,41 @@ class TestHtml:
         html = render_html(_report())
         for section in HTML_SECTIONS:
             assert f'id="{section}"' in html
+
+
+class TestPiiMasking:
+    def test_mask_text_pii_basic(self) -> None:
+        from datasentry_core.reporting import mask_text_pii
+
+        masked = mask_text_pii("mail alice@example.com phone 13800138000")
+        assert "alice@example.com" not in masked
+        assert "13800138000" not in masked
+        assert masked.count("[REDACTED]") == 2
+
+    def test_mask_text_pii_no_pii_unchanged(self) -> None:
+        from datasentry_core.reporting import mask_text_pii
+
+        assert mask_text_pii("missing values in column price") == "missing values in column price"
+        assert mask_text_pii("") == ""
+
+    def test_html_report_redacts_pii_title(self) -> None:
+        report = _report()
+        report["issues"][0]["title"] = "bad email alice@example.com in column"
+        html = render_html(report)
+        assert "alice@example.com" not in html
+        assert "[REDACTED]" in html
+
+    def test_markdown_report_redacts_pii_title(self) -> None:
+        report = _report()
+        report["issues"][0]["title"] = "bad email bob@corp.io in column"
+        md = render_markdown(report)
+        assert "bob@corp.io" not in md
+        assert "[REDACTED]" in md
+
+    def test_json_report_keeps_full_evidence(self) -> None:
+        report = _report()
+        report["issues"][0]["title"] = "bad email alice@example.com in column"
+        assert "alice@example.com" in json.dumps(report)
 
 
 class TestJunit:

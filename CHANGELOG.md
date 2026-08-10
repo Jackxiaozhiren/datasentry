@@ -4,6 +4,17 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.2.0] - unreleased
+
+V2 四大方向（PII 加密还原 / HTML 报告交互 / 插件生态 / 云侧调度）。
+
+### 新增（Step 48，V2-A PII 加密还原）
+
+- **Step 48**：PII 加密还原 —— 脱敏映射 AES-256-GCM 加密落库
+  （SQLite `pii_mappings`，schema v3），LLM 回复占位符还原，
+  密钥轮换 `llm rotate-key`、还原审计（`pii_restore` /
+  `pii_key_rotate`）、报告/UI 默认打码（ADR-048）
+
 ## [0.1.0] - 2026-08-09
 
 MVP 里程碑：九项硬性验收 M1–M9 全达成（36+ 检测器、融合评分、

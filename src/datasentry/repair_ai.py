@@ -27,6 +27,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, ValidationError
 
 from datasentry.llm_providers import NullProvider, create_provider
+from datasentry.pii_vault import PIIVault
 from datasentry_core.connectors import DataSourceSpec, default_registry
 from datasentry_core.detectors.common import quote_ident
 from datasentry_core.engine.profiler import Profiler
@@ -92,17 +93,19 @@ def _redact_str(value: Any) -> Any:
 
 
 class AIRepairService:
-    """AI 修复候选服务（绑定工作区 store + 可注入 provider）。"""
+    """AI 修复候选服务（绑定工作区 store + 可注入 provider/vault）。"""
 
     def __init__(
         self,
         store: MetadataStore,
         provider: LLMProvider | None = None,
         project: str | None = None,
+        vault: PIIVault | None = None,
     ) -> None:
         self._store = store
         self._project = project
         self._provider = provider
+        self._vault = vault or PIIVault(store)
 
     # ---- propose：issue → AI 修复候选（脱敏 → LLM → 校验 → 落库） --------
 
@@ -126,8 +129,9 @@ class AIRepairService:
             masked_profile, mapping = mask_profile(profile)
             prompt = self._build_prompt(issue, masked_profile, allowed_ops)
             masked_count = sum(len(bucket) for bucket in mapping.values())
+            session_id = self._vault.save_mapping(mapping) if mapping else None
             return self._complete(
-                provider, issue, prompt, masked_count, budget_tokens, allowed_ops, path
+                provider, issue, prompt, masked_count, budget_tokens, allowed_ops, path, session_id
             )
         finally:
             handle.close()
@@ -182,6 +186,7 @@ class AIRepairService:
         budget_tokens: int,
         allowed_ops: set[RepairOperation],
         path: str,
+        session_id: str | None,
     ) -> RepairProposalResult:
         prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:16]
         cache_hit = False
@@ -206,6 +211,7 @@ class AIRepairService:
                     status="failed",
                     prompt_hash=prompt_hash,
                     error=str(exc),
+                    pii_session_id=session_id,
                 )
                 return RepairProposalResult(llm_error=str(exc), masked_sample_count=masked_count)
             raw_text = response.text
@@ -219,10 +225,11 @@ class AIRepairService:
                 cache_hit=response.cache_hit,
                 latency_ms=response.latency_ms,
                 masked_sample_count=masked_count,
+                pii_session_id=session_id,
             )
             self._store.put_llm_cache(prompt_hash, raw_text)
 
-        proposal, reason = self._parse_and_validate(raw_text, issue, allowed_ops, path)
+        proposal, reason = self._parse_and_validate(raw_text, issue, allowed_ops, path, session_id)
         if proposal is not None:
             self._store.save_repair_proposal(proposal)
         return RepairProposalResult(
@@ -245,6 +252,7 @@ class AIRepairService:
         latency_ms: int = 0,
         masked_sample_count: int = 0,
         error: str | None = None,
+        pii_session_id: str | None = None,
     ) -> None:
         self._store.record_llm_invocation(
             LLMInvocation(
@@ -262,6 +270,7 @@ class AIRepairService:
                 masked_sample_count=masked_sample_count,
                 injection_flagged=False,
                 error_message=error,
+                pii_session_id=pii_session_id,
                 created_at=utcnow(),
             )
         )
@@ -274,6 +283,7 @@ class AIRepairService:
         issue: Any,
         allowed_ops: set[RepairOperation],
         path: str,
+        session_id: str | None,
     ) -> tuple[RepairProposal | None, str | None]:
         try:
             parsed = _RepairJson.model_validate_json(raw_text)
@@ -304,6 +314,11 @@ class AIRepairService:
                 handle.close()
         if affected <= 0:
             return None, "no rows would change"
+        rationale = (
+            self._vault.restore_text(parsed.rationale.strip(), session_id)
+            if session_id is not None
+            else parsed.rationale.strip()
+        )
         proposal = RepairProposal(
             proposal_id=_new_proposal_id(),
             issue_id=issue.id,
@@ -311,7 +326,7 @@ class AIRepairService:
             operation=operation,
             target_columns=columns,
             parameters=parameters,
-            rationale=parsed.rationale.strip(),
+            rationale=rationale,
             evidence_ids=[e.evidence_id for e in issue.evidence],
             risk_level=self._risk_level(operation),
             reversibility=(

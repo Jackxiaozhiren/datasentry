@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datasentry_core.reporting import Report, critical_findings
+from datasentry_core.reporting import Report, critical_findings, mask_text_pii
 
 
 def render_markdown(report: Report) -> str:
@@ -53,7 +53,7 @@ def render_markdown(report: Report) -> str:
         for issue in report["issues"]:
             lines.append(
                 f"| {issue['severity']} | {issue['priority_score']:.1f} "
-                f"| {_escape_cell(issue['title'])} | {', '.join(issue['columns'])} "
+                f"| {_escape_cell(mask_text_pii(issue['title']))} | {', '.join(issue['columns'])} "
                 f"| {', '.join(issue['detector_ids'])} |"
             )
     else:
@@ -63,7 +63,7 @@ def render_markdown(report: Report) -> str:
         lines += ["", "## Critical Findings", ""]
         for issue in findings:
             lines.append(
-                f"- **[{issue['severity']}]** {issue['title']} "
+                f"- **[{issue['severity']}]** {mask_text_pii(issue['title'])} "
                 f"(priority={issue['priority_score']:.1f}, "
                 f"affected={issue['affected_count']} rows, ratio={issue['affected_ratio']:.4f})"
             )

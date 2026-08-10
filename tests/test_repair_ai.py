@@ -252,3 +252,87 @@ class TestClientIntegration:
             assert proposal.operation.value == "trim_whitespace"
         finally:
             client.close()
+
+
+class TestVaultRoundtrip:
+    """加密 → LLM 往返 → 还原（Step 48）：映射加密落库、回复还原、审计。"""
+
+    @pytest.fixture()
+    def pii_csv(self, tmp_path: Path) -> Path:
+        rows = ["name,email"]
+        for i in range(1, 11):
+            rows.append(f" user{i} ,user{i}@example.com")
+        p = tmp_path / "pii_repair.csv"
+        p.write_text("\n".join(rows) + "\n", encoding="utf-8")
+        return p
+
+    def test_propose_encrypts_mapping_and_restores_rationale(
+        self, tmp_path: Path, pii_csv: Path
+    ) -> None:
+        provider = _FakeProvider(
+            json.dumps(
+                {
+                    "operation": "trim_whitespace",
+                    "parameters": {},
+                    "rationale": "trim rows for {{REDACTED:email:0}}",
+                }
+            )
+        )
+        store = _store_for(tmp_path)
+        service = AIRepairService(store=store, provider=provider)
+        client = DataSentry(project=tmp_path)
+        try:
+            issue = _issue_for(client, pii_csv, "leading_or_trailing_whitespace")
+            result = service.propose(issue.id, str(pii_csv))
+            assert result.proposal is not None
+            assert "{{REDACTED" not in result.proposal.rationale
+            assert result.proposal.rationale.startswith("trim rows for ")
+            assert result.proposal.rationale.endswith("@example.com")
+            assert store.count_pii_mappings() == 1
+            row = store.get_pii_mapping(store.list_pii_mappings()[0]["session_id"])
+            assert row is not None
+            assert "example.com" not in row["ciphertext"]
+            invocations = store.list_llm_invocations()
+            assert invocations[0].pii_session_id is not None
+            assert invocations[0].pii_session_id.startswith("pii_")
+        finally:
+            client.close()
+
+    def test_restore_via_cli_text(self, tmp_path: Path, pii_csv: Path, capsys) -> None:
+        provider = _FakeProvider(
+            json.dumps(
+                {
+                    "operation": "trim_whitespace",
+                    "parameters": {},
+                    "rationale": "ok",
+                }
+            )
+        )
+        from datasentry.cli import main
+
+        store = _store_for(tmp_path)
+        service = AIRepairService(store=store, provider=provider)
+        client = DataSentry(project=tmp_path)
+        try:
+            issue = _issue_for(client, pii_csv, "leading_or_trailing_whitespace")
+            service.propose(issue.id, str(pii_csv))
+            session_id = store.list_pii_mappings()[0]["session_id"]
+        finally:
+            client.close()
+        code = main(
+            [
+                "--project",
+                str(tmp_path),
+                "--format",
+                "json",
+                "llm",
+                "restore",
+                session_id,
+                "--text",
+                "contact {{REDACTED:email:0}}",
+            ]
+        )
+        assert code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["command"] == "llm restore"
+        assert payload["data"]["restored"].endswith("@example.com")

@@ -12,6 +12,7 @@ HTML/Markdown 为同一 dict 的纯函数渲染（无外部依赖，HTML 单文�
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,6 +20,7 @@ from datasentry_core import __version__
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.quality import QualityScore
 from datasentry_core.models.scan import DetectorRun, ScanRun
+from datasentry_core.privacy.redactor import redact
 
 #: 26 章规范报告结构（build_report 返回，JSON 机器契约）
 type Report = dict[str, Any]
@@ -64,6 +66,20 @@ def build_report(
 
 def _severity_rank(severity: str) -> int:
     return {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}.get(severity, 9)
+
+
+_PII_HOLDER_RE = re.compile(r"\{\{REDACTED:\w+:\d+\}\}")
+
+
+def mask_text_pii(text: str) -> str:
+    """人类可读输出前的 PII 防御性掩码（Step 48，ADR-048）。
+
+    命中的 PII（email/手机号/身份证/IP/URL）替换为 [REDACTED]；
+    无 PII 文本原样返回。JSON 机器契约不调用（保留完整证据链）。
+    """
+    if not text:
+        return text
+    return _PII_HOLDER_RE.sub("[REDACTED]", redact(text).masked)
 
 
 def critical_findings(report: Report) -> list[dict[str, Any]]:

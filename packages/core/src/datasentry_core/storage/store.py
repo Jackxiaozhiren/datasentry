@@ -14,6 +14,7 @@ import sqlite3
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from datasentry_core.models.enums import (
     RepairOperation,
@@ -466,8 +467,8 @@ class MetadataStore:
                     invocation_id, task_type, template_version, provider_id, model,
                     input_tokens, output_tokens, cache_hit, latency_ms, status,
                     prompt_hash, masked_sample_count, injection_flagged,
-                    error_message, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    error_message, pii_session_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     invocation.invocation_id,
@@ -484,6 +485,7 @@ class MetadataStore:
                     invocation.masked_sample_count,
                     int(invocation.injection_flagged),
                     invocation.error_message,
+                    invocation.pii_session_id,
                     _iso(invocation.created_at),
                 ),
             )
@@ -516,6 +518,7 @@ class MetadataStore:
             masked_sample_count=d["masked_sample_count"],
             injection_flagged=bool(d["injection_flagged"]),
             error_message=d["error_message"],
+            pii_session_id=d["pii_session_id"],
             created_at=datetime.fromisoformat(d["created_at"]),
         )
 
@@ -629,6 +632,77 @@ class MetadataStore:
                 " VALUES (?, ?, ?, ?)",
                 (cache_key, response_json, _iso(utcnow()), expires_at),
             )
+
+    # ---- PII 加密映射（Step 48，V2-A：AES-GCM 密文持久化，明文不落盘） ----
+
+    def save_pii_mapping(
+        self,
+        session_id: str,
+        ciphertext: str,
+        key_version: str = "",
+        created_at: datetime | None = None,
+    ) -> None:
+        """持久化加密后的脱敏映射（密文行；明文只在 vault 内存/解密时存在）。"""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO pii_mappings "
+                "(session_id, ciphertext, key_version, created_at) VALUES (?, ?, ?, ?)",
+                (session_id, ciphertext, key_version, _iso(created_at or utcnow())),
+            )
+
+    def get_pii_mapping(self, session_id: str) -> dict[str, Any] | None:
+        """按 session 取加密映射行；不存在返回 None。"""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT session_id, ciphertext, key_version, created_at "
+                "FROM pii_mappings WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "session_id": row["session_id"],
+            "ciphertext": row["ciphertext"],
+            "key_version": row["key_version"],
+            "created_at": datetime.fromisoformat(row["created_at"]),
+        }
+
+    def list_pii_mappings(self, limit: int = 100) -> list[dict[str, Any]]:
+        """加密会话列表（不含密文；轮换用 get_all_pii_mappings）。"""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT session_id, key_version, created_at "
+                "FROM pii_mappings ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "session_id": row["session_id"],
+                "key_version": row["key_version"],
+                "created_at": datetime.fromisoformat(row["created_at"]),
+            }
+            for row in rows
+        ]
+
+    def get_all_pii_mappings(self) -> list[dict[str, Any]]:
+        """全部加密映射行（含密文，密钥轮换用）。"""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT session_id, ciphertext, key_version FROM pii_mappings"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def delete_pii_mapping(self, session_id: str) -> bool:
+        """删除单个加密会话；存在返回 True。"""
+        with self._lock, self._conn:
+            cur = self._conn.execute("DELETE FROM pii_mappings WHERE session_id = ?", (session_id,))
+        return cur.rowcount > 0
+
+    def count_pii_mappings(self) -> int:
+        """加密会话总数（llm status 展示）。"""
+        with self._lock:
+            row = self._conn.execute("SELECT count(*) AS n FROM pii_mappings").fetchone()
+        return int(row["n"])
 
     def _repair_proposal_from_row(self, row: sqlite3.Row) -> RepairProposal:
         from datasentry_core.models.repair import RepairProposal

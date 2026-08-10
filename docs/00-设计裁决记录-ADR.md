@@ -1127,3 +1127,49 @@
 - **影响**：README 重构、docs/index.html + pages.yml +
   logo + demo 素材。待办：推送后替换 docs/index.html 中的
   GitHub 链接占位与 README 徽章 URL。
+
+## ADR-048：PII 加密还原（V2-A，AES-GCM 可逆脱敏）（Step 48）
+
+- **状态**：已确认（Step 48）
+- **背景**：38 章脱敏（ADR-027）是**不可逆**的：`mask_profile` 的
+  映射表只在进程内传递、不落盘，LLM 回复中引用掩码值时（如修复
+  rationale、规则 when 值）原文丢失。V2 计划「脱敏时生成加密映射
+  并安全存储，LLM 回复后还原」——不出机器 + 信息不丢 + 可审计还原。
+- **决策**：
+  1. **AES-256-GCM**（cryptography 库 `AESGCM`，仅主包新依赖，
+     core 零依赖）：密钥材料任意字符串，sha256 派生 32 字节；
+     密文 = base64(nonce 12B || ciphertext || tag)，nonce 随机。
+  2. **密钥来源优先级**：`DATASENTRY_ENCRYPTION_KEY` env →
+     `<user-config>/datasentry/vault.key`（0600，rotate 写入）→
+     内置开发密钥（key_source=dev，CLI 显式告警，仅本机开发）。
+  3. **持久化**：schema v3 新增 `pii_mappings` 表
+     （session_id/ciphertext/key_version/created_at，明文不落盘）；
+     `llm_invocations` 增 `pii_session_id` 审计列（幂等迁移）。
+     session_id 由映射内容确定性派生（sha256 前 16 hex）：
+     同一映射复用同一加密会话，与 llm_cache 语义一致。
+  4. **还原闭环**：`repair_ai` / `rules_ai` 的 propose 在脱敏后
+     加密落库 mapping；LLM 输出的占位符经 `vault.restore_text` /
+     `restore_value`（递归 dict/list）还原后落库（rationale、
+     description、when 值）；每次还原动作写审计
+     （task_type=pii_restore），密钥轮换审计 pii_key_rotate。
+  5. **缺密钥优雅降级**：解密失败（密钥丢失/不匹配/数据损坏）
+     统一抛 `VaultKeyMissingError`，拒绝还原并提示配置 env 或
+     执行 rotate-key；不静默降级、不泄露部分明文。
+  6. **报告默认打码**：HTML/Markdown 人类可读输出对自由文本
+     字段过 `mask_text_pii`（命中 PII → `[REDACTED]`，复用 38 章
+     识别正则）；JSON 机器契约保留完整证据链（本地文件、无网络
+     传输）。UI 标题同样防御性打码。
+  7. **CLI**：`llm restore`（列表 / 会话摘要含掩码→原文预览 /
+     `--text` 还原 / `--delete`）、`llm rotate-key [--new-key]`
+     （重加密全部映射 + 写 key 文件）、`llm status` 增 pii_vault
+     状态（key_source / mappings 数）。
+- **理由**：AES-GCM 是标准认证加密原语（密文带 tag 可验篡改），
+  与「本地优先 + 不出机器」哲学一致；确定性 session_id 使加密层
+  与 llm_cache/审计自然对齐；打码策略区分人类可读面（默认打码）
+  与机器契约面（完整证据），避免破坏证据链。
+- **影响**：schema v3（迁移幂等）；新增 src/datasentry/pii_vault.py
+  + store pii_mappings CRUD；repair_ai/rules_ai 改造（构造可注入
+  vault，默认从 store 构建，向后兼容）；reporting 增 mask_text_pii；
+  pyproject 主包加 cryptography 依赖；测试 522 → 553（+31）。
+  已知边界：dev 密钥不落盘（进程重启后 dev 加密数据仍可解——
+  密钥是常量）；还原仅覆盖 AI 输出引用（不覆盖文件本身）。

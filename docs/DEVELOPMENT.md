@@ -425,3 +425,27 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - **三份 HTML 报告**：orders / customers / orders-final 各导出规范报告；预算 180s 实测 ~10s
 - **核心包 bug 修复**：DuckDB 将全合法日期列推断为 DATE 类型后，`uniqueness_violation` / `rare_category` 把原始 `date` 对象塞进 evidence.data → `save_scan` JSON 序列化崩溃；两处改为 `_json_safe`（date/datetime → ISO 字符串）；新增 tests/test_evidence_json.py 回归守卫（JSON 往返 + 无 date 泄漏断言）
 - 测试 408 → 413：tests/test_ecommerce.py（预算硬断言 + 门禁拦截/放行契约 + 产物存在性 + seed 可复现 ×2）+ tests/test_evidence_json.py（2 例）；ADR 待定表保持清零
+
+## PII 加密还原（Step 48，V2-A）
+
+- **vault 架构**：`src/datasentry/pii_vault.py` `PIIVault` —— AES-256-GCM
+  加密脱敏映射（redactor 的 mapping 从「进程内不落盘」升级为「加密落库」）；
+  密钥来源优先级 env `DATASENTRY_ENCRYPTION_KEY` > `~/.config/datasentry/vault.key`
+  （0600）> 内置 dev 密钥（CLI 告警）；密文 = base64(nonce 12B || ct)，密钥
+  sha256 派生 32 字节
+- **schema v3**：新表 `pii_mappings`（session_id 主键 / ciphertext /
+  key_version / created_at）+ `llm_invocations.pii_session_id` 审计列；
+  迁移幂等（`_ensure_column` + `CREATE TABLE IF NOT EXISTS`）
+- **确定性 session_id**：`pii_` + sha256(json(mapping, sort_keys))[:16]——
+  同一映射复用同一加密会话，与 llm_cache 语义对齐（cache 命中时 mapping 一致）
+- **还原闭环**：`repair_ai` / `rules_ai` propose 时 `vault.save_mapping(mapping)`；
+  LLM 输出经 `restore_text`（str）/ `restore_value`（递归 dict/list，规则
+  when 值）还原后落库；每次还原写审计（task_type=pii_restore，
+  prompt_hash=session_id）；轮换审计 pii_key_rotate
+- **密钥轮换**：`llm rotate-key` 用新密钥解密→重加密全部映射 + 写 key 文件；
+  旧密钥丢失/不匹配 → `VaultKeyMissingError`（拒绝还原并提示，不静默降级）
+- **报告打码**：`reporting.mask_text_pii`（redact 后占位符 → `[REDACTED]`）
+  应用于 HTML/Markdown 人类可读输出与 UI 标题；JSON 机器契约保留原文证据链
+- CLI：`llm restore`（无参=列表 / 会话摘要 / `--text` 还原 / `--delete`）、
+  `llm rotate-key [--new-key]`、`llm status` 增 `pii_vault` 段
+- 依赖：cryptography≥42（仅主包；core 零依赖）；测试 522 → 553（+31）

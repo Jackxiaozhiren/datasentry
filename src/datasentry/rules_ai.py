@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from datasentry.client import _source_type_for_path
 from datasentry.llm_providers import NullProvider, create_provider
+from datasentry.pii_vault import PIIVault
 from datasentry_core.connectors import DataSourceSpec, default_registry
 from datasentry_core.engine.profiler import Profiler
 from datasentry_core.llm.provider import (
@@ -120,17 +121,19 @@ def _new_rule_id() -> str:
 
 
 class RuleProposalService:
-    """自然语言规则提案服务（绑定工作区 store + 可注入 provider）。"""
+    """自然语言规则提案服务（绑定工作区 store + 可注入 provider/vault）。"""
 
     def __init__(
         self,
         store: MetadataStore,
         provider: LLMProvider | None = None,
         project: str | None = None,
+        vault: PIIVault | None = None,
     ) -> None:
         self._store = store
         self._project = project
         self._provider = provider
+        self._vault = vault or PIIVault(store)
 
     # ---- propose：NL → 候选（脱敏 → LLM → 校验 → 预运行） ---------------
 
@@ -148,7 +151,8 @@ class RuleProposalService:
             masked_profile, mapping = mask_profile(profile)
             prompt = self._build_prompt(description, masked_profile)
             masked_count = sum(len(bucket) for bucket in mapping.values())
-            return self._complete(provider, prompt, masked_count, budget_tokens, path)
+            session_id = self._vault.save_mapping(mapping) if mapping else None
+            return self._complete(provider, prompt, masked_count, budget_tokens, path, session_id)
         finally:
             handle.close()
 
@@ -191,6 +195,7 @@ class RuleProposalService:
         masked_count: int,
         budget_tokens: int,
         path: str,
+        session_id: str | None,
     ) -> ProposeResult:
         prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:16]
         cache_hit = False
@@ -215,6 +220,7 @@ class RuleProposalService:
                     status="failed",
                     prompt_hash=prompt_hash,
                     error=str(exc),
+                    pii_session_id=session_id,
                 )
                 return ProposeResult(llm_error=str(exc), masked_sample_count=masked_count)
             raw_text = response.text
@@ -228,10 +234,11 @@ class RuleProposalService:
                 cache_hit=response.cache_hit,
                 latency_ms=response.latency_ms,
                 masked_sample_count=masked_count,
+                pii_session_id=session_id,
             )
             self._store.put_llm_cache(prompt_hash, raw_text)
 
-        rules = self._parse_and_validate(raw_text, path)
+        rules = self._parse_and_validate(raw_text, path, session_id)
         return ProposeResult(rules=rules, masked_sample_count=masked_count, cache_hit=cache_hit)
 
     def _record(
@@ -247,6 +254,7 @@ class RuleProposalService:
         latency_ms: int = 0,
         masked_sample_count: int = 0,
         error: str | None = None,
+        pii_session_id: str | None = None,
     ) -> None:
         self._store.record_llm_invocation(
             LLMInvocation(
@@ -264,19 +272,26 @@ class RuleProposalService:
                 masked_sample_count=masked_sample_count,
                 injection_flagged=False,
                 error_message=error,
+                pii_session_id=pii_session_id,
                 created_at=utcnow(),
             )
         )
 
     # ---- 解析与校验 -------------------------------------------------------
 
-    def _parse_and_validate(self, raw_text: str, path: str) -> list[ProposedRule]:
+    def _parse_and_validate(
+        self, raw_text: str, path: str, session_id: str | None
+    ) -> list[ProposedRule]:
         try:
             parsed = _RulesJson.model_validate_json(raw_text)
         except ValidationError as exc:
             return [ProposedRule(rejected_reason=f"output schema failed: {exc}")]
         results: list[ProposedRule] = []
         for item in parsed.rules[:_MAX_CANDIDATES]:
+            if session_id is not None:
+                item.description = self._vault.restore_text(item.description, session_id)
+                item.when = self._vault.restore_value(item.when, session_id)
+                item.paraphrase = self._vault.restore_text(item.paraphrase, session_id)
             rule = self._to_rule(item)
             if rule is None:
                 results.append(

@@ -66,4 +66,5 @@ class LLMInvocation(BaseModel):
     masked_sample_count: int = Field(default=0, ge=0)
     injection_flagged: bool = False
     error_message: str | None = None
+    pii_session_id: str | None = None
     created_at: datetime = Field(default_factory=utcnow)

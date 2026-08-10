@@ -13,7 +13,7 @@ from __future__ import annotations
 import sqlite3
 
 #: 当前 schema 版本（PRAGMA user_version）
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA_DDL = """
 PRAGMA journal_mode = WAL;
@@ -238,7 +238,15 @@ CREATE TABLE IF NOT EXISTS llm_invocations (
     masked_sample_count INTEGER NOT NULL DEFAULT 0,
     injection_flagged INTEGER NOT NULL DEFAULT 0,
     error_message   TEXT,
+    pii_session_id  TEXT,
     created_at      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pii_mappings (
+    session_id  TEXT PRIMARY KEY,
+    ciphertext  TEXT NOT NULL,
+    key_version TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS llm_cache (
@@ -339,5 +347,8 @@ def migrate(conn: sqlite3.Connection) -> None:
             conn, "repair_proposals", "issue_type", "issue_type TEXT NOT NULL DEFAULT ''"
         )
         _ensure_column(conn, "repair_runs", "proposal_id", "proposal_id TEXT")
+    # v2 → v3：PII 加密映射（Step 48）：pii_mappings 表 + 审计列
+    if version < 3:
+        _ensure_column(conn, "llm_invocations", "pii_session_id", "pii_session_id TEXT")
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()

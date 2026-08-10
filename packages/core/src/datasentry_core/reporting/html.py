@@ -11,7 +11,7 @@ from __future__ import annotations
 from html import escape
 from typing import Any
 
-from datasentry_core.reporting import HTML_SECTIONS, Report, critical_findings
+from datasentry_core.reporting import HTML_SECTIONS, Report, critical_findings, mask_text_pii
 
 _CSS = """
 :root { color-scheme: light; }
@@ -151,7 +151,7 @@ def _issue_breakdown(report: Report) -> str:
             "<tr>"
             f'<td class="badge-{escape(issue["severity"])}">{escape(issue["severity"])}</td>'
             f"<td>{issue['priority_score']:.1f}</td>"
-            f"<td>{escape(issue['title'])}</td>"
+            f"<td>{escape(mask_text_pii(issue['title']))}</td>"
             f"<td>{escape(', '.join(issue['columns']))}</td>"
             f"<td>{escape(', '.join(issue['detector_ids']))}</td>"
             f"<td>{issue['affected_count']} ({issue['affected_ratio']:.4f})</td>"
@@ -170,7 +170,8 @@ def _critical_findings(report: Report) -> str:
         items.append(
             "<li>"
             f'<span class="badge-{escape(issue["severity"])}">[{escape(issue["severity"])}]</span> '
-            f"{escape(issue['title'])} &mdash; priority {issue['priority_score']:.1f}, "
+            f"{escape(mask_text_pii(issue['title']))} &mdash; "
+            f"priority {issue['priority_score']:.1f}, "
             f"{issue['affected_count']} rows affected"
             "</li>"
         )

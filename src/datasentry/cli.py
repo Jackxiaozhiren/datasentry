@@ -527,13 +527,16 @@ def _cmd_drift_latest(args: argparse.Namespace) -> int:
 
 
 def _cmd_llm_status(args: argparse.Namespace) -> int:
-    """LLM 提供方状态与配置来源（13.11 审计查询入口）。"""
+    """LLM 提供方状态与配置来源（13.11 审计查询入口）+ PII 加密保险库状态。"""
     from datasentry.llm_providers import load_llm_config
+    from datasentry.pii_vault import PIIVault
 
     config = load_llm_config()
     client = DataSentry(args.project)
     try:
         invocations = client.list_llm_invocations(limit=20)
+        vault = PIIVault(client._store)
+        mappings = client._store.count_pii_mappings()
     finally:
         client.close()
     summary = {
@@ -543,6 +546,7 @@ def _cmd_llm_status(args: argparse.Namespace) -> int:
         "configured": config.provider != "null",
         "recent_calls": len(invocations),
         "last_status": invocations[0].status if invocations else None,
+        "pii_vault": {"key_source": vault.key_source, "mappings": mappings},
     }
     _emit(_envelope("llm status", summary), args.format)
     return EXIT_OK
@@ -576,6 +580,98 @@ def _cmd_llm_invocations(args: argparse.Namespace) -> int:
     }
     _emit(_envelope("llm invocations", data), args.format)
     return EXIT_OK
+
+
+def _cmd_llm_restore(args: argparse.Namespace) -> int:
+    """PII 加密会话管理（Step 48）：列表 / 摘要 / 还原文本 / 删除。
+
+    显式授权语义：CLI 是本地用户命令，`restore <session>` 即授权
+    查看明文；报告与 UI 默认打码不受影响。
+    """
+    from datasentry.pii_vault import PIIVault, VaultKeyMissingError, format_mapping_summary
+
+    client = DataSentry(args.project)
+    try:
+        vault = PIIVault(client._store)
+        warnings: list[str] = []
+        if vault.key_source == "dev":
+            warnings.append(
+                "using built-in development key: set DATASENTRY_ENCRYPTION_KEY "
+                "or run 'datasentry llm rotate-key'"
+            )
+        if args.session_id is None:
+            sessions = client._store.list_pii_mappings(limit=args.limit)
+            data = {
+                "sessions": [
+                    {
+                        "session_id": s["session_id"],
+                        "key_version": s["key_version"],
+                        "created_at": s["created_at"].isoformat(),
+                    }
+                    for s in sessions
+                ]
+            }
+            _emit(_envelope("llm restore", data, warnings), args.format)
+            return EXIT_OK
+        session_id = args.session_id
+        if args.delete:
+            deleted = client._store.delete_pii_mapping(session_id)
+            _emit(
+                _envelope("llm restore", {"deleted": deleted, "session_id": session_id}, warnings),
+                args.format,
+            )
+            return EXIT_OK
+        if args.text is not None:
+            restored = vault.restore_text(args.text, session_id)
+            _emit(
+                _envelope(
+                    "llm restore", {"session_id": session_id, "restored": restored}, warnings
+                ),
+                args.format,
+            )
+            return EXIT_OK
+        mapping = vault.load_mapping(session_id)
+        _emit(
+            _envelope(
+                "llm restore",
+                {"session_id": session_id, "mapping": format_mapping_summary(mapping)},
+                warnings,
+            ),
+            args.format,
+        )
+        return EXIT_OK
+    except VaultKeyMissingError as exc:
+        _emit(_envelope("llm restore", {"error": str(exc)}), args.format)
+        return EXIT_CONFIG
+    except KeyError as exc:
+        _emit(_envelope("llm restore", {"error": str(exc)}), args.format)
+        return EXIT_ERROR
+    finally:
+        client.close()
+
+
+def _cmd_llm_rotate_key(args: argparse.Namespace) -> int:
+    """轮换 PII 加密密钥：新密钥重加密全部映射 + 写入本地 key 文件。"""
+    from datasentry.pii_vault import PIIVault, VaultKeyMissingError
+
+    client = DataSentry(args.project)
+    try:
+        vault = PIIVault(client._store)
+        result = vault.rotate_key(new_key=args.new_key)
+        data = {
+            "new_key": result["new_key"],
+            "rotated": result["rotated"],
+            "key_file": result["key_file"],
+        }
+        if result["rotated"] == 0:
+            data["note"] = "no encrypted mappings existed; key file created"
+        _emit(_envelope("llm rotate-key", data), args.format)
+        return EXIT_OK
+    except VaultKeyMissingError as exc:
+        _emit(_envelope("llm rotate-key", {"error": str(exc)}), args.format)
+        return EXIT_CONFIG
+    finally:
+        client.close()
 
 
 def _cmd_detectors_list(args: argparse.Namespace) -> int:
@@ -861,6 +957,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_invocations = llm_sub.add_parser("invocations", help="list recent LLM call audit")
     p_invocations.add_argument("--limit", type=int, default=20, help="max rows (default 20)")
     p_invocations.set_defaults(func=_cmd_llm_invocations)
+    p_restore = llm_sub.add_parser(
+        "restore", help="PII encrypted-mapping sessions: list / preview / restore (Step 48)"
+    )
+    p_restore.add_argument("session_id", type=str, nargs="?", help="encrypted mapping session")
+    p_restore.add_argument("--text", type=str, default=None, help="restore placeholders in TEXT")
+    p_restore.add_argument("--delete", action="store_true", help="delete the session mapping")
+    p_restore.add_argument("--limit", type=int, default=100, help="max sessions (default 100)")
+    p_restore.set_defaults(func=_cmd_llm_restore)
+    p_rotate = llm_sub.add_parser(
+        "rotate-key", help="re-encrypt all mappings with a new key (writes local key file)"
+    )
+    p_rotate.add_argument("--new-key", type=str, default=None, help="new key material")
+    p_rotate.set_defaults(func=_cmd_llm_rotate_key)
 
     p_detectors = sub.add_parser("detectors", help="list registered detectors (built-in + plugins)")
     p_detectors.set_defaults(func=_cmd_detectors_list)
