@@ -1248,3 +1248,47 @@
   client.py `list_detectors()` 增 source 字段；示例插件包 +
   README；测试 tests/test_plugins.py（发现/注册/CLI）+
   tests/test_sample_plugin.py（包形态，新增 ~25 例）。
+
+## ADR-051：本地调度器（V2-D，cron + SQLite 队列 + worker + webhook）（Step 51）
+
+- **状态**：已确认（Step 51）
+- **背景**：V2-D 目标为定时/远程执行扫描与质量门禁、多项目编排、
+  结果汇聚。边界明确：**先做本地调度器**（cron 表达式 + SQLite
+  持久化任务队列 + 简单 worker 循环，跑在 datasentry-server 内），
+  不做分布式/K8s/Celery，留执行器抽象接口。
+- **决策**：
+  1. **cron 语义用 croniter**：5 字段 cron，注册/更新时校验
+     （非法表达式 422 拒绝）；`next_run` 计算与「重试间隔」分离。
+     croniter 为纯 Python 零传递依赖，属轻依赖。
+  2. **任务队列 = 独立表 + 同一 SQLite**：schema v4 新增
+     `scheduled_jobs`（任务定义 + cron + retry + webhook + 状态机）
+     与 `job_runs`（attempt 级执行记录），复用 core schema 迁移
+     （`migrate`）保证 DDL 同源；任务随 metadata.db 持久化，
+     服务重启后任务/执行历史不丢。
+  3. **状态机**：idle → running → idle（成功）→ dead（重试耗尽）。
+     失败且 attempt ≤ retry_attempts → 60s 后重试（固定间隔）；
+     超过 → 死信（dead，last_result 保留错误）。成功 → 按 cron
+     计算下一次 next_run_at。
+  4. **并发互斥 = SQLite 原子抢占**：`claim_due_jobs` / `claim_job`
+     在 `BEGIN IMMEDIATE` 事务内「条件更新」抢占（enabled 且
+     非 running 且到期），SQLite 单写者锁保证同一任务同一时刻
+     只有一个执行者；手动触发执行中返回 409。
+  5. **重启恢复**：startup 时 `recover_interrupted` 把 running
+     任务置回 idle、run 标记 failed/interrupted，下次 tick 重调度。
+  6. **ScanExecutor 协议**（扩展点）：`execute(JobCommand) -> JobResult`；
+     默认 `LocalScanExecutor`（新建 DataSentry 执行 scan_file）；
+     未来可换云函数/SSH 远端，调度器不感知。
+  7. **webhook 可关**：job.webhook_url 为空即不通知；执行结束
+     （成功/失败）POST 结果 JSON，失败仅记日志（尽力而为，
+     不阻塞调度、不重试）。
+  8. **worker 线程**：FastAPI startup 起 daemon 线程循环 tick
+     （1s 间隔 + 可停 Event），shutdown 优雅退出；tick 抛异常
+     不退出 worker。
+- **理由**：SQLite 单写者锁天然提供跨进程互斥与持久化，避免引入
+  消息队列/分布式依赖；状态机收敛为两表 + 原子抢占，可纯函数测试；
+  执行器抽象满足 V2-D「未来可换云函数」边界而不过度设计。
+- **影响**：schema v4（scheduled_jobs/job_runs + 索引）；新增
+  src/datasentry/scheduler/{models,store,core}.py；api.py 增
+  /jobs 端点族（POST/GET/PATCH/DELETE + trigger）+ lifespan worker；
+  pyproject 增 croniter；测试 tests/test_scheduler.py（19 例）+
+  tests/test_api_jobs.py（14 例）。

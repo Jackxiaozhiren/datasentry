@@ -28,7 +28,9 @@ body 统一 {"ok": false, "detail": "..."}。
 from __future__ import annotations
 
 import os
+import uuid
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -36,6 +38,14 @@ from pydantic import BaseModel, Field
 
 from datasentry import __version__, ui
 from datasentry import client as sdk
+from datasentry.scheduler.core import LocalScanExecutor, Scheduler, SchedulerWorker
+from datasentry.scheduler.models import (
+    JobCommand,
+    JobCreate,
+    JobUpdate,
+    ScheduledJob,
+    utcnow,
+)
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
 from datasentry_core.models.scan import DetectorRun, ScanConfig, ScanRun
@@ -109,6 +119,33 @@ def _get_issue(client: sdk.DataSentry, issue_id: str) -> Issue | None:
 
 
 # ---------------------------------------------------------------------------
+# 调度器（Step 51，V2-D 云侧调度）
+# ---------------------------------------------------------------------------
+
+
+def _build_scheduler(client: sdk.DataSentry) -> Scheduler:
+    """绑定工作区元数据库的调度器（SQLite 持久化任务队列，ADR-051）。"""
+    from datasentry.scheduler.store import SchedulerStore
+    from datasentry_core.storage.paths import project_db_path
+
+    db_path = project_db_path(client.workspace)
+    return Scheduler(store=SchedulerStore(db_path), executor=LocalScanExecutor())
+
+
+def _job_command_from(req: JobCreate, workspace: str) -> JobCommand:
+    """请求 → JobCommand：路径相对 workspace 解析为绝对路径。"""
+    path = Path(req.path).expanduser()
+    if not path.is_absolute():
+        path = Path(workspace) / path
+    return JobCommand(
+        project=req.project or str(Path(workspace).resolve()),
+        path=str(path),
+        dataset_id=req.dataset_id,
+        table_name=req.table_name,
+    )
+
+
+# ---------------------------------------------------------------------------
 # 应用工厂
 # ---------------------------------------------------------------------------
 
@@ -120,6 +157,18 @@ def create_app(project: str | Path | None = None) -> FastAPI:
     app = FastAPI(title="DataSentry API", version=__version__)
     client = sdk.DataSentry(project=project)
     app.state.client = client
+
+    scheduler = _build_scheduler(client)
+    worker = SchedulerWorker(scheduler)
+
+    @app.on_event("startup")
+    def _startup() -> None:
+        scheduler.recover()
+        worker.start()
+
+    @app.on_event("shutdown")
+    def _shutdown() -> None:
+        worker.stop()
 
     @app.get("/health", response_model=HealthResponse, tags=["meta"])
     def health() -> HealthResponse:
@@ -364,6 +413,89 @@ def create_app(project: str | Path | None = None) -> FastAPI:
             return HTMLResponse(ui.render_error("Rollback failed", str(exc)), status_code=404)
         return RedirectResponse(url=f"/ui/scans/{run_id}", status_code=303)
 
+    # ---- 计划任务（Step 51，V2-D 云侧调度） --------------------------------
+
+    @app.post("/jobs", tags=["jobs"], status_code=201)
+    def create_job(req: JobCreate) -> dict[str, Any]:
+        from datasentry.scheduler.core import InvalidCronError, next_run, validate_cron
+
+        try:
+            validate_cron(req.cron)
+        except InvalidCronError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        now = utcnow()
+        job = ScheduledJob(
+            job_id=f"job_{uuid.uuid4().hex[:12]}",
+            name=req.name,
+            project=req.project or str(client.workspace),
+            command=_job_command_from(req, str(client.workspace)),
+            cron=req.cron,
+            retry_attempts=req.retry_attempts,
+            webhook_url=req.webhook_url,
+            next_run_at=next_run(req.cron, now),
+            created_at=now,
+            updated_at=now,
+        )
+        scheduler.store.create_job(job)
+        return job.view()
+
+    @app.get("/jobs", tags=["jobs"])
+    def list_jobs() -> list[dict[str, Any]]:
+        return [job.view() for job in scheduler.store.list_jobs()]
+
+    @app.get("/jobs/{job_id}", tags=["jobs"])
+    def get_job(job_id: str) -> dict[str, Any]:
+        job = scheduler.store.get_job(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
+        return {
+            "job": job.view(),
+            "runs": [run.view() for run in scheduler.store.list_runs(job_id)],
+        }
+
+    @app.post("/jobs/{job_id}/trigger", tags=["jobs"], status_code=202)
+    def trigger_job(job_id: str) -> dict[str, Any]:
+        job = scheduler.store.get_job(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
+        run_id = scheduler.trigger(job_id)
+        if run_id is None:
+            raise HTTPException(status_code=409, detail=f"job already running: {job_id}")
+        return {"run_id": run_id}
+
+    @app.patch("/jobs/{job_id}", tags=["jobs"])
+    def update_job(job_id: str, req: JobUpdate) -> dict[str, Any]:
+        from datasentry.scheduler.core import InvalidCronError, next_run, validate_cron
+
+        if scheduler.store.get_job(job_id) is None:
+            raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
+        changes: dict[str, object] = {}
+        if req.enabled is not None:
+            changes["enabled"] = req.enabled
+        if req.cron is not None:
+            try:
+                validate_cron(req.cron)
+            except InvalidCronError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            changes["cron"] = req.cron
+            changes["next_run_at"] = next_run(req.cron, utcnow())
+        if req.retry_attempts is not None:
+            changes["retry_attempts"] = req.retry_attempts
+        if req.webhook_url is not None:
+            changes["webhook_url"] = req.webhook_url
+        if req.enabled:
+            changes["status"] = "idle"
+        scheduler.store.update_job(job_id, **changes)
+        job = scheduler.store.get_job(job_id)
+        assert job is not None
+        return job.view()
+
+    @app.delete("/jobs/{job_id}", tags=["jobs"], status_code=204)
+    def delete_job(job_id: str) -> Response:
+        if not scheduler.store.delete_job(job_id):
+            raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
+        return Response(status_code=204)
+
     return app
 
 
@@ -383,6 +515,12 @@ _ENDPOINTS = frozenset(
         "POST /scans/{run_id}/repairs/apply",
         "POST /repairs/{run_id}/rollback",
         "GET /repairs",
+        "POST /jobs",
+        "GET /jobs",
+        "GET /jobs/{job_id}",
+        "POST /jobs/{job_id}/trigger",
+        "PATCH /jobs/{job_id}",
+        "DELETE /jobs/{job_id}",
     }
 )
 

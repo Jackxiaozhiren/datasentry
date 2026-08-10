@@ -490,3 +490,26 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
   `plugin list` 显示 source=entrypoint → scan 自动启用
   （detector runs = 39 内置 + 1 插件）；隔离验证用 `mktemp -d` + `uv venv`，
   勿装进项目 venv（会改变现有测试对 run 数的断言）
+
+## 本地调度器（Step 51，V2-D，ADR-051）
+
+- **架构**：`scheduler/models.py`（JobCommand/ScheduledJob/JobRun/状态枚举，
+  naive UTC 与 core 存储 `_iso` 惯例一致）→ `scheduler/store.py`
+  （SQLite 持久化 + 原子抢占）→ `scheduler/core.py`（cron 校验/
+  next_run、Scheduler.tick 状态机、LocalScanExecutor、WebhookNotifier、
+  SchedulerWorker 线程）→ api.py `/jobs` 端点族 + lifespan worker
+- **并发与持久化**：所有写操作 `BEGIN IMMEDIATE` 事务；`claim_due_jobs`/
+  `claim_job` 条件更新抢占（同一任务同一时刻一个执行者），
+  SQLite 单写者锁天然跨进程互斥；任务随 metadata.db 持久化，
+  startup 时 `recover_interrupted`（running → idle + interrupted）
+- **状态机**：idle → running → idle（成功，next=cron 下一次）/
+  failed+idle（attempt ≤ retry_attempts，60s 后重试）/ dead（耗尽）
+- **坑位备忘**：
+  - `scan_run.quality_score` 是 QualityScore 对象，取 `.overall` 才是 float
+  - run_id 生成必须带随机后缀（同秒内多次触发会撞 UNIQUE 约束）
+  - `sqlite3.connect` 记得 `row_factory = sqlite3.Row`（字符串索引）
+  - SchedulerStore 独立 db 需调 `core_schema.migrate(conn)` 建表（DDL 同源）
+  - 测试用可推进假时钟 `_Clock`，不要依赖真实时间；互斥窗口用
+    `_BlockingExecutor`（Event 阻塞）模拟执行中
+  - croniter 无类型标注：import 加 `# type: ignore[import-untyped]`，
+    `get_next` 返回 Any 需 `cast(datetime, ...)`

@@ -1,0 +1,255 @@
+"""Step 51（V2-D 云侧调度）核心：cron 语义 + 调度器 + 执行器 + worker（ADR-051）。
+
+- `Scheduler.tick(now)`：纯同步、可测；原子抢占到期任务 → 执行 → 落结果。
+- 重试语义：失败且 attempt <= retry_attempts → 60s 后重试；超过 → 死信（dead）。
+- 重启恢复：`recover_interrupted` 将 running 任务置回 idle，run 标记 interrupted。
+- 并发互斥：SQLite BEGIN IMMEDIATE 条件更新，同一任务同一时刻仅一个执行者。
+- webhook：执行结束（成功/失败）尽力通知（失败仅记录，不影响调度）；URL 为空即关闭。
+- 扩展点：`ScanExecutor` Protocol——未来可换云函数/SSH 远端执行。
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+from collections.abc import Callable
+from datetime import datetime
+from typing import Any, Protocol, cast, runtime_checkable
+
+from croniter import CroniterBadCronError, croniter  # type: ignore[import-untyped]
+
+from datasentry.scheduler.models import (
+    JobCommand,
+    JobResult,
+    JobStatus,
+    ScheduledJob,
+    iso,
+    utcnow,
+)
+from datasentry.scheduler.store import RETRY_BACKOFF, SchedulerStore
+
+logger = logging.getLogger(__name__)
+
+
+class InvalidCronError(ValueError):
+    """cron 表达式非法（5 字段校验失败）。"""
+
+
+def validate_cron(expr: str) -> str:
+    """校验 cron 表达式，非法抛 InvalidCronError；返回规范化表达式。"""
+    try:
+        croniter(expr)
+    except (CroniterBadCronError, ValueError, IndexError) as exc:
+        raise InvalidCronError(f"invalid cron expression {expr!r}: {exc}") from exc
+    return expr
+
+
+def next_run(expr: str, after: datetime) -> datetime:
+    """cron 表达式在 after 之后的下一次执行时间（无时区，UTC 语义）。"""
+    return cast(datetime, croniter(expr, after).get_next(datetime))
+
+
+@runtime_checkable
+class ScanExecutor(Protocol):
+    """扫描执行抽象：当前为本地执行，未来可替换为云函数/远端。"""
+
+    def execute(self, command: JobCommand) -> JobResult:
+        """执行一次扫描，成功抛异常表示失败（触发重试/死信）。"""
+        ...
+
+
+class LocalScanExecutor:
+    """本地执行器：新建 DataSentry(project=job.project) 执行 scan_file。"""
+
+    def __init__(self, client_factory: Callable[[str], Any] | None = None) -> None:
+        self._client_factory = client_factory
+
+    def execute(self, command: JobCommand) -> JobResult:
+        if self._client_factory is not None:
+            client = self._client_factory(command.project)
+        else:
+            from datasentry import DataSentry
+
+            client = DataSentry(project=command.project)
+        try:
+            scan_run, _runs, issues = client.scan_file(
+                command.path,
+                dataset_id=command.dataset_id,
+                table_name=command.table_name,
+            )
+        finally:
+            client.close()
+        by_severity: dict[str, int] = {}
+        for issue in issues:
+            by_severity[issue.severity.value] = by_severity.get(issue.severity.value, 0) + 1
+        score = scan_run.quality_score.overall if scan_run.quality_score else 0.0
+        return JobResult(
+            scan_run_id=scan_run.id,
+            total_issues=len(issues),
+            quality_score=score,
+            issues_by_severity=by_severity,
+        )
+
+
+class WebhookNotifier:
+    """结果通知：HTTP POST JSON；失败仅记录日志（尽力而为，不阻塞调度）。"""
+
+    def __init__(self, client_factory: Callable[[], Any] | None = None) -> None:
+        self._client_factory = client_factory
+
+    def notify(self, url: str, payload: dict[str, object]) -> None:
+        try:
+            if self._client_factory is not None:
+                client = self._client_factory()
+            else:
+                import httpx
+
+                client = httpx.Client(timeout=5.0)
+            try:
+                response = client.post(url, json=payload)
+                if response.status_code >= 400:
+                    logger.warning("webhook %s -> HTTP %s", url, response.status_code)
+            finally:
+                client.close()
+        except Exception as exc:
+            logger.warning("webhook %s failed: %s", url, exc)
+
+
+class Scheduler:
+    """任务调度核心（可注入 store/executor/notifier，纯同步可测）。"""
+
+    def __init__(
+        self,
+        store: SchedulerStore,
+        executor: ScanExecutor,
+        notifier: WebhookNotifier | None = None,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self.store = store
+        self._executor = executor
+        self._notifier = notifier or WebhookNotifier()
+        self._clock = clock or utcnow
+
+    def tick(self) -> list[str]:
+        """一轮调度：抢占到期任务并执行；返回本轮 job_id 列表（测试/观测用）。"""
+        now = self._clock()
+        claimed = self.store.claim_due_jobs(now)
+        for job_id, run_id, _attempt in claimed:
+            self._run_job(job_id, run_id)
+        return [job_id for job_id, _run_id, _attempt in claimed]
+
+    def trigger(self, job_id: str) -> str | None:
+        """手动触发立即执行；任务已在执行中返回 None（互斥）。"""
+        run_id = self.store.claim_job(job_id, self._clock())
+        if run_id is not None:
+            self._run_job(job_id, run_id)
+        return run_id
+
+    def recover(self) -> None:
+        """服务启动时恢复：running → idle，run 标记 interrupted。"""
+        self.store.recover_interrupted()
+
+    def _run_job(self, job_id: str, run_id: str) -> None:
+        job = self.store.get_job(job_id)
+        if job is None:
+            return
+        try:
+            result = self._executor.execute(job.command)
+        except Exception as exc:
+            self._finish_failure(job, run_id, exc)
+            return
+        self._finish_success(job, run_id, result)
+
+    def _finish_success(self, job: ScheduledJob, run_id: str, result: JobResult) -> None:
+        now = self._clock()
+        summary = result.model_dump_json()
+        self.store.finish_run(
+            run_id,
+            success=True,
+            scan_run_id=result.scan_run_id,
+            summary=summary,
+            next_run_at=next_run(job.cron, now),
+            job_status=JobStatus.IDLE,
+        )
+        self._notify(job, run_id, result.model_dump())
+
+    def _finish_failure(self, job: ScheduledJob, run_id: str, exc: Exception) -> None:
+        now = self._clock()
+        error = f"{type(exc).__name__}: {exc}"
+        run = self.store.get_run(run_id)
+        attempts_used = run.attempt if run is not None else 1
+        if attempts_used <= job.retry_attempts:
+            self.store.finish_run(
+                run_id,
+                success=False,
+                error=error,
+                next_run_at=now + RETRY_BACKOFF,
+                job_status=JobStatus.IDLE,
+            )
+        else:
+            self.store.finish_run(
+                run_id,
+                success=False,
+                error=error,
+                next_run_at=now + RETRY_BACKOFF,
+                job_status=JobStatus.DEAD,
+            )
+        self._notify(
+            job,
+            run_id,
+            {
+                "scan_run_id": None,
+                "total_issues": 0,
+                "quality_score": None,
+                "issues_by_severity": {},
+                "error": error,
+            },
+        )
+
+    def _notify(self, job: ScheduledJob, run_id: str, payload: dict[str, object]) -> None:
+        if not job.webhook_url:
+            return
+        self._notifier.notify(
+            job.webhook_url,
+            {
+                "job_id": job.job_id,
+                "run_id": run_id,
+                "name": job.name,
+                "status": "completed" if payload.get("error") is None else "failed",
+                "at": iso(self._clock()),
+                **payload,
+            },
+        )
+        self.store.save_webhook_at(run_id, self._clock())
+
+
+class SchedulerWorker:
+    """后台调度线程：循环 tick；可优雅停止（服务 shutdown）。"""
+
+    def __init__(
+        self,
+        scheduler: Scheduler,
+        *,
+        interval: float = 1.0,
+        name: str = "datasentry-scheduler",
+    ) -> None:
+        self._scheduler = scheduler
+        self._interval = interval
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, name=name, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self, timeout: float = 5.0) -> None:
+        self._stop.set()
+        self._thread.join(timeout)
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self._scheduler.tick()
+            except Exception:
+                logger.exception("scheduler tick failed")
+            self._stop.wait(self._interval)

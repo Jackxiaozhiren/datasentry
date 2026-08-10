@@ -13,7 +13,7 @@ from __future__ import annotations
 import sqlite3
 
 #: 当前 schema 版本（PRAGMA user_version）
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA_DDL = """
 PRAGMA journal_mode = WAL;
@@ -300,6 +300,37 @@ CREATE TABLE IF NOT EXISTS jobs (
     updated_at  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS scheduled_jobs (
+    job_id         TEXT PRIMARY KEY,
+    name           TEXT NOT NULL,
+    project        TEXT NOT NULL,
+    command        TEXT NOT NULL,
+    cron           TEXT NOT NULL,
+    enabled        INTEGER NOT NULL DEFAULT 1,
+    retry_attempts INTEGER NOT NULL DEFAULT 0,
+    webhook_url    TEXT,
+    status         TEXT NOT NULL DEFAULT 'idle'
+                   CHECK (status IN ('idle','queued','running','dead')),
+    next_run_at    TEXT NOT NULL,
+    last_run_at    TEXT,
+    last_result    TEXT,
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS job_runs (
+    run_id      TEXT PRIMARY KEY,
+    job_id      TEXT NOT NULL REFERENCES scheduled_jobs(job_id) ON DELETE CASCADE,
+    status      TEXT NOT NULL CHECK (status IN ('running','completed','failed')),
+    attempt     INTEGER NOT NULL DEFAULT 0,
+    started_at  TEXT NOT NULL,
+    finished_at TEXT,
+    scan_run_id TEXT,
+    summary     TEXT,
+    error       TEXT,
+    webhook_at  TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_scan_runs_dataset   ON scan_runs(dataset_id);
 CREATE INDEX IF NOT EXISTS idx_issues_scan         ON issues(scan_run_id);
 CREATE INDEX IF NOT EXISTS idx_issues_severity     ON issues(severity, priority_score DESC);
@@ -307,6 +338,8 @@ CREATE INDEX IF NOT EXISTS idx_issues_dataset      ON issues(dataset_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_issue      ON evidence(issue_id);
 CREATE INDEX IF NOT EXISTS idx_audit_project_time  ON audit_events(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_status         ON jobs(status);
+CREATE INDEX IF NOT EXISTS idx_sched_jobs_due      ON scheduled_jobs(status, enabled, next_run_at);
+CREATE INDEX IF NOT EXISTS idx_job_runs_job        ON job_runs(job_id, started_at DESC);
 """
 
 #: MVP 占位表（V1 启用，无写路径）：数据闭环外且依赖契约/反馈/作业机制

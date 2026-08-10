@@ -8,6 +8,17 @@
 
 V2 四大方向（PII 加密还原 / HTML 报告交互 / 插件生态 / 云侧调度）。
 
+### 新增（Step 51，V2-D 云侧调度）
+
+- **Step 51**：本地调度器 —— cron 表达式（croniter，非法拒绝 422）+
+  SQLite 持久化任务队列（schema v4 `scheduled_jobs` / `job_runs`）；
+  `POST/GET/PATCH/DELETE /jobs` + `POST /jobs/{id}/trigger`（执行中
+  409 互斥）；失败重试（60s 间隔，可配次数）与死信（dead）；
+  服务重启恢复（running → idle + interrupted 标记）；worker 线程
+  FastAPI startup/shutdown 生命周期内运行；webhook 结果通知
+  （成功/失败，URL 为空即关）；`ScanExecutor` 协议抽象执行器
+  （默认本地执行，未来可换云函数/SSH）（ADR-051）
+
 ### 新增（Step 50，V2-C 插件生态）
 
 - **Step 50**：插件 entry point 自动发现 —— `datasentry.detectors`
