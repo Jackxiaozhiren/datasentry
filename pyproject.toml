@@ -55,6 +55,9 @@ dev = [
     "mypy>=1.10",
     "hypothesis>=6.100",
     "httpx>=0.27",
+    # starlette.testclient 自 1.3 起优先使用 httpx2（pydantic 维护的 httpx 后继），
+    # 未安装时回退 httpx 并发出 StarletteDeprecationWarning；dev 安装 httpx2 即消除
+    "httpx2>=2.0",
 ]
 
 [tool.uv.workspace]
