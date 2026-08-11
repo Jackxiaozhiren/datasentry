@@ -4,7 +4,7 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.5.0] - unreleased
+## [0.5.0] - 2026-08-11
 
 V3 多数据源：SQLite 文件数据源接入。
 
