@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import os
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -166,21 +168,21 @@ def create_app(project: str | Path | None = None) -> FastAPI:
     """创建绑定给定工作区的应用（默认当前目录或 DATASENTRY_PROJECT）。"""
     if project is None:
         project = os.environ.get("DATASENTRY_PROJECT")
-    app = FastAPI(title="DataSentry API", version=__version__)
     client = sdk.DataSentry(project=project)
-    app.state.client = client
-
     scheduler = _build_scheduler(client)
     worker = SchedulerWorker(scheduler)
 
-    @app.on_event("startup")
-    def _startup() -> None:
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         scheduler.recover()
         worker.start()
+        try:
+            yield
+        finally:
+            worker.stop()
 
-    @app.on_event("shutdown")
-    def _shutdown() -> None:
-        worker.stop()
+    app = FastAPI(title="DataSentry API", version=__version__, lifespan=_lifespan)
+    app.state.client = client
 
     @app.get("/health", response_model=HealthResponse, tags=["meta"])
     def health() -> HealthResponse:
