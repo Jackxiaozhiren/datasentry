@@ -270,3 +270,61 @@ class TestJobsGate:
         assert summary["gate"]["passed"] is False
         assert summary["gate"]["configured"] is True
         assert detail["job"]["status"] == "idle"
+
+
+class TestChangeAwareApi:
+    def test_trigger_twice_unchanged_file_second_skipped(
+        self, client: TestClient, tmp_path: Path
+    ) -> None:
+        """Step 53：内容未变时二次 trigger 记 skipped run（不建 scan_run）。"""
+        from datasentry.scheduler.store import SchedulerStore
+        from datasentry_core.storage.paths import project_db_path
+
+        csv = _sample_csv(tmp_path)
+        job_id = client.post(
+            "/jobs", json={"name": "inc", "path": str(csv), "cron": "* * * * *"}
+        ).json()["job_id"]
+        store = SchedulerStore(project_db_path(tmp_path))
+
+        first = client.post(f"/jobs/{job_id}/trigger")
+        assert first.status_code == 202
+        first_run = store.get_run(first.json()["run_id"])
+        assert first_run is not None
+        assert first_run.skipped is False
+        assert first_run.scan_run_id is not None
+
+        second = client.post(f"/jobs/{job_id}/trigger")
+        assert second.status_code == 202
+        second_run = store.get_run(second.json()["run_id"])
+        assert second_run is not None
+        assert second_run.skipped is True
+        assert second_run.scan_run_id is None
+        assert second_run.file_hash is not None
+        assert second_run.file_hash == first_run.file_hash
+
+        job = client.get(f"/jobs/{job_id}").json()
+        assert job["job"]["status"] == "idle"
+        assert any(r["run_id"] == second_run.run_id and r["skipped"] for r in job["runs"])
+
+    def test_trigger_after_content_change_runs_full(
+        self, client: TestClient, tmp_path: Path
+    ) -> None:
+        from datasentry.scheduler.store import SchedulerStore
+        from datasentry_core.storage.paths import project_db_path
+
+        csv = _sample_csv(tmp_path)
+        job_id = client.post(
+            "/jobs", json={"name": "chg", "path": str(csv), "cron": "* * * * *"}
+        ).json()["job_id"]
+        store = SchedulerStore(project_db_path(tmp_path))
+        first_run = store.get_run(client.post(f"/jobs/{job_id}/trigger").json()["run_id"])
+        assert first_run is not None and first_run.file_hash is not None
+
+        new = csv.with_name("orders2.csv")
+        new.write_text("id,amount\n9,42\n", encoding="utf-8")
+        job_id2 = client.post(
+            "/jobs", json={"name": "chg2", "path": str(new), "cron": "* * * * *"}
+        ).json()["job_id"]
+        second_run = store.get_run(client.post(f"/jobs/{job_id2}/trigger").json()["run_id"])
+        assert second_run is not None and second_run.file_hash is not None
+        assert second_run.file_hash != first_run.file_hash

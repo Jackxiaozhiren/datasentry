@@ -4,6 +4,19 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.4.0] - unreleased
+
+持续质量门禁：变更感知增量调度。
+
+### 新增（Step 53，变更感知增量调度）
+
+- **Step 53**：文件 SHA-256 缓存 —— 调度执行前比对目标文件哈希与
+  最近一次成功扫描（未跳过）一致则本轮跳过：不建 scan_run、不重判
+  门禁，仅记 `skipped:true` 的 completed run（scan_run_id 为空，
+  summary/webhook 带 skipped + file_hash）；next_run 照常推进；
+  文件缺失走正常失败路径；手动 trigger 同样生效（二次触发同内容
+  文件 → 202 skipped）（ADR-053）
+
 ## [0.3.0] - 2026-08-11
 
 修复闭环 + MCP 面与 REST 对等（V2-D 收尾）。

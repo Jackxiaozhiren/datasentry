@@ -537,3 +537,21 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
   `result.content[0].text`（JSON 字符串），需 `json.loads` 解析；
   `tools/list` 断言工具名集合（新增工具要同步改
   `test_tools_list_shape` 的期望集合）
+
+## 变更感知增量调度（Step 53，ADR-053）
+
+- **跳过判定位置**：`Scheduler._run_job`（execute 之前）——执行器
+  （ScanExecutor）不感知 skipped 语义，保持抽象纯净；手动 trigger
+  与 tick 共用同一判定
+- **基准语义**：`store.last_successful_hash` 只取「status=completed
+  AND skipped=0 AND file_hash IS NOT NULL」的最新一条——跳过自身
+  不作基准（防永久跳过）；failed 也不作基准
+- **坑位备忘**：
+  - JobResult.scan_run_id 已放宽为 `str | None`（skipped 时为 None），
+    正常路径无影响；webhook 载荷字段随之可空
+  - `_finish_success` 必须显式把 `result.file_hash` 传给
+    `finish_run(file_hash=...)`，否则 last_successful_hash 永远 None、
+    跳过永不触发
+  - 测试假时钟与 cron 匹配：默认 cron 是 `*/5 * * * *`，测试用
+    advance(minutes=1) 会不到期——变更感知测试统一用 `* * * * *`
+  - 文件哈希用流式 1MiB 块（`file_sha256`），大文件不整读入内存

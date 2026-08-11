@@ -1,19 +1,24 @@
-"""Step 51（V2-D 云侧调度）核心：cron 语义 + 调度器 + 执行器 + worker（ADR-051）。
+"""Step 51/53（V2-D 云侧调度 + 变更感知）核心：cron 语义 + 调度器 + 执行器 + worker
+（ADR-051 / ADR-053）。
 
 - `Scheduler.tick(now)`：纯同步、可测；原子抢占到期任务 → 执行 → 落结果。
 - 重试语义：失败且 attempt <= retry_attempts → 60s 后重试；超过 → 死信（dead）。
 - 重启恢复：`recover_interrupted` 将 running 任务置回 idle，run 标记 interrupted。
 - 并发互斥：SQLite BEGIN IMMEDIATE 条件更新，同一任务同一时刻仅一个执行者。
-- webhook：执行结束（成功/失败）尽力通知（失败仅记录，不影响调度）；URL 为空即关闭。
+- webhook：执行结束（成功/失败/跳过）尽力通知（失败仅记录，不影响调度）；URL 为空即关闭。
+- 变更感知（Step 53）：文件 SHA-256 与上次成功执行一致 → 记 skipped run（不建
+  scan_run、不重判门禁、webhook 带 skipped:true）。
 - 扩展点：`ScanExecutor` Protocol——未来可换云函数/SSH 远端执行。
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
 from collections.abc import Callable
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Protocol, cast, runtime_checkable
 
 from croniter import CroniterBadCronError, croniter  # type: ignore[import-untyped]
@@ -66,6 +71,15 @@ def next_run(expr: str, after: datetime) -> datetime:
     return cast(datetime, croniter(expr, after).get_next(datetime))
 
 
+def file_sha256(path: str) -> str:
+    """数据文件内容 SHA-256（流式，大文件友好）；文件缺失抛异常（触发正常失败路径）。"""
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 @runtime_checkable
 class ScanExecutor(Protocol):
     """扫描执行抽象：当前为本地执行，未来可替换为云函数/远端。"""
@@ -105,6 +119,7 @@ class LocalScanExecutor:
             total_issues=len(issues),
             quality_score=score,
             issues_by_severity=by_severity,
+            file_hash=file_sha256(command.path),
         )
 
 
@@ -172,11 +187,39 @@ class Scheduler:
         if job is None:
             return
         try:
+            current_hash = file_sha256(job.command.path)
+        except OSError:
+            current_hash = None
+        if current_hash is not None and self.store.last_successful_hash(job.job_id) == current_hash:
+            self._finish_skipped(job, run_id, current_hash)
+            return
+        try:
             result = self._executor.execute(job.command)
         except Exception as exc:
             self._finish_failure(job, run_id, exc)
             return
         self._finish_success(job, run_id, result)
+
+    def _finish_skipped(self, job: ScheduledJob, run_id: str, file_hash: str) -> None:
+        """变更感知跳过（Step 53）：内容未变则不重扫——不建 scan_run、不重判门禁，
+        仅记 completed+skipped run 并通知 webhook（携带 skipped:true 与 hash）。"""
+        now = self._clock()
+        result = JobResult(
+            file_hash=file_hash,
+            skipped=True,
+        )
+        summary = result.model_dump_json()
+        self.store.finish_run(
+            run_id,
+            success=True,
+            scan_run_id=None,
+            summary=summary,
+            file_hash=file_hash,
+            skipped=True,
+            next_run_at=next_run(job.cron, now),
+            job_status=JobStatus.IDLE,
+        )
+        self._notify(job, run_id, result.model_dump())
 
     def _finish_success(self, job: ScheduledJob, run_id: str, result: JobResult) -> None:
         now = self._clock()
@@ -187,6 +230,7 @@ class Scheduler:
             success=True,
             scan_run_id=result.scan_run_id,
             summary=summary,
+            file_hash=result.file_hash,
             next_run_at=next_run(job.cron, now),
             job_status=JobStatus.IDLE,
         )

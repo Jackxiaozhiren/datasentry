@@ -75,6 +75,8 @@ def _row_to_run(row: sqlite3.Row) -> JobRun:
         summary=row["summary"],
         error=row["error"],
         webhook_at=from_iso(row["webhook_at"]) if row["webhook_at"] else None,
+        file_hash=row["file_hash"],
+        skipped=bool(row["skipped"]),
     )
 
 
@@ -259,6 +261,8 @@ class SchedulerStore:
         error: str | None = None,
         next_run_at: object,
         job_status: JobStatus,
+        file_hash: str | None = None,
+        skipped: bool = False,
     ) -> None:
         """落执行结果并推进任务状态（成功 → idle + 下次计划；失败 → 重试或死信）。"""
         with closing(_connect(self._db_path)) as conn:
@@ -268,7 +272,7 @@ class SchedulerStore:
                 conn.execute(
                     """UPDATE job_runs
                        SET status = ?, finished_at = ?, scan_run_id = ?, summary = ?,
-                           error = ?
+                           error = ?, file_hash = ?, skipped = ?
                        WHERE run_id = ?""",
                     (
                         "completed" if success else "failed",
@@ -276,6 +280,8 @@ class SchedulerStore:
                         scan_run_id,
                         summary,
                         error,
+                        file_hash,
+                        1 if skipped else 0,
                         run_id,
                     ),
                 )
@@ -328,6 +334,18 @@ class SchedulerStore:
         with closing(_connect(self._db_path)) as conn:
             row = conn.execute("SELECT * FROM job_runs WHERE run_id = ?", (run_id,)).fetchone()
         return _row_to_run(row) if row else None
+
+    def last_successful_hash(self, job_id: str) -> str | None:
+        """最近一次成功执行（未跳过）的 file_hash；无则 None（Step 53）。"""
+        with closing(_connect(self._db_path)) as conn:
+            row = conn.execute(
+                """SELECT file_hash FROM job_runs
+                   WHERE job_id = ? AND status = 'completed' AND skipped = 0
+                     AND file_hash IS NOT NULL
+                   ORDER BY started_at DESC LIMIT 1""",
+                (job_id,),
+            ).fetchone()
+        return row["file_hash"] if row else None
 
     def save_webhook_at(self, run_id: str, at: object) -> None:
         with closing(_connect(self._db_path)) as conn:

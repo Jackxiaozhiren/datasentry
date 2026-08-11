@@ -1322,3 +1322,35 @@
   （GateResult、evaluate_gate、view() 透出）；api.py 透传；
   mcp_server.py +3 工具；测试 tests/test_scheduler.py 25 例 +
   tests/test_api_jobs.py 18 例 + tests/test_mcp_server.py 15 例。
+
+## ADR-053：变更感知增量调度（文件哈希缓存）（Step 53，V2-D 后置）
+
+- **状态**：已确认（Step 53）
+- **背景**：调度器按 cron 反复扫描同一数据文件，内容未变化时重复
+  全量扫描浪费算力并制造大量重复 issue 记录；门禁/告警也被无意义
+  地反复触发。目标：仅当内容变化才真正重扫、重判门禁。
+- **决策**：
+  1. **文件级 SHA-256 缓存**：`job_runs` 增 `file_hash` 列（schema
+     v6）。每次执行前流式计算目标文件哈希（1MiB 块读取，大文件
+     友好）；与「最近一次成功且未跳过」的 run 哈希一致 → 本轮
+     **跳过**：不建 scan_run、不执行扫描器、不重判门禁。
+  2. **skipped 是记录不是状态**：跳过仍写入一条 completed run
+     （`skipped=1`、`scan_run_id=NULL`、summary 与 webhook 载荷带
+     `skipped:true` + `file_hash`），next_run_at 照常按 cron 推进，
+     任务状态 idle。门禁字段缺席（gate:null）——无新扫描即无新判定。
+  3. **跳过基准只看"成功且未跳过"**：`last_successful_hash` 查询
+     排除 skipped 与 failed 记录，避免「跳过自身」成为基准（防
+     一旦误判跳过便永久跳过）。
+  4. **失败兜底**：文件缺失/不可读（OSError）→ 不跳过，走正常
+     执行路径（让既有错误处理决定重试/死信）。
+  5. **显式触发同样生效**：手动 trigger 与 tick 走同一 `_run_job`
+     判定——重复触发同内容文件第二次返回 skipped run（202）。
+- **理由**：哈希比对在调度层完成（执行前），执行器无需感知跳过
+  语义，保持 `ScanExecutor` 抽象纯净；跳过作为 run 记录保留完整
+  审计轨迹（何时跳过、跳过几次、基准哈希）；webhook 载荷携带
+  skipped 供下游（代理/告警）去重。
+- **影响**：schema v6（job_runs.file_hash + skipped，DDL + migrate
+  `version<6` 补列）；scheduler/{models,store,core}.py（JobResult/
+  JobRun 字段、`last_successful_hash`、`file_sha256`、`_finish_skipped`）；
+  API/MCP 视图自动透出（JobRun.view）；测试 tests/test_scheduler.py
+  TestChangeAware 5 例 + tests/test_api_jobs.py TestChangeAwareApi 2 例。

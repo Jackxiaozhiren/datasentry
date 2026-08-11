@@ -19,6 +19,7 @@ from datasentry.scheduler.core import (
     InvalidCronError,
     Scheduler,
     WebhookNotifier,
+    file_sha256,
     next_run,
     validate_cron,
 )
@@ -479,3 +480,154 @@ class TestQualityGate:
         assert run_id is not None
         result = json.loads(store.get_run(run_id).summary or "{}")  # type: ignore[union-attr]
         assert result["gate"]["passed"] is False
+
+
+# ---- 变更感知增量调度（Step 53，ADR-053） ------------------------------
+
+
+class _HashExecutor(_FakeExecutor):
+    """执行器：正常执行并回填文件 hash（真实路径 sha256）。"""
+
+    def execute(self, command: JobCommand) -> JobResult:
+        result = super().execute(command)
+        result.file_hash = file_sha256(command.path)
+        return result
+
+
+def _file_job(job_id: str, path: Path, **kw: Any) -> ScheduledJob:
+    job = _job(job_id=job_id, **kw)
+    job.command = JobCommand(project=job.command.project, path=str(path))
+    return job
+
+
+class TestChangeAware:
+    def test_unchanged_file_skips_and_change_resumes(
+        self, store: SchedulerStore, tmp_path: Path
+    ) -> None:
+        data = tmp_path / "data.csv"
+        data.write_text("a,b\n1,2\n", encoding="utf-8")
+        executor = _HashExecutor()
+        clock = _Clock(T0)
+        scheduler = Scheduler(store=store, executor=executor, clock=clock)
+        store.create_job(
+            _file_job("job_sk", data, next_at=T0 - timedelta(minutes=1), cron="* * * * *")
+        )
+
+        scheduler.tick()
+        assert executor.calls == [str(data)]
+
+        clock.advance(minutes=1)
+        scheduler.tick()
+        assert executor.calls == [str(data)]
+        runs = store.list_runs("job_sk")
+        assert runs[0].skipped is True
+        assert runs[0].status == RunStatus.COMPLETED
+        assert runs[0].scan_run_id is None
+        assert runs[0].file_hash is not None
+        assert json.loads(runs[0].summary or "{}")["skipped"] is True
+
+        data.write_text("a,b\n1,3\n", encoding="utf-8")
+        clock.advance(minutes=1)
+        scheduler.tick()
+        assert executor.calls == [str(data), str(data)]
+        runs = store.list_runs("job_sk")
+        assert runs[0].skipped is False
+        assert runs[0].scan_run_id is not None
+        assert runs[0].file_hash != runs[1].file_hash
+
+    def test_skipped_run_does_not_rejudge_gate(self, store: SchedulerStore, tmp_path: Path) -> None:
+        data = tmp_path / "data.csv"
+        data.write_text("a,b\n1,2\n", encoding="utf-8")
+        executor = _HashExecutor()
+        clock = _Clock(T0)
+        scheduler = Scheduler(store=store, executor=executor, clock=clock)
+        store.create_job(
+            _file_job(
+                "job_g",
+                data,
+                next_at=T0 - timedelta(minutes=1),
+                cron="* * * * *",
+                gate_quality_min=95.0,
+            )
+        )
+
+        scheduler.tick()
+        full = store.list_runs("job_g")[0]
+        assert json.loads(full.summary or "{}")["gate"]["passed"] is False
+
+        clock.advance(minutes=1)
+        scheduler.tick()
+        skipped = store.list_runs("job_g")[0]
+        assert skipped.skipped is True
+        assert json.loads(skipped.summary or "{}")["gate"] is None
+
+    def test_skipped_webhook_payload(self, store: SchedulerStore, tmp_path: Path) -> None:
+        data = tmp_path / "data.csv"
+        data.write_text("a,b\n1,2\n", encoding="utf-8")
+        payloads: list[dict[str, Any]] = []
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200)
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        original_post = client.post
+
+        def spy_post(url: str, json: Any | None = None, **kwargs: Any) -> Any:
+            payloads.append(json or {})
+            return original_post(url, json=json, **kwargs)
+
+        client.post = spy_post  # type: ignore[method-assign]
+        executor = _HashExecutor()
+        clock = _Clock(T0)
+        scheduler = Scheduler(
+            store=store,
+            executor=executor,
+            notifier=WebhookNotifier(lambda: client),
+            clock=clock,
+        )
+        store.create_job(
+            _file_job(
+                "job_h",
+                data,
+                next_at=T0 - timedelta(minutes=1),
+                cron="* * * * *",
+                webhook_url="https://hook/x",
+            )
+        )
+
+        scheduler.tick()
+        clock.advance(minutes=1)
+        scheduler.tick()
+        assert len(payloads) == 2
+        body = payloads[1]
+        assert body["skipped"] is True
+        assert body["scan_run_id"] is None
+        assert body["file_hash"] is not None
+
+    def test_missing_file_falls_back_to_full_run(
+        self, store: SchedulerStore, tmp_path: Path
+    ) -> None:
+        missing = tmp_path / "nope.csv"
+        executor = _FakeExecutor()
+        scheduler = Scheduler(store=store, executor=executor, clock=_Clock(T0))
+        store.create_job(_file_job("job_m", missing, next_at=T0 - timedelta(minutes=1)))
+        scheduler.tick()
+        assert executor.calls == [str(missing)]
+        run = store.list_runs("job_m")[0]
+        assert run.skipped is False
+        assert run.scan_run_id is not None
+
+    def test_last_successful_hash_query(self, store: SchedulerStore, tmp_path: Path) -> None:
+        assert store.last_successful_hash("job_x") is None
+        data = tmp_path / "data.csv"
+        data.write_text("a,b\n1,2\n", encoding="utf-8")
+        executor = _HashExecutor()
+        clock = _Clock(T0)
+        scheduler = Scheduler(store=store, executor=executor, clock=clock)
+        store.create_job(_file_job("job_x", data, next_at=T0 - timedelta(minutes=1)))
+        scheduler.tick()
+        first = store.last_successful_hash("job_x")
+        assert first is not None
+        clock.advance(minutes=1)
+        scheduler.tick()
+        assert store.last_successful_hash("job_x") == first

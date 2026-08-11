@@ -56,11 +56,13 @@ class JobCommand(BaseModel):
 class JobResult(BaseModel):
     """一次扫描执行的结果摘要（供 webhook / 状态展示）。"""
 
-    scan_run_id: str
-    total_issues: int
-    quality_score: float
+    scan_run_id: str | None = None
+    total_issues: int = 0
+    quality_score: float = 0.0
     issues_by_severity: dict[str, int] = Field(default_factory=dict)
     gate: GateResult | None = None
+    file_hash: str | None = None
+    skipped: bool = False
 
 
 class JobCreate(BaseModel):
@@ -147,6 +149,8 @@ class JobRun(BaseModel):
     summary: str | None = None
     error: str | None = None
     webhook_at: datetime | None = None
+    file_hash: str | None = None
+    skipped: bool = False
 
     def view(self) -> dict[str, Any]:
         return {
@@ -159,4 +163,6 @@ class JobRun(BaseModel):
             "scan_run_id": self.scan_run_id,
             "summary": self.summary,
             "error": self.error,
+            "file_hash": self.file_hash,
+            "skipped": self.skipped,
         }
