@@ -432,6 +432,7 @@ def create_app(project: str | Path | None = None) -> FastAPI:
             cron=req.cron,
             retry_attempts=req.retry_attempts,
             webhook_url=req.webhook_url,
+            gate_quality_min=req.gate_quality_min,
             next_run_at=next_run(req.cron, now),
             created_at=now,
             updated_at=now,
@@ -483,6 +484,8 @@ def create_app(project: str | Path | None = None) -> FastAPI:
             changes["retry_attempts"] = req.retry_attempts
         if req.webhook_url is not None:
             changes["webhook_url"] = req.webhook_url
+        if req.gate_quality_min is not None:
+            changes["gate_quality_min"] = req.gate_quality_min
         if req.enabled:
             changes["status"] = "idle"
         scheduler.store.update_job(job_id, **changes)

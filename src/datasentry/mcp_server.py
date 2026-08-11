@@ -13,6 +13,9 @@ SDK（与 CLI/REST 同源）。
     drift_latest         数据集最近两次扫描漂移
     detectors_list       检测器注册表
     contract_validate    契约文件校验
+    jobs_list            列出调度任务（Step 51/52）
+    job_create           注册调度任务（cron + 可选质量门禁）
+    job_trigger          立即触发一次调度任务
 
 用法：`datasentry mcp [--project DIR]`；由 MCP 客户端（如 Claude
 Code）以 stdio 方式启动。
@@ -23,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import uuid
 from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
@@ -214,6 +218,106 @@ class McpServer:
             except Exception as exc:
                 return {"valid": False, "error": str(exc)}
             return _json_safe({"valid": True, "contract": contract.model_dump()})
+
+        @self._tool(
+            "jobs_list",
+            "List scheduled scan jobs (Step 51/52): cron, enabled, status, "
+            "next run time and last result. Optionally filter by status "
+            "(idle/running/dead).",
+            {"status": {"type": "string"}},
+            [],
+        )
+        def jobs_list(status: str | None = None) -> list[dict[str, Any]]:
+            from datasentry.scheduler.store import SchedulerStore
+            from datasentry_core.storage.paths import project_db_path
+
+            jobs = SchedulerStore(project_db_path(self._client.workspace)).list_jobs()
+            return _json_safe(
+                [job.view() for job in jobs if status is None or job.status.value == status]
+            )
+
+        @self._tool(
+            "job_create",
+            "Register a scheduled scan job (Step 51): cron expression, data "
+            "file path, optional quality gate threshold (gate_quality_min, "
+            "0-100) and optional webhook URL. Returns the created job view.",
+            {
+                "name": {"type": "string"},
+                "path": {"type": "string"},
+                "cron": {"type": "string", "description": "5-field cron, e.g. '0 9 * * *'"},
+                "dataset_id": {"type": "string"},
+                "table_name": {"type": "string"},
+                "retry_attempts": {"type": "integer"},
+                "webhook_url": {"type": "string"},
+                "gate_quality_min": {"type": "number"},
+            },
+            ["name", "path", "cron"],
+        )
+        def job_create(
+            name: str,
+            path: str,
+            cron: str,
+            dataset_id: str | None = None,
+            table_name: str | None = None,
+            retry_attempts: int = 0,
+            webhook_url: str | None = None,
+            gate_quality_min: float | None = None,
+        ) -> dict[str, Any]:
+            from datasentry.scheduler.core import InvalidCronError, next_run, validate_cron
+            from datasentry.scheduler.models import JobCommand, ScheduledJob, utcnow
+            from datasentry.scheduler.store import SchedulerStore
+            from datasentry_core.storage.paths import project_db_path
+
+            try:
+                validate_cron(cron)
+            except InvalidCronError as exc:
+                return {"ok": False, "error": str(exc)}
+            path = str(Path(path).expanduser())
+            now = utcnow()
+            job = ScheduledJob(
+                job_id=f"job_{uuid.uuid4().hex[:12]}",
+                name=name,
+                project=str(self._client.workspace),
+                command=JobCommand(
+                    project=str(self._client.workspace),
+                    path=path,
+                    dataset_id=dataset_id,
+                    table_name=table_name,
+                ),
+                cron=cron,
+                retry_attempts=retry_attempts,
+                webhook_url=webhook_url,
+                gate_quality_min=gate_quality_min,
+                next_run_at=next_run(cron, now),
+                created_at=now,
+                updated_at=now,
+            )
+            SchedulerStore(project_db_path(self._client.workspace)).create_job(job)
+            return {"ok": True, "job": job.view()}
+
+        @self._tool(
+            "job_trigger",
+            "Immediately run a scheduled job once (Step 51). Returns the run "
+            "id and outcome; mutual exclusion: 409-style error if already running.",
+            {"job_id": {"type": "string"}},
+            ["job_id"],
+        )
+        def job_trigger(job_id: str) -> dict[str, Any]:
+            from datasentry.scheduler.core import LocalScanExecutor, Scheduler
+            from datasentry.scheduler.store import SchedulerStore
+            from datasentry_core.storage.paths import project_db_path
+
+            store = SchedulerStore(project_db_path(self._client.workspace))
+            job = store.get_job(job_id)
+            if job is None:
+                return {"ok": False, "error": f"job not found: {job_id}"}
+            scheduler = Scheduler(store=store, executor=LocalScanExecutor())
+            run_id = scheduler.trigger(job_id)
+            if run_id is None:
+                return {"ok": False, "error": f"job already running: {job_id}"}
+            run = store.get_run(run_id)
+            assert run is not None
+            return {"ok": True, "run": run.view(), "summary": run.summary}
 
     # ---- JSON-RPC 分发 --------------------------------------------------
 

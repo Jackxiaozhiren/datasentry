@@ -91,6 +91,9 @@ class TestTools:
                 "drift_latest",
                 "detectors_list",
                 "contract_validate",
+                "jobs_list",
+                "job_create",
+                "job_trigger",
             } == names
             for tool in tools:
                 assert tool["inputSchema"]["type"] == "object"
@@ -205,3 +208,92 @@ class TestStdioLoop:
         finally:
             proc.stdin.close()
             proc.wait(timeout=10)
+
+
+class TestJobsTools:
+    def test_tools_list_includes_jobs(self, tmp_path: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            result = _call(server, 4, "tools/list")["result"]
+            names = {t["name"] for t in result["tools"]}
+            assert {"jobs_list", "job_create", "job_trigger"} <= names
+        finally:
+            server.close()
+
+    def test_job_create_and_trigger(self, tmp_path: Path, sample_csv: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            text = _call(
+                server,
+                5,
+                "tools/call",
+                {
+                    "name": "job_create",
+                    "arguments": {
+                        "name": "nightly",
+                        "path": str(sample_csv),
+                        "cron": "0 9 * * *",
+                        "gate_quality_min": 50.0,
+                    },
+                },
+            )["result"]["content"][0]["text"]
+            created = json.loads(text)
+            assert created["ok"] is True
+            job_id = created["job"]["job_id"]
+            assert created["job"]["gate_quality_min"] == 50.0
+
+            listed = json.loads(
+                _call(server, 6, "tools/call", {"name": "jobs_list", "arguments": {}})["result"][
+                    "content"
+                ][0]["text"]
+            )
+            assert job_id in {j["job_id"] for j in listed}
+
+            triggered = json.loads(
+                _call(
+                    server,
+                    7,
+                    "tools/call",
+                    {"name": "job_trigger", "arguments": {"job_id": job_id}},
+                )["result"]["content"][0]["text"]
+            )
+            assert triggered["ok"] is True
+            assert triggered["run"]["status"] == "completed"
+        finally:
+            server.close()
+
+    def test_job_create_invalid_cron(self, tmp_path: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            result = _call(
+                server,
+                8,
+                "tools/call",
+                {
+                    "name": "job_create",
+                    "arguments": {
+                        "name": "bad",
+                        "path": "x.csv",
+                        "cron": "61 * * * *",
+                    },
+                },
+            )["result"]["content"][0]["text"]
+            result = json.loads(result)
+            assert result["ok"] is False
+            assert "invalid cron" in result["error"]
+        finally:
+            server.close()
+
+    def test_job_trigger_unknown(self, tmp_path: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            result = _call(
+                server,
+                9,
+                "tools/call",
+                {"name": "job_trigger", "arguments": {"job_id": "nope"}},
+            )["result"]["content"][0]["text"]
+            result = json.loads(result)
+            assert result["ok"] is False
+        finally:
+            server.close()

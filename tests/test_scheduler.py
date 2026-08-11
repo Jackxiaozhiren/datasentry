@@ -45,6 +45,7 @@ def _job(
     next_at: datetime = T0,
     retry_attempts: int = 0,
     webhook_url: str | None = None,
+    gate_quality_min: float | None = None,
     enabled: bool = True,
     status: JobStatus = JobStatus.IDLE,
 ) -> ScheduledJob:
@@ -57,6 +58,7 @@ def _job(
         enabled=enabled,
         retry_attempts=retry_attempts,
         webhook_url=webhook_url,
+        gate_quality_min=gate_quality_min,
         status=status,
         next_run_at=next_at,
         created_at=T0,
@@ -398,3 +400,82 @@ class TestWebhook:
         assert job is not None
         assert job.status == JobStatus.IDLE
         assert store.list_runs("job_ok")[0].status == RunStatus.COMPLETED
+
+
+class TestQualityGate:
+    def test_no_gate_returns_none(
+        self, scheduler: tuple[Scheduler, _FakeExecutor, SchedulerStore, _Clock]
+    ) -> None:
+        sched, _executor, store, _clock = scheduler
+        store.create_job(_job(job_id="job_ng"))
+        sched.tick()
+        run = store.list_runs("job_ng")[0]
+        result = json.loads(run.summary or "{}")
+        assert result["gate"] is None
+
+    def test_gate_passed_when_score_above_threshold(
+        self, scheduler: tuple[Scheduler, _FakeExecutor, SchedulerStore, _Clock]
+    ) -> None:
+        sched, _executor, store, _clock = scheduler
+        store.create_job(_job(job_id="job_pass", gate_quality_min=80.0))
+        sched.tick()
+        result = json.loads(store.list_runs("job_pass")[0].summary or "{}")
+        gate = result["gate"]
+        assert gate["configured"] is True
+        assert gate["quality_min"] == 80.0
+        assert gate["quality_score"] == 88.0
+        assert gate["passed"] is True
+
+    def test_gate_failed_when_score_below_threshold(
+        self, scheduler: tuple[Scheduler, _FakeExecutor, SchedulerStore, _Clock]
+    ) -> None:
+        sched, _executor, store, _clock = scheduler
+        store.create_job(_job(job_id="job_fail", gate_quality_min=95.0))
+        sched.tick()
+        result = json.loads(store.list_runs("job_fail")[0].summary or "{}")
+        assert result["gate"]["passed"] is False
+        # 门禁失败 ≠ 执行失败：任务照常 idle，不触发重试/死信
+        job = store.get_job("job_fail")
+        assert job is not None
+        assert job.status == JobStatus.IDLE
+
+    def test_gate_exact_boundary_passes(
+        self, scheduler: tuple[Scheduler, _FakeExecutor, SchedulerStore, _Clock]
+    ) -> None:
+        sched, _executor, store, _clock = scheduler
+        store.create_job(_job(job_id="job_edge", gate_quality_min=88.0))
+        sched.tick()
+        result = json.loads(store.list_runs("job_edge")[0].summary or "{}")
+        assert result["gate"]["passed"] is True
+
+    def test_gate_shown_in_webhook_payload(self, tmp_path: Path) -> None:
+        payloads: list[dict[str, Any]] = []
+        import httpx
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200)
+
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        original_post = client.post
+
+        def spy_post(url: str, json: Any | None = None, **kwargs: Any) -> Any:
+            payloads.append(json or {})
+            return original_post(url, json=json, **kwargs)
+
+        client.post = spy_post  # type: ignore[method-assign]
+        store = SchedulerStore(tmp_path / "sched.db")
+        store.create_job(_job(job_id="job_wh", webhook_url="https://hook/x", gate_quality_min=85.0))
+        sched = Scheduler(
+            store=store, executor=_FakeExecutor(), notifier=WebhookNotifier(lambda: client)
+        )
+        sched.tick()
+        assert payloads[0]["gate"]["passed"] is True
+        assert payloads[0]["gate"]["quality_min"] == 85.0
+
+    def test_trigger_result_includes_gate(self, store: SchedulerStore) -> None:
+        store.create_job(_job(job_id="job_tr", gate_quality_min=90.0))
+        sched = Scheduler(store=store, executor=_FakeExecutor())
+        run_id = sched.trigger("job_tr")
+        assert run_id is not None
+        result = json.loads(store.get_run(run_id).summary or "{}")  # type: ignore[union-attr]
+        assert result["gate"]["passed"] is False

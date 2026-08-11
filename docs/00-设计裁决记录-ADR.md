@@ -1292,3 +1292,33 @@
   /jobs 端点族（POST/GET/PATCH/DELETE + trigger）+ lifespan worker；
   pyproject 增 croniter；测试 tests/test_scheduler.py（19 例）+
   tests/test_api_jobs.py（14 例）。
+
+## ADR-052：调度质量门禁 + MCP 调度工具（V2-D 收尾，Step 52）
+
+- **状态**：已确认（Step 52）
+- **背景**：V2-D 声明含「定时/远程执行扫描**与质量门禁**」，Step 51
+  只交付了调度执行，门禁语义悬空；同时 MCP 工具面只有扫描/查询类，
+  调度（jobs）对 LLM 代理不可达，与 REST `/jobs` 不对等。
+- **决策**：
+  1. **门禁是业务判定，不是执行失败**：`scheduled_jobs` 增
+     `gate_quality_min`（0-100，NULL=关）。run 完成后若
+     `score.overall < gate_quality_min` → run 状态仍 completed
+     （任务不重试、不进 dead），仅 summary 与 webhook 载荷带
+     `gate: {passed, min, score}`；`passed=false` 由下游
+     （webhook/代理）决定处置，调度器不越权。
+  2. **契约约束**：JobCreate/JobUpdate 校验 `0 ≤ gate_quality_min
+     ≤ 100`（越界 422）；PATCH 语义与 webhook_url 一致——传
+     None = 字段不变（API 层不支持显式清空，避免 PATCH 二义性）。
+  3. **MCP 调度工具**：mcp_server.py 新增 `jobs_list` / `job_create`
+     / `job_trigger` 三个工具，与 REST `/jobs` 同源（直接复用
+     SchedulerStore + Scheduler + LocalScanExecutor，经
+     `project_db_path(workspace)` 落同一 metadata.db），`job_create`
+     非法 cron 返回 ok:false + 错误文案而非抛异常（工具面友好）。
+- **理由**：门禁按「判定不阻断」设计使状态机零改动、webhook 语义
+  清晰；MCP 复用同一存储/执行路径保证 LLM 与 REST 看到一致状态，
+  避免在 MCP 面再造一套调度 API。
+- **影响**：schema v5（scheduled_jobs.gate_quality_min，DDL +
+  migrate `version<5` 补列）；scheduler/{models,store,core}.py
+  （GateResult、evaluate_gate、view() 透出）；api.py 透传；
+  mcp_server.py +3 工具；测试 tests/test_scheduler.py 25 例 +
+  tests/test_api_jobs.py 18 例 + tests/test_mcp_server.py 15 例。

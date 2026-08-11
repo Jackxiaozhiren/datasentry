@@ -60,6 +60,7 @@ class JobResult(BaseModel):
     total_issues: int
     quality_score: float
     issues_by_severity: dict[str, int] = Field(default_factory=dict)
+    gate: GateResult | None = None
 
 
 class JobCreate(BaseModel):
@@ -73,6 +74,7 @@ class JobCreate(BaseModel):
     cron: str = Field(min_length=5, max_length=100)
     retry_attempts: int = Field(default=0, ge=0, le=10)
     webhook_url: str | None = Field(default=None, max_length=500)
+    gate_quality_min: float | None = Field(default=None, ge=0.0, le=100.0)
 
 
 class JobUpdate(BaseModel):
@@ -82,6 +84,16 @@ class JobUpdate(BaseModel):
     cron: str | None = None
     retry_attempts: int | None = Field(default=None, ge=0, le=10)
     webhook_url: str | None = None
+    gate_quality_min: float | None = Field(default=None, ge=0.0, le=100.0)
+
+
+class GateResult(BaseModel):
+    """质量门禁判定（Step 52）：未配置门禁时 passed 为 None。"""
+
+    configured: bool
+    quality_min: float | None
+    quality_score: float | None
+    passed: bool | None
 
 
 class ScheduledJob(BaseModel):
@@ -95,6 +107,7 @@ class ScheduledJob(BaseModel):
     enabled: bool = True
     retry_attempts: int = 0
     webhook_url: str | None = None
+    gate_quality_min: float | None = None
     status: JobStatus = JobStatus.IDLE
     next_run_at: datetime
     last_run_at: datetime | None = None
@@ -113,6 +126,7 @@ class ScheduledJob(BaseModel):
             "enabled": self.enabled,
             "retry_attempts": self.retry_attempts,
             "webhook_url": self.webhook_url,
+            "gate_quality_min": self.gate_quality_min,
             "status": self.status.value,
             "next_run_at": iso(self.next_run_at),
             "last_run_at": iso(self.last_run_at) if self.last_run_at else None,

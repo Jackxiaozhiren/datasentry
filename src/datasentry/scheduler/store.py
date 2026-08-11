@@ -53,6 +53,7 @@ def _row_to_job(row: sqlite3.Row) -> ScheduledJob:
         enabled=bool(row["enabled"]),
         retry_attempts=row["retry_attempts"],
         webhook_url=row["webhook_url"],
+        gate_quality_min=row["gate_quality_min"],
         status=JobStatus(row["status"]),
         next_run_at=from_iso(row["next_run_at"]),
         last_run_at=from_iso(row["last_run_at"]) if row["last_run_at"] else None,
@@ -91,9 +92,9 @@ class SchedulerStore:
             conn.execute(
                 """INSERT INTO scheduled_jobs
                    (job_id, name, project, command, cron, enabled,
-                    retry_attempts, webhook_url, status, next_run_at,
-                    last_run_at, last_result, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    retry_attempts, webhook_url, gate_quality_min, status,
+                    next_run_at, last_run_at, last_result, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     job.job_id,
                     job.name,
@@ -103,6 +104,7 @@ class SchedulerStore:
                     int(job.enabled),
                     job.retry_attempts,
                     job.webhook_url,
+                    job.gate_quality_min,
                     job.status.value,
                     iso(job.next_run_at),
                     iso(job.last_run_at) if job.last_run_at else None,
@@ -136,6 +138,7 @@ class SchedulerStore:
             "cron": "cron",
             "retry_attempts": "retry_attempts",
             "webhook_url": "webhook_url",
+            "gate_quality_min": "gate_quality_min",
             "status": "status",
             "next_run_at": "next_run_at",
             "last_run_at": "last_run_at",

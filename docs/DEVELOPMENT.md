@@ -513,3 +513,27 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
     `_BlockingExecutor`（Event 阻塞）模拟执行中
   - croniter 无类型标注：import 加 `# type: ignore[import-untyped]`，
     `get_next` 返回 Any 需 `cast(datetime, ...)`
+
+## 调度质量门禁 + MCP 调度工具（Step 52，ADR-052）
+
+- **门禁即判定**：`scheduled_jobs.gate_quality_min`（0-100，NULL=关，
+  schema v5）；run 完成后 `core.evaluate_gate(job, run)` →
+  `` `gate: {passed, min, score}` `` 进 summary 与 webhook 载荷；
+  判定失败≠执行失败（run 仍 completed，不重试不进 dead），
+  `passed=false` 由下游处置
+- **schema 迁移套路**：core schema DDL 里直接建新列 +
+  `migrate()` 里 `version == 4` 执行 `_ensure_column(conn, "scheduled_jobs",
+  "gate_quality_min", "REAL")` 再置 version=5；老库软升级不丢数据
+
+## MCP 调度工具（Step 52，ADR-052）
+
+- **MCP 新工具走 `@self._tool` 装饰器**（name/description/properties/
+  required 四参），在 `_register_tools()` 内定义；工具内 import 在函数
+  体内（避免循环依赖并保持头部 import 精简）
+- **调度工具与 REST 同源**：`SchedulerStore(project_db_path(client.workspace))`
+  复用同一 metadata.db；`job_create` 非法 cron 返回
+  `{"ok": False, "error": ...}`（工具面不抛异常）；返回值统一 `_json_safe`
+- **MCP 工具测试模式**：`tools/call` 结果在
+  `result.content[0].text`（JSON 字符串），需 `json.loads` 解析；
+  `tools/list` 断言工具名集合（新增工具要同步改
+  `test_tools_list_shape` 的期望集合）

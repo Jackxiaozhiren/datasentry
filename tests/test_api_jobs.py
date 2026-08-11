@@ -222,3 +222,51 @@ class TestJobLifecycle:
 
                 time.sleep(0.5)
             assert job["runs"][0]["status"] == "completed"
+
+
+class TestJobsGate:
+    def test_create_job_with_gate(self, client: TestClient, tmp_path: Path) -> None:
+        csv = _sample_csv(tmp_path)
+        resp = client.post(
+            "/jobs",
+            json={"name": "gated", "path": str(csv), "cron": "* * * * *", "gate_quality_min": 90.0},
+        )
+        assert resp.status_code == 201
+        assert resp.json()["gate_quality_min"] == 90.0
+
+    def test_create_job_gate_out_of_range_422(self, client: TestClient, tmp_path: Path) -> None:
+        csv = _sample_csv(tmp_path)
+        resp = client.post(
+            "/jobs",
+            json={"name": "bad", "path": str(csv), "cron": "* * * * *", "gate_quality_min": 150.0},
+        )
+        assert resp.status_code == 422
+
+    def test_update_job_gate(self, client: TestClient, tmp_path: Path) -> None:
+        csv = _sample_csv(tmp_path)
+        job_id = client.post(
+            "/jobs", json={"name": "a", "path": str(csv), "cron": "* * * * *"}
+        ).json()["job_id"]
+        resp = client.patch(f"/jobs/{job_id}", json={"gate_quality_min": 75.0})
+        assert resp.status_code == 200
+        assert resp.json()["gate_quality_min"] == 75.0
+
+    def test_trigger_applies_gate_judgement(self, client: TestClient, tmp_path: Path) -> None:
+        csv = _sample_csv(tmp_path)
+        job_id = client.post(
+            "/jobs",
+            json={
+                "name": "gated",
+                "path": str(csv),
+                "cron": "* * * * *",
+                "gate_quality_min": 99.99,
+            },
+        ).json()["job_id"]
+        assert client.post(f"/jobs/{job_id}/trigger").status_code == 202
+        detail = client.get(f"/jobs/{job_id}").json()
+        import json as _json
+
+        summary = _json.loads(detail["runs"][0]["summary"])
+        assert summary["gate"]["passed"] is False
+        assert summary["gate"]["configured"] is True
+        assert detail["job"]["status"] == "idle"

@@ -19,6 +19,7 @@ from typing import Any, Protocol, cast, runtime_checkable
 from croniter import CroniterBadCronError, croniter  # type: ignore[import-untyped]
 
 from datasentry.scheduler.models import (
+    GateResult,
     JobCommand,
     JobResult,
     JobStatus,
@@ -33,6 +34,22 @@ logger = logging.getLogger(__name__)
 
 class InvalidCronError(ValueError):
     """cron 表达式非法（5 字段校验失败）。"""
+
+
+def evaluate_gate(job: ScheduledJob, result: JobResult) -> GateResult | None:
+    """质量门禁判定（Step 52）：未配置返回 None（不启用）；否则按阈值判定。
+
+    门禁是业务判定而非执行失败——任务照常 completed，仅结果/通知标记。
+    """
+    if job.gate_quality_min is None:
+        return None
+    passed = result.quality_score >= job.gate_quality_min
+    return GateResult(
+        configured=True,
+        quality_min=job.gate_quality_min,
+        quality_score=result.quality_score,
+        passed=passed,
+    )
 
 
 def validate_cron(expr: str) -> str:
@@ -163,6 +180,7 @@ class Scheduler:
 
     def _finish_success(self, job: ScheduledJob, run_id: str, result: JobResult) -> None:
         now = self._clock()
+        result.gate = evaluate_gate(job, result)
         summary = result.model_dump_json()
         self.store.finish_run(
             run_id,

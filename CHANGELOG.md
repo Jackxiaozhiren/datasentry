@@ -4,6 +4,21 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] - unreleased
+
+修复闭环 + MCP 面与 REST 对等（V2-D 收尾）。
+
+### 新增（Step 52，V2-D 收尾）
+
+- **Step 52**：调度质量门禁 + MCP 调度工具 —— `scheduled_jobs` 增
+  `gate_quality_min`（0-100，NULL=关；schema v5）；run 完成后按
+  `quality_score.overall` 判定门禁（业务判定非执行失败：run 仍
+  completed，仅 summary/webhook 带 `gate: {passed, min, score}`）；
+  JobCreate/JobUpdate 越界 422，PATCH None = 不变；MCP 新增
+  `jobs_list` / `job_create` / `job_trigger` 工具（与 REST `/jobs`
+  同源复用 SchedulerStore，非法 cron 返回 ok:false 而非异常）
+  （ADR-052）
+
 ## [0.2.0] - 2026-08-10
 
 V2 四大方向（PII 加密还原 / HTML 报告交互 / 插件生态 / 云侧调度）。
