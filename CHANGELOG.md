@@ -4,6 +4,16 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.5.1] - 2026-08-11
+
+### 修复
+
+- FastAPI 生命周期：`on_event`（startup/shutdown，已弃用）迁移至
+  `lifespan` 异步上下文管理器（startup 恢复调度 + 启动 worker，shutdown
+  经 `finally` 停止 worker），消除弃用警告
+- CLI `scan --table` 帮助文本补齐 SQLite 支持说明（.db/.sqlite/.sqlite3，
+  Step 54，V3 遗留文档不一致）
+
 ## [0.5.0] - 2026-08-11
 
 V3 多数据源：SQLite 文件数据源接入。

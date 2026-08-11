@@ -848,7 +848,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--table",
         type=str,
         default=None,
-        help="table name for DuckDB files (required for .duckdb, Step 38)",
+        help="table name for DuckDB/SQLite files (required for .duckdb/.db/.sqlite, Step 38/54)",
     )
     p_scan.add_argument(
         "--contract",
