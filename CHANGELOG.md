@@ -4,7 +4,7 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.4.0] - unreleased
+## [0.4.0] - 2026-08-11
 
 持续质量门禁：变更感知增量调度。
 
