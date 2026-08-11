@@ -555,3 +555,20 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
   - 测试假时钟与 cron 匹配：默认 cron 是 `*/5 * * * *`，测试用
     advance(minutes=1) 会不到期——变更感知测试统一用 `* * * * *`
   - 文件哈希用流式 1MiB 块（`file_sha256`），大文件不整读入内存
+
+## SQLite 数据源连接器（Step 54，ADR-054）
+
+- **架构**：connectors/sqlite.py 的 `SQLiteDataHandle(FileDataHandle)`，
+  `_ensure_view` 里 `LOAD sqlite` + `sqlite_scan('path', 'table')` 注册
+  只读 data 视图——共享实现全复用；`SqliteConnector` 注册进
+  default_registry；client 扩展名映射 `.db/.sqlite/.sqlite3` →
+  DataSourceType.SQLITE
+- **坑位备忘**：
+  - 表名必填校验在 `open()`（supports 只看 type）——REST 缺 table_name
+    走 404 而非 400（DataSourceNotFoundError 映射）
+  - 注册表断言会变：tests/test_detector_registry.py 与
+    test_connectors.py 的默认注册表顺序/不支持类型断言需同步更新
+    （unsupported 用例改用 POSTGRESQL）
+  - 调度联动测试同样有同秒排序竞态：断言用 trigger 返回的 run_id
+    查 store，不要依赖 list_runs 的 DESC 顺序
+  - `LOAD sqlite` 幂等（DuckDB 扩展自动加载，CI ubuntu 同样可用）

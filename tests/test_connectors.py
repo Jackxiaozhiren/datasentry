@@ -92,7 +92,7 @@ class TestRegistry:
 
     def test_unsupported_type_rejected(self) -> None:
         registry = default_registry()
-        spec = DataSourceSpec(source_type=DataSourceType.SQLITE, path=Path("x.db"))
+        spec = DataSourceSpec(source_type=DataSourceType.POSTGRESQL, path=Path("x"))
         with pytest.raises(UnsupportedFormatError):
             registry.get_for(spec)
 

@@ -9,6 +9,7 @@ from datasentry_core.connectors.errors import UnsupportedFormatError
 from datasentry_core.connectors.jsonl import JsonlConnector
 from datasentry_core.connectors.parquet import ParquetConnector
 from datasentry_core.connectors.spec import DataSourceSpec
+from datasentry_core.connectors.sqlite import SqliteConnector
 from datasentry_core.connectors.xlsx import XlsxConnector
 
 
@@ -45,11 +46,12 @@ class ConnectorRegistry:
 
 
 def default_registry() -> ConnectorRegistry:
-    """默认注册表：文件型连接器 + DuckDB 文件连接器（Step 38，V1 数据库型落地）。"""
+    """默认注册表：文件型连接器 + DuckDB/SQLite 文件连接器（Step 38/54）。"""
     registry = ConnectorRegistry()
     registry.register(CsvConnector())
     registry.register(ParquetConnector())
     registry.register(JsonlConnector())
     registry.register(XlsxConnector())
     registry.register(DuckdbConnector())
+    registry.register(SqliteConnector())
     return registry

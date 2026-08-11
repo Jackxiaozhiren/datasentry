@@ -56,6 +56,7 @@ class ScanRequest(BaseModel):
 
     path: str
     dataset_id: str | None = None
+    table_name: str | None = None
     detectors: list[str] | None = None
     seed: int = 42
     tags: dict[str, str] = Field(default_factory=dict)
@@ -105,6 +106,17 @@ def _config_from(req: ScanRequest) -> ScanConfig:
 def _error(exc: Exception) -> int:
     if isinstance(exc, (FileNotFoundError, KeyError)):
         return 404
+    from datasentry_core.connectors.errors import (
+        ConnectorError,
+        DataSourceNotFoundError,
+        UnsafeSqlError,
+        UnsupportedFormatError,
+    )
+
+    if isinstance(exc, DataSourceNotFoundError):
+        return 404
+    if isinstance(exc, (UnsupportedFormatError, UnsafeSqlError, ConnectorError)):
+        return 400
     if isinstance(exc, ValueError):
         return 422
     return 500
@@ -197,6 +209,7 @@ def create_app(project: str | Path | None = None) -> FastAPI:
             scan, runs, issues = client.scan_file(
                 req.path,
                 dataset_id=req.dataset_id,
+                table_name=req.table_name,
                 config=_config_from(req),
             )
         except Exception as exc:

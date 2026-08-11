@@ -22,6 +22,7 @@ from datasentry_core.connectors.jsonl import JsonlConnector
 from datasentry_core.connectors.parquet import ParquetConnector
 from datasentry_core.connectors.registry import ConnectorRegistry, default_registry
 from datasentry_core.connectors.spec import DataSourceSpec, DataSourceType
+from datasentry_core.connectors.sqlite import SqliteConnector
 from datasentry_core.connectors.xlsx import XlsxConnector
 
 __all__ = [
@@ -42,6 +43,7 @@ __all__ = [
     "ParquetConnector",
     "SamplingMethod",
     "SchemaInfo",
+    "SqliteConnector",
     "UnsafeSqlError",
     "UnsupportedFormatError",
     "XlsxConnector",

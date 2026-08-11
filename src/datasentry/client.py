@@ -51,6 +51,9 @@ _EXT_TO_SOURCE_TYPE: dict[str, DataSourceType] = {
     ".ndjson": DataSourceType.JSONL,
     ".xlsx": DataSourceType.XLSX,
     ".duckdb": DataSourceType.DUCKDB,
+    ".db": DataSourceType.SQLITE,
+    ".sqlite": DataSourceType.SQLITE,
+    ".sqlite3": DataSourceType.SQLITE,
 }
 
 
@@ -162,7 +165,7 @@ class DataSentry:
     ) -> tuple[ScanRun, list[DetectorRun], list[Issue]]:
         """导入 + 扫描 + 评分 + 落库（数据源不可用抛 FileNotFoundError 类异常）。
 
-        table_name：DuckDB 文件连接器必填（Step 38）；其他格式忽略。
+        table_name：DuckDB/SQLite 文件连接器必填（Step 38/54）；其他格式忽略。
         references：契约跨表引用（Step 40），触发外键完整性检测。
         """
         source_path = Path(path).expanduser()

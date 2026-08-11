@@ -1354,3 +1354,36 @@
   JobRun 字段、`last_successful_hash`、`file_sha256`、`_finish_skipped`）；
   API/MCP 视图自动透出（JobRun.view）；测试 tests/test_scheduler.py
   TestChangeAware 5 例 + tests/test_api_jobs.py TestChangeAwareApi 2 例。
+
+## ADR-054：SQLite 数据源连接器（V3 多数据源第一落点）（Step 54）
+
+- **状态**：已确认（Step 54）
+- **背景**：V3 蓝图「多数据源」——scan 目前只覆盖本地文件
+  （CSV/Parquet/JSONL/XLSX/DuckDB）。`DataSourceType` 早预留
+  SQLITE/POSTGRESQL 枚举与 `connection_ref` 字段但无连接器实现。
+  第一步落地零依赖可读的 SQLite 文件源（`.db`/`.sqlite`/`.sqlite3`）。
+- **决策**：
+  1. **经 DuckDB sqlite 扩展读 SQLite**：`SQLiteDataHandle(FileDataHandle)`
+     在 `_ensure_view` 里 `LOAD sqlite` + `sqlite_scan(path, table)` 注册
+     只读 data 视图——schema/read_sample/sql_aggregate/count_rows/
+     fingerprint/warnings 全部复用共享实现，零专用代码。
+  2. **表名必填**：与 DuckDB 连接器同语义（sqlite_scan 需要表名），
+     缺失抛 DataSourceNotFoundError（REST 404，detail 提示 table_name）。
+  3. **路径/表名字符串字面量转义**（单引号翻倍），防 SQL 注入；
+     文件缺失在 open 时报错（not found）。
+  4. **扩展名映射进 client**：`.db`/`.sqlite`/`.sqlite3` →
+     SQLITE；REST `POST /scans` 请求体增 `table_name` 字段透传。
+  5. **调度器天然联动**：JobCommand 已有 table_name，LocalScanExecutor
+     透传——SQLite job 直接可调度，Step 53 文件哈希缓存同样生效
+     （表内容变更 → 文件字节变更 → hash 变化 → 重扫）。
+  6. **Postgres 仍预留**：枚举与 connection_ref 不动，等凭据管理
+     成熟再接（不引入 psycopg2 依赖）。
+- **理由**：DuckDB 已是核心依赖且自带 sqlite 扩展，比纯 sqlite3 自研
+  handle 少写 80% 代码并保持 fingerprint/抽样等语义一致；只读视图
+  保证不写回源库。
+- **影响**：新增 packages/core/.../connectors/sqlite.py
+  （SQLiteDataHandle + SqliteConnector）；registry 默认注册；
+  client.py 扩展名映射；api.py ScanRequest.table_name + 连接器异常
+  映射（DataSourceNotFoundError→404、其余 ConnectorError→400）；
+  测试 tests/test_sqlite_connector.py 11 例 + api 2 例 + 两处既有
+  注册表断言更新。

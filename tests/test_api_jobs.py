@@ -328,3 +328,51 @@ class TestChangeAwareApi:
         second_run = store.get_run(client.post(f"/jobs/{job_id2}/trigger").json()["run_id"])
         assert second_run is not None and second_run.file_hash is not None
         assert second_run.file_hash != first_run.file_hash
+
+
+class TestSqliteScanApi:
+    def test_post_scans_with_table_name(self, tmp_path: Path) -> None:
+        import sqlite3
+
+        from fastapi.testclient import TestClient
+
+        from datasentry.api import create_app
+
+        db = tmp_path / "orders.db"
+        conn = sqlite3.connect(db)
+        try:
+            conn.execute("CREATE TABLE orders (id INTEGER, amount REAL)")
+            conn.execute("INSERT INTO orders VALUES (1, 10.5), (1, NULL), (2, -3)")
+            conn.commit()
+        finally:
+            conn.close()
+
+        with TestClient(create_app(project=tmp_path)) as client:
+            resp = client.post(
+                "/scans",
+                json={"path": str(db), "table_name": "orders", "dataset_id": "orders"},
+            )
+            assert resp.status_code == 201
+            body = resp.json()
+            assert body["run"]["dataset_id"] == "orders"
+            assert len(body["issues"]) >= 1
+
+    def test_post_scans_sqlite_without_table_name_422(self, tmp_path: Path) -> None:
+        import sqlite3
+
+        from fastapi.testclient import TestClient
+
+        from datasentry.api import create_app
+
+        db = tmp_path / "orders.db"
+        conn = sqlite3.connect(db)
+        try:
+            conn.execute("CREATE TABLE orders (id INTEGER)")
+            conn.commit()
+        finally:
+            conn.close()
+
+        with TestClient(create_app(project=tmp_path)) as client:
+            resp = client.post("/scans", json={"path": str(db)})
+            assert resp.status_code == 404
+            assert "table_name" in resp.json()["detail"]

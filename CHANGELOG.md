@@ -4,6 +4,21 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0] - unreleased
+
+V3 多数据源：SQLite 文件数据源接入。
+
+### 新增（Step 54，SQLite 数据源连接器）
+
+- **Step 54**：SQLite 数据源 —— `.db`/`.sqlite`/`.sqlite3` 文件经
+  DuckDB sqlite 扩展只读扫描（sqlite_scan 注册 data 视图，复用
+  schema/抽样/聚合/fingerprint/公式注入扫描共享实现）；表名必填
+  （缺失 404 提示）；`POST /scans` 请求体新增 `table_name` 透传；
+  调度器天然联动（JobCommand.table_name + 变更感知哈希对 SQLite
+  表变更同样生效）；REST 异常映射补连接器错误族
+  （DataSourceNotFoundError→404、UnsupportedFormat/UnsafeSql→400）
+  （ADR-054）
+
 ## [0.4.0] - 2026-08-11
 
 持续质量门禁：变更感知增量调度。

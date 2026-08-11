@@ -302,7 +302,7 @@ class TestRegistry:
             spec = DataSourceSpec(source_type=source_type, path=tmp_path / "x", options={})
             connector = registry.get_for(spec)
             assert connector.connector_id == source_type.value
-        unsupported = DataSourceSpec(source_type=DataSourceType.SQLITE, path=tmp_path / "x.db")
+        unsupported = DataSourceSpec(source_type=DataSourceType.POSTGRESQL, path=tmp_path / "x")
         try:
             registry.get_for(unsupported)
             raise AssertionError("expected UnsupportedFormatError")
