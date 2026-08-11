@@ -10,6 +10,7 @@ import pytest
 
 from datasentry import DataSentry, __version__
 from datasentry.cli import main
+from datasentry_core.connectors.errors import ConnectorError, DataSourceNotFoundError
 
 
 @pytest.fixture
@@ -45,6 +46,26 @@ class TestClient:
         client = DataSentry(project=workspace)
         with pytest.raises(FileNotFoundError):
             client.scan_file(workspace / "nope.csv")
+        client.close()
+
+    def test_scan_pg_dsn_without_table_raises(self, workspace: Path) -> None:
+        """Step 55：postgresql:// DSN 缺 --table → 可操作错误（连接器 open 阶段，无网络）。"""
+        client = DataSentry(project=workspace)
+        with pytest.raises(DataSourceNotFoundError):
+            client.scan_file("postgresql://user:pass@localhost:5432/app")
+        client.close()
+
+    def test_scan_pg_dsn_connection_failure_redacted(self, workspace: Path) -> None:
+        """Step 55：连接失败 → ConnectorError 且凭据已净化（DSN/密码不出现在错误面）。"""
+        client = DataSentry(project=workspace)
+        with pytest.raises(ConnectorError) as exc:
+            client.scan_file(
+                "postgresql://user:secret@localhost:1/app",
+                table_name="payments",
+                dataset_id="pg_payments",
+            )
+        assert "secret" not in str(exc.value)
+        assert "postgresql://user:secret@localhost:1/app" not in str(exc.value)
         client.close()
 
     def test_scan_file_dataset_id_defaults_to_stem(self, sample_csv: Path, workspace: Path) -> None:
@@ -251,6 +272,30 @@ class TestCli:
     def test_scan_missing_file_exit_4(self, workspace: Path, capsys) -> None:
         code = main(["--project", str(workspace), "scan", str(workspace / "nope.csv")])
         assert code == 4
+
+    def test_scan_pg_dsn_without_table_exit_2(self, workspace: Path, capsys) -> None:
+        """Step 55：postgresql:// DSN 缺 --table → EXIT_CONFIG（可操作错误）。"""
+        code = main(
+            ["--project", str(workspace), "scan", "postgresql://user:pass@localhost:5432/app"]
+        )
+        assert code == 2
+
+    def test_scan_pg_dsn_conn_failure_exit_4_redacted(self, workspace: Path, capsys) -> None:
+        """Step 55：PG 连接失败 → EXIT_SOURCE_UNAVAILABLE，错误面无凭据。"""
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "scan",
+                "postgresql://user:secret@localhost:1/app",
+                "--table",
+                "payments",
+            ]
+        )
+        assert code == 4
+        out = capsys.readouterr().out
+        assert "secret" not in out
+        assert "postgresql://user:secret@localhost:1/app" not in out
 
     def test_issues_list_json(self, sample_csv: Path, workspace: Path, capsys) -> None:
         main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])

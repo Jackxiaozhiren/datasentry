@@ -148,6 +148,7 @@ class TestDetectorRegistry:
             "xlsx",
             "duckdb",  # Step 38：DuckDB 文件连接器入默认注册表
             "sqlite",  # Step 54：SQLite 文件连接器入默认注册表
+            "postgres",  # Step 55：PostgreSQL 连接器入默认注册表（V4）
         ]
 
 

@@ -12,6 +12,7 @@ import hashlib
 import json
 from collections.abc import Iterator
 from pathlib import Path
+from typing import ClassVar
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -24,14 +25,32 @@ from datasentry_core.connectors.base import (
     SamplingMethod,
     SchemaInfo,
 )
-from datasentry_core.connectors.errors import DataSourceNotFoundError
+from datasentry_core.connectors.errors import ConnectorError, DataSourceNotFoundError
 from datasentry_core.connectors.spec import DataSourceSpec, DataSourceType
 from datasentry_core.engine import DuckDBExecutor
+from datasentry_core.engine.base import SetupExecutor
 from datasentry_core.models.enums import Severity
 from datasentry_core.models.fingerprint import DatasetFingerprint
 
 FORMULA_INJECTION_PREFIXES: tuple[str, ...] = ("=", "+", "-", "@", "\t", "\r")
 _WARNING_CAP = 100
+
+#: DuckDB DESCRIBE 物理类型 → 规范名（Step 55：检测器/画像的类型集合按规范名精确匹配）
+_TYPE_ALIASES = {
+    "TIMESTAMP WITH TIME ZONE": "TIMESTAMPTZ",
+    "TIMESTAMP WITHOUT TIME ZONE": "TIMESTAMP",
+}
+
+
+def _normalize_physical_type(typ: str) -> str:
+    """物理类型归一化：DECIMAL(n,p) → DECIMAL；别名时间类型 → 规范名。
+
+    PG/Parquet 等源的 DECIMAL(10,2) 与 DuckDB 原生 TIMESTAMP WITH TIME ZONE
+    直接进 schema 时无法命中检测器/画像的精确类型集合（Step 55 实测发现）。
+    """
+    if typ.startswith("DECIMAL(") and typ.endswith(")"):
+        return "DECIMAL"
+    return _TYPE_ALIASES.get(typ, typ)
 
 
 def _schema_hash(column_signature: list[tuple[str, str]]) -> str:
@@ -52,12 +71,15 @@ def _file_sha256(path: Path) -> str:
 class FileDataHandle:
     """文件型数据句柄基类（DataHandle 协议共享实现）。"""
 
+    #: 需要文件路径的子类默认 True；无文件源的子类（如 PostgreSQL）置 False
+    requires_path: ClassVar[bool] = True
+
     def __init__(self, spec: DataSourceSpec) -> None:
-        if spec.path is None:
-            raise DataSourceNotFoundError(f"{type(self).__name__} requires a path")
         self._spec = spec
         self._path = spec.path
-        self._executor = DuckDBExecutor()
+        if self.requires_path and spec.path is None:
+            raise DataSourceNotFoundError(f"{type(self).__name__} requires a path")
+        self._executor: SetupExecutor = DuckDBExecutor()
         self._view_ready = False
         self._schema_info: SchemaInfo | None = None
         self._warnings: list[LoadWarning] | None = None
@@ -99,7 +121,7 @@ class FileDataHandle:
             types = table.column(1).to_pylist()
             self._schema_info = SchemaInfo(
                 columns=[
-                    ColumnInfo(name=str(name), physical_type=str(typ))
+                    ColumnInfo(name=str(name), physical_type=_normalize_physical_type(str(typ)))
                     for name, typ in zip(names, types, strict=True)
                 ]
             )
@@ -152,6 +174,8 @@ class FileDataHandle:
         file_sha256: str | None = None
         content_sample_hash: str | None = None
         if mode == "full":
+            if self._path is None:
+                raise ConnectorError("file fingerprint requires a path")
             file_sha256 = _file_sha256(self._path)
         elif mode == "sampled":
             head = self._executor.execute("SELECT * FROM data LIMIT 1000")
@@ -172,6 +196,11 @@ class FileDataHandle:
             column_signature=signature,
             content_sample_hash=content_sample_hash,
         )
+
+    def content_fingerprint(self) -> str:
+        """内容指纹（Step 55）：文件源 = 文件 SHA-256（Step 53 调度哈希语义）。"""
+        assert self._path is not None
+        return _file_sha256(self._path)
 
     def warnings(self) -> list[LoadWarning]:
         """公式注入标记（11.7）：遍历批处理扫描字符串列，前 _WARNING_CAP 条。"""

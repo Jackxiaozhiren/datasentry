@@ -165,25 +165,32 @@ class DataSentry:
     ) -> tuple[ScanRun, list[DetectorRun], list[Issue]]:
         """导入 + 扫描 + 评分 + 落库（数据源不可用抛 FileNotFoundError 类异常）。
 
-        table_name：DuckDB/SQLite 文件连接器必填（Step 38/54）；其他格式忽略。
+        table_name：DuckDB/SQLite/PostgreSQL 必填（Step 38/54/55）；其他格式忽略。
+        path 传 postgresql:// 或 postgres:// URL 时按 PostgreSQL 数据源处理
+        （Step 55，V4）：凭据经 spec.options["dsn"] 内存态流转，不落库/日志/报告。
         references：契约跨表引用（Step 40），触发外键完整性检测。
         """
-        source_path = Path(path).expanduser()
-        if not source_path.is_file():
-            raise FileNotFoundError(f"data source not found: {source_path}")
-        source_type = _source_type_for_path(source_path)
-        if source_type is None:
-            raise FileNotFoundError(
-                f"unsupported data source format: {source_path.suffix or '(no extension)'}"
+        if isinstance(path, str) and (
+            path.startswith("postgresql://") or path.startswith("postgres://")
+        ):
+            spec, dataset_id = self._postgres_spec(path, dataset_id, table_name)
+        else:
+            source_path = Path(path).expanduser()
+            if not source_path.is_file():
+                raise FileNotFoundError(f"data source not found: {source_path}")
+            source_type = _source_type_for_path(source_path)
+            if source_type is None:
+                raise FileNotFoundError(
+                    f"unsupported data source format: {source_path.suffix or '(no extension)'}"
+                )
+            dataset_id = dataset_id or source_path.stem
+            self._last_table_name[str(source_path)] = table_name
+            spec = DataSourceSpec(
+                source_type=source_type,
+                path=source_path,
+                table_name=table_name,
+                options={"dataset_id": dataset_id},
             )
-        dataset_id = dataset_id or source_path.stem
-        self._last_table_name[str(source_path)] = table_name
-        spec = DataSourceSpec(
-            source_type=source_type,
-            path=source_path,
-            table_name=table_name,
-            options={"dataset_id": dataset_id},
-        )
         handle = default_registry().open(spec)
         try:
             context = DetectionContext(
@@ -199,6 +206,23 @@ class DataSentry:
             return scan_run, runs, issues
         finally:
             handle.close()
+
+    @staticmethod
+    def _postgres_spec(
+        dsn: str,
+        dataset_id: str | None,
+        table_name: str | None,
+    ) -> tuple[DataSourceSpec, str]:
+        """PostgreSQL 数据源 spec（Step 55）：DSN 走 options 内存态，缺表名由连接器报错。"""
+        resolved = dataset_id or table_name or "postgres"
+        return (
+            DataSourceSpec(
+                source_type=DataSourceType.POSTGRESQL,
+                table_name=table_name,
+                options={"dsn": dsn, "dataset_id": resolved},
+            ),
+            resolved,
+        )
 
     # ---- 查询 ----------------------------------------------------------
 

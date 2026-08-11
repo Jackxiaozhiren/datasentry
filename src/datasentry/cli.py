@@ -18,7 +18,7 @@ from typing import Any, cast
 
 from datasentry import __version__
 from datasentry.client import DataSentry
-from datasentry_core.connectors.errors import DataSourceNotFoundError
+from datasentry_core.connectors.errors import ConnectorError, DataSourceNotFoundError
 from datasentry_core.llm.provider import LLMError
 from datasentry_core.models.contract import Contract, QualityGate
 from datasentry_core.models.enums import Severity
@@ -105,6 +105,10 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     except DataSourceNotFoundError as exc:
         _emit(_envelope("scan", {"error": str(exc)}), args.format)
         return EXIT_CONFIG
+    except ConnectorError as exc:
+        # Step 55：PG 连接失败等运行期源错误（凭据已净化）→ 源不可用
+        _emit(_envelope("scan", {"error": str(exc)}), args.format)
+        return EXIT_SOURCE_UNAVAILABLE
     summary = {
         "scan_run_id": scan_run.id,
         "dataset_id": scan_run.dataset_id,
@@ -842,13 +846,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_init = sub.add_parser("init", help="initialize workspace (.datasentry/ + .gitignore)")
     p_init.set_defaults(func=_cmd_init)
 
-    p_scan = sub.add_parser("scan", help="scan a data file (CSV/Parquet/JSONL/XLSX/DuckDB)")
-    p_scan.add_argument("path", type=str, help="data file path")
+    p_scan = sub.add_parser(
+        "scan", help="scan a data file or a PostgreSQL table (postgresql://DSN, Step 55)"
+    )
+    p_scan.add_argument("path", type=str, help="data file path or postgresql:// DSN")
     p_scan.add_argument(
         "--table",
         type=str,
         default=None,
-        help="table name for DuckDB/SQLite files (required for .duckdb/.db/.sqlite, Step 38/54)",
+        help="table name for DuckDB/SQLite files or PostgreSQL "
+        "(required for .duckdb/.db/.sqlite and postgresql:// DSN, Step 38/54/55)",
     )
     p_scan.add_argument(
         "--contract",

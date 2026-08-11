@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import decimal
 import json
 import sqlite3
 import threading
@@ -37,6 +38,19 @@ _NEVER_EXPIRES = "9999-12-31T23:59:59+00:00"
 
 def _iso(dt: datetime) -> str:
     return dt.isoformat()
+
+
+def _json_default(obj: Any) -> Any:
+    """evidence/参数 JSON 兜底（Step 55：PG 源聚合结果可能带 Decimal）。
+
+    检测器 evidence.data 契约是 JSON 可序列化；DuckDB postgres 扩展对
+    numeric 聚合（avg/sum 等）返回 Decimal，此处统一收敛为 float。
+    """
+    if isinstance(obj, decimal.Decimal):
+        return float(obj)
+    if isinstance(obj, (datetime,)):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
 
 
 class MetadataStore:
@@ -184,7 +198,7 @@ class MetadataStore:
                             evidence.detector_id,
                             evidence.detector_version,
                             evidence.description,
-                            json.dumps(evidence.data),
+                            json.dumps(evidence.data, default=_json_default),
                             evidence.confidence,
                             (
                                 evidence.provenance.model_dump_json()

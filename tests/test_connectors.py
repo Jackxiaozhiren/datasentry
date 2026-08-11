@@ -13,6 +13,7 @@ from datasentry_core.connectors import (
     ConnectorRegistry,
     DataSourceSpec,
     DataSourceType,
+    PostgresDataHandle,
     UnsupportedFormatError,
     default_registry,
 )
@@ -20,7 +21,7 @@ from datasentry_core.connectors.csv import (
     CsvConnector,
     _schema_hash,
 )
-from datasentry_core.connectors.errors import UnsafeSqlError
+from datasentry_core.connectors.errors import DataSourceNotFoundError, UnsafeSqlError
 
 
 @pytest.fixture
@@ -95,6 +96,28 @@ class TestRegistry:
         spec = DataSourceSpec(source_type=DataSourceType.POSTGRESQL, path=Path("x"))
         with pytest.raises(UnsupportedFormatError):
             registry.get_for(spec)
+
+    def test_postgres_with_dsn_dispatches(self) -> None:
+        registry = default_registry()
+        spec = DataSourceSpec(
+            source_type=DataSourceType.POSTGRESQL,
+            table_name="t",
+            options={"dsn": "postgresql://u:p@localhost:5432/db"},
+        )
+        handle = registry.open(spec)
+        try:
+            assert isinstance(handle, PostgresDataHandle)
+        finally:
+            handle.close()
+
+    def test_postgres_requires_table_name(self) -> None:
+        registry = default_registry()
+        spec = DataSourceSpec(
+            source_type=DataSourceType.POSTGRESQL,
+            options={"dsn": "postgresql://u:p@localhost:5432/db"},
+        )
+        with pytest.raises(DataSourceNotFoundError):
+            registry.open(spec)
 
 
 class TestCsvHandle:

@@ -20,6 +20,7 @@ from datasentry_core.connectors.errors import (
 )
 from datasentry_core.connectors.jsonl import JsonlConnector
 from datasentry_core.connectors.parquet import ParquetConnector
+from datasentry_core.connectors.postgres import PostgresConnector, PostgresDataHandle
 from datasentry_core.connectors.registry import ConnectorRegistry, default_registry
 from datasentry_core.connectors.spec import DataSourceSpec, DataSourceType
 from datasentry_core.connectors.sqlite import SqliteConnector
@@ -41,6 +42,8 @@ __all__ = [
     "JsonlConnector",
     "LoadWarning",
     "ParquetConnector",
+    "PostgresConnector",
+    "PostgresDataHandle",
     "SamplingMethod",
     "SchemaInfo",
     "SqliteConnector",

@@ -16,7 +16,6 @@ from datasentry_core.connectors import (
     DataSourceType,
     JsonlConnector,
     ParquetConnector,
-    UnsupportedFormatError,
     XlsxConnector,
     default_registry,
 )
@@ -302,12 +301,13 @@ class TestRegistry:
             spec = DataSourceSpec(source_type=source_type, path=tmp_path / "x", options={})
             connector = registry.get_for(spec)
             assert connector.connector_id == source_type.value
-        unsupported = DataSourceSpec(source_type=DataSourceType.POSTGRESQL, path=tmp_path / "x")
-        try:
-            registry.get_for(unsupported)
-            raise AssertionError("expected UnsupportedFormatError")
-        except UnsupportedFormatError:
-            pass
+        pg = DataSourceSpec(
+            source_type=DataSourceType.POSTGRESQL,
+            table_name="t",
+            options={"dsn": "postgresql://u:p@localhost:5432/db"},
+        )
+        connector = registry.get_for(pg)
+        assert connector.connector_id == "postgres"
 
     def test_csv_still_registered(self) -> None:
         assert CsvConnector().connector_id == "csv"
