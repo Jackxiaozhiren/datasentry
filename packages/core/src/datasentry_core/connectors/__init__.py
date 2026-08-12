@@ -19,6 +19,7 @@ from datasentry_core.connectors.errors import (
     UnsupportedFormatError,
 )
 from datasentry_core.connectors.jsonl import JsonlConnector
+from datasentry_core.connectors.mysql import MySQLConnector, MySQLDataHandle
 from datasentry_core.connectors.parquet import ParquetConnector
 from datasentry_core.connectors.postgres import PostgresConnector, PostgresDataHandle
 from datasentry_core.connectors.registry import ConnectorRegistry, default_registry
@@ -41,6 +42,8 @@ __all__ = [
     "FrameBatch",
     "JsonlConnector",
     "LoadWarning",
+    "MySQLConnector",
+    "MySQLDataHandle",
     "ParquetConnector",
     "PostgresConnector",
     "PostgresDataHandle",

@@ -80,24 +80,31 @@ def file_sha256(path: str) -> str:
     return digest.hexdigest()
 
 
-def _is_pg_path(path: str) -> bool:
-    return path.startswith("postgresql://") or path.startswith("postgres://")
+def _is_remote_db_path(path: str) -> bool:
+    return path.startswith(("postgresql://", "postgres://", "mysql://"))
+
+
+def _db_source_type(path: str) -> str:
+    """远程库 URL → DataSourceType（Step 55/56：PG 与 MySQL 源类型不同）。"""
+    if path.startswith("mysql://"):
+        return "mysql"
+    return "postgresql"
 
 
 def _source_fingerprint(command: JobCommand) -> str | None:
-    """源内容指纹（Step 55）：文件源=文件 SHA-256（Step 53 原语义）；
-    PostgreSQL 源=表内容指纹（无文件字节，经连接器 handle 计算）。
+    """源内容指纹（Step 55/56）：文件源=文件 SHA-256（Step 53 原语义）；
+    PostgreSQL/MySQL 源=表内容指纹（无文件字节，经连接器 handle 计算）。
 
-    源不可达（文件缺失/PG 断连/缺表名）返回 None——与 Step 53「文件缺失
+    源不可达（文件缺失/库断连/缺表名）返回 None——与 Step 53「文件缺失
     不跳过」语义一致：交给执行器触发正常失败路径，绝不误跳过。
     """
-    if isinstance(command.path, str) and _is_pg_path(command.path):
+    if isinstance(command.path, str) and _is_remote_db_path(command.path):
         from datasentry_core.connectors import DataSourceSpec, DataSourceType, default_registry
 
         try:
             handle = default_registry().open(
                 DataSourceSpec(
-                    source_type=DataSourceType.POSTGRESQL,
+                    source_type=DataSourceType(_db_source_type(command.path)),
                     table_name=command.table_name,
                     options={"dsn": command.path},
                 )
@@ -147,7 +154,7 @@ class LocalScanExecutor:
         for issue in issues:
             by_severity[issue.severity.value] = by_severity.get(issue.severity.value, 0) + 1
         score = scan_run.quality_score.overall if scan_run.quality_score else 0.0
-        # Step 55：文件源沿用 file_sha256（full 档）；PG 源无文件字节，
+        # Step 55/56：文件源沿用 file_sha256（full 档）；PG/MySQL 源无文件字节，
         # full 档指纹的 content_sample_hash 即内容指纹——两侧同一字段（TEXT）落库
         fingerprint = scan_run.fingerprint
         source_hash = fingerprint.file_sha256 or fingerprint.content_sample_hash

@@ -4,6 +4,29 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.7.0] - 2026-08-12
+
+V5 多数据源：MySQL 数据源连接器。
+
+### 新增（Step 56，MySQL 数据源连接器，ADR-056）
+
+- **Step 56**：MySQL —— `scan mysql://user:pass@host:port/db --table <t>`
+  直达远程库表：经 DuckDB mysql 扩展只读 ATTACH（不引入 pymysql），
+  复用全部检测器/评分/报告/门禁/修复/漂移能力；表名必填；
+  MCP `scan_file` 同步支持
+- **凭据红线（继承 PG 全套）**：DSN 只走 CLI 参数/内存态/环境变量
+  引用（`DATASENTRY_MYSQL_DSN` 等 connection_ref），不落库、不进
+  日志/evidence/报告；DuckDB 错误净化双形态（URL DSN 整体与 KV
+  `passwd=` 均打码）后转 ConnectorError——CLI 连接失败退出码 4，
+  错误面无凭据
+- **已知 DuckDB 1.5.x bug 绕行**：mysql-attach 之上的视图+聚合触发
+  内部绑定错误 → 连接器统一 `SET mysql_aggregate_pushdown_enabled
+  = false`（聚合改在 DuckDB 本地执行，语义不变）
+- **变更感知演进（继承 PG 语义）**：调度器源指纹支持 mysql:// 前缀，
+  同内容 skipped、表内容变更重扫
+- **集成测试与 CI**：真实 MySQL 集成用例（integration marker，无
+  MySQL 自动跳过）；CI test job 加 mysql:8 service
+
 ## [0.6.0] - 2026-08-12
 
 V4 多数据源：PostgreSQL 数据源连接器。

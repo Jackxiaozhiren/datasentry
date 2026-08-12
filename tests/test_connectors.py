@@ -13,6 +13,7 @@ from datasentry_core.connectors import (
     ConnectorRegistry,
     DataSourceSpec,
     DataSourceType,
+    MySQLDataHandle,
     PostgresDataHandle,
     UnsupportedFormatError,
     default_registry,
@@ -93,9 +94,33 @@ class TestRegistry:
 
     def test_unsupported_type_rejected(self) -> None:
         registry = default_registry()
-        spec = DataSourceSpec(source_type=DataSourceType.POSTGRESQL, path=Path("x"))
+        # Step 55/56 转正后 POSTGRESQL/MYSQL 已有连接器：无凭据的 URI 用例仍不
+        # 被任何连接器支持（supports 要求 dsn/connection_ref）→ UnsupportedFormatError
+        spec = DataSourceSpec(source_type=DataSourceType.POSTGRESQL, path=Path("x"), options={})
         with pytest.raises(UnsupportedFormatError):
             registry.get_for(spec)
+
+    def test_mysql_with_dsn_dispatches(self) -> None:
+        registry = default_registry()
+        spec = DataSourceSpec(
+            source_type=DataSourceType.MYSQL,
+            table_name="t",
+            options={"dsn": "mysql://u:p@localhost:3306/db"},
+        )
+        handle = registry.open(spec)
+        try:
+            assert isinstance(handle, MySQLDataHandle)
+        finally:
+            handle.close()
+
+    def test_mysql_requires_table_name(self) -> None:
+        registry = default_registry()
+        spec = DataSourceSpec(
+            source_type=DataSourceType.MYSQL,
+            options={"dsn": "mysql://u:p@localhost:3306/db"},
+        )
+        with pytest.raises(DataSourceNotFoundError):
+            registry.open(spec)
 
     def test_postgres_with_dsn_dispatches(self) -> None:
         registry = default_registry()

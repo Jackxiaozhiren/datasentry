@@ -165,15 +165,18 @@ class DataSentry:
     ) -> tuple[ScanRun, list[DetectorRun], list[Issue]]:
         """导入 + 扫描 + 评分 + 落库（数据源不可用抛 FileNotFoundError 类异常）。
 
-        table_name：DuckDB/SQLite/PostgreSQL 必填（Step 38/54/55）；其他格式忽略。
-        path 传 postgresql:// 或 postgres:// URL 时按 PostgreSQL 数据源处理
-        （Step 55，V4）：凭据经 spec.options["dsn"] 内存态流转，不落库/日志/报告。
+        table_name：DuckDB/SQLite/PostgreSQL/MySQL 必填（Step 38/54/55/56）；其他格式忽略。
+        path 传 postgresql://、postgres:// 或 mysql:// URL 时按对应远程数据库
+        数据源处理（Step 55/56，V4/V5）：凭据经 spec.options["dsn"] 内存态
+        流转，不落库/日志/报告。
         references：契约跨表引用（Step 40），触发外键完整性检测。
         """
         if isinstance(path, str) and (
             path.startswith("postgresql://") or path.startswith("postgres://")
         ):
             spec, dataset_id = self._postgres_spec(path, dataset_id, table_name)
+        elif isinstance(path, str) and path.startswith("mysql://"):
+            spec, dataset_id = self._mysql_spec(path, dataset_id, table_name)
         else:
             source_path = Path(path).expanduser()
             if not source_path.is_file():
@@ -218,6 +221,23 @@ class DataSentry:
         return (
             DataSourceSpec(
                 source_type=DataSourceType.POSTGRESQL,
+                table_name=table_name,
+                options={"dsn": dsn, "dataset_id": resolved},
+            ),
+            resolved,
+        )
+
+    @staticmethod
+    def _mysql_spec(
+        dsn: str,
+        dataset_id: str | None,
+        table_name: str | None,
+    ) -> tuple[DataSourceSpec, str]:
+        """MySQL 数据源 spec（Step 56）：DSN 走 options 内存态，缺表名由连接器报错。"""
+        resolved = dataset_id or table_name or "mysql"
+        return (
+            DataSourceSpec(
+                source_type=DataSourceType.MYSQL,
                 table_name=table_name,
                 options={"dsn": dsn, "dataset_id": resolved},
             ),

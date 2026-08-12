@@ -308,6 +308,13 @@ class TestRegistry:
         )
         connector = registry.get_for(pg)
         assert connector.connector_id == "postgres"
+        mysql = DataSourceSpec(
+            source_type=DataSourceType.MYSQL,
+            table_name="t",
+            options={"dsn": "mysql://u:p@localhost:3306/db"},
+        )
+        connector = registry.get_for(mysql)
+        assert connector.connector_id == "mysql"
 
     def test_csv_still_registered(self) -> None:
         assert CsvConnector().connector_id == "csv"

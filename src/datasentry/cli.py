@@ -847,15 +847,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.set_defaults(func=_cmd_init)
 
     p_scan = sub.add_parser(
-        "scan", help="scan a data file or a PostgreSQL table (postgresql://DSN, Step 55)"
+        "scan",
+        help="scan a data file, PostgreSQL table (postgresql://DSN, Step 55) "
+        "or MySQL table (mysql://DSN, Step 56)",
     )
-    p_scan.add_argument("path", type=str, help="data file path or postgresql:// DSN")
+    p_scan.add_argument("path", type=str, help="data file path, postgresql:// or mysql:// DSN")
     p_scan.add_argument(
         "--table",
         type=str,
         default=None,
-        help="table name for DuckDB/SQLite files or PostgreSQL "
-        "(required for .duckdb/.db/.sqlite and postgresql:// DSN, Step 38/54/55)",
+        help="table name for DuckDB/SQLite files or PostgreSQL/MySQL "
+        "(required for .duckdb/.db/.sqlite and postgresql:// / mysql:// DSN, "
+        "Step 38/54/55/56)",
     )
     p_scan.add_argument(
         "--contract",

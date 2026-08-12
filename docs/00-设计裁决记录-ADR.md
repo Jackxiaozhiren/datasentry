@@ -1445,3 +1445,57 @@
   `_source_fingerprint` + LocalScanExecutor 指纹派生；storage/store.py
   Decimal 兜底；SDK/REST/CLI/MCP 接入；测试 28 例单元（FakeExecutor）+
   6 例集成（真实 PG）+ 调度器 3 例 + SDK/CLI/API 负路径。
+
+## ADR-056：MySQL 数据源连接器（V5 多数据源第三落点）（Step 56）
+
+- **状态**：已确认（Step 56, V5）
+- **背景**：V5 蓝图——打通 `DataSourceType.MYSQL` 预留位，让
+  `scan mysql://...` 与 `--table` 直达 MySQL 库表，复用全部
+  检测器/评分/报告/门禁/修复闭环/漂移能力，与 SQLite（V3）、
+  PostgreSQL（V4）并列为多数据源路线完整落地（第三落点）。
+  沿用 ADR-055 的「DuckDB 扩展直读」路线：**不引入 pymysql/MySQLdb
+  依赖**，凭据红线（DSN 仅内存态 / connection_ref 环境变量引用）
+  全套继承。
+- **决策**：
+  1. **经 DuckDB mysql 扩展读 MySQL**（开工前实测通过）：`LOAD mysql`
+     + `ATTACH dsn AS my (TYPE mysql, READ_ONLY)` 注册只读表，创建
+     `data` 视图后复用 FileDataHandle 共享实现；表名必填（缺表名抛
+     DataSourceNotFoundError→404）。MySQL 无独立 schema 层（database
+     已在 DSN 内），标识符/DSN 字面量转义沿用 PG 模板。
+  2. **凭据红线与净化**：DSN 仅内存态（options["dsn"]）或
+     connection_ref（如 DATASENTRY_MYSQL_DSN）；`_RedactingExecutor`
+     净化 DuckDB 异常后转 ConnectorError。额外覆盖 mysql 扩展特有
+     回显：URL 形式（mysql://user:pass@host/db）整体 → `mysql://***`，
+     KV 形式（`host=... passwd=***`）正则打码——两种形态都单测。
+  3. **内容指纹与调度变更感知**：`content_fingerprint()` 与 PG 同款
+     （行序无关、NULL 不折叠、并入 schema_hash 与行数）；调度器
+     `_source_fingerprint` 支持 mysql:// 前缀（远程库路径/源类型
+     推导），同内容 skipped、内容变更重扫，源不可达不误跳过。
+  4. **已知 DuckDB 1.5.x bug 绕行**：mysql 扩展「mysql-attach 之上的
+     VIEW + 聚合（count/groupby）」触发内部绑定错误（"Failed to
+     bind column reference"；直连 attach / 全关优化器可过、PG 扩展
+     无此问题，实测 1.5.5 复现）。`_ensure_view` 统一
+     `SET mysql_aggregate_pushdown_enabled = false`（先于 LOAD）：
+     聚合改在 DuckDB 本地执行（语义不变，仅少一项远端聚合下推
+     优化），视图 + count/groupby/fingerprint 全部正常。
+  5. **SDK/REST/CLI/MCP 接入**：`client.scan_file` 对 `mysql://`
+     前缀识别为 MYSQL 源（`_mysql_spec`，DSN 进 options）；`--table`
+     必填、ConnectorError→退出码 4（源不可用）沿用 PG 语义；CLI/MCP
+     帮助文案同步。registry 默认注册 mysql。
+  6. **测试与 CI**：28 例单元（FakeExecutor：净化双形态/DSN 解析/
+     setup 序列（SET 守卫顺序断言）/schema 归一化/指纹确定性/
+     流式读取/关闭语义）；6 例集成（真实 MySQL：类型归一化、
+     文件 vs MySQL 扫描可比、指纹变更+行序无关、调度 skipped、
+     凭据不泄漏、缺表 404）经 DuckDB mysql 扩展读写 ATTACH 灌数
+     （无 pymysql），无服务自动 skip；CI test job 加 mysql:8
+     service（MYSQL_ROOT_PASSWORD=testpass）+ TEST_MYSQL_DSN env。
+- **理由**：DuckDB mysql 扩展与 postgres 扩展同为「零新依赖 + 复用
+  FileDataHandle + 只读 ATTACH」满足三条硬约束的唯一可行路径；mysql
+  扩展（1.5.5）已支持 MySQL 8.4 caching_sha2_password（开工前实测），
+  聚合下推 bug 有确定性的会话级 SET 绕行，不阻塞。集成测试灌数路径
+  与连接器同路径（同扩展），既验证连接器又验证灌数工具。
+- **影响**：新增 connectors/mysql.py（MySQLConnector + MySQLDataHandle
+  + _RedactingExecutor + redact_credentials + _KV_PASSWORD_PATTERN）；
+  registry 默认注册 mysql；scheduler/core.py 远程库路径/源类型感知；
+  SDK/CLI/MCP 接入；测试 28 例单元 + 6 例集成 + 调度器 2 例 +
+  SDK/CLI 负路径（缺表 exit 2、连接失败 exit 4 净化断言）。

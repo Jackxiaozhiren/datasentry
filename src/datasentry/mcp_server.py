@@ -90,13 +90,14 @@ class McpServer:
 
         @self._tool(
             "scan_file",
-            "Scan a data file (CSV/Parquet/JSONL/XLSX/DuckDB) or a PostgreSQL table "
-            "(postgresql://DSN, Step 55) and persist the quality report. Returns scan id, "
-            "status, row count, quality score and issue counts.",
+            "Scan a data file (CSV/Parquet/JSONL/XLSX/DuckDB), a PostgreSQL table "
+            "(postgresql://DSN, Step 55) or a MySQL table (mysql://DSN, Step 56) "
+            "and persist the quality report. Returns scan id, status, row count, "
+            "quality score and issue counts.",
             {
                 "path": {
                     "type": "string",
-                    "description": "Path to the data file, or a postgresql:// DSN "
+                    "description": "Path to the data file, or a postgresql:// / mysql:// DSN "
                     "(table_name required)",
                 },
                 "dataset_id": {"type": "string"},

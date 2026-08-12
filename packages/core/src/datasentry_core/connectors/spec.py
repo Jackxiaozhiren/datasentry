@@ -21,6 +21,7 @@ class DataSourceType(StrEnum):
     XLSX = "xlsx"
     SQLITE = "sqlite"
     POSTGRESQL = "postgresql"
+    MYSQL = "mysql"
     DUCKDB = "duckdb"
 
 

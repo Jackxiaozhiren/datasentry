@@ -13,6 +13,8 @@ jobs:
       PYTHON_VERSION: "3.12"
       # Step 55：真实 PG 集成用例（test_postgres_integration.py）经此 DSN 连 service
       TEST_POSTGRES_DSN: postgresql://testuser:testpass@localhost:5432/testdb
+      # Step 56：真实 MySQL 集成用例（test_mysql_integration.py）经此 DSN 连 service
+      TEST_MYSQL_DSN: mysql://root:testpass@localhost:3306/testdb
     services:
       postgres:
         image: postgres:16-alpine
@@ -27,6 +29,18 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: testpass
+          MYSQL_DATABASE: testdb
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -u root -ptestpass"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
 

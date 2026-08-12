@@ -7,6 +7,7 @@ from datasentry_core.connectors.csv import CsvConnector
 from datasentry_core.connectors.duckdb import DuckdbConnector
 from datasentry_core.connectors.errors import UnsupportedFormatError
 from datasentry_core.connectors.jsonl import JsonlConnector
+from datasentry_core.connectors.mysql import MySQLConnector
 from datasentry_core.connectors.parquet import ParquetConnector
 from datasentry_core.connectors.postgres import PostgresConnector
 from datasentry_core.connectors.spec import DataSourceSpec
@@ -56,4 +57,5 @@ def default_registry() -> ConnectorRegistry:
     registry.register(DuckdbConnector())
     registry.register(SqliteConnector())
     registry.register(PostgresConnector())
+    registry.register(MySQLConnector())
     return registry

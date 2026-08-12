@@ -618,3 +618,48 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
     （前两者 ConnectorError 带 hint，后者 DataSourceNotFoundError）
   - `LOAD postgres` 首次需联网装扩展；`requires_path` 是 ClassVar，
     PG 子类置 False，配置文件源子类默认 True
+
+## MySQL 数据源连接器（Step 56，ADR-056，V5）
+
+- **架构**：connectors/mysql.py 的 `MySQLDataHandle(FileDataHandle)`，
+  `_ensure_view` 里 `SET mysql_aggregate_pushdown_enabled = false` +
+  `LOAD mysql` + `ATTACH dsn AS my (TYPE mysql, READ_ONLY)` 注册只读
+  表，再建 `data` 视图——共享实现全复用；`requires_path=False`；表名
+  必填（缺表名 DataSourceNotFoundError→404/CLI 2）；MySQL 无独立
+  schema 层（database 在 DSN 内）；`MySQLConnector` 注册进
+  default_registry；client 对 `mysql://` 前缀识别为 MYSQL（DSN 进
+  spec.options，不落库）
+- **凭据红线（硬性）**：与 PG 同套——DSN 只走内存态或 connection_ref
+  环境变量（如 `DATASENTRY_MYSQL_DSN`）；`_RedactingExecutor` 异常
+  净化（DSN→`mysql://***`、密码→`***`）后转 ConnectorError；CLI 连接
+  失败退出码 4、错误面无凭据；**mysql 扩展回显两种形态都要打码**：
+  URL 形式（`mysql://user:pass@host/db` 整体替换）与 KV 形式
+  （`host=... passwd=***`，`_KV_PASSWORD_PATTERN` 正则）——单测覆盖
+- **已知 DuckDB bug 绕行（关键）**：1.5.x mysql 扩展「attach 之上的
+  视图 + 聚合」触发内部绑定错误（`Failed to bind column reference`；
+  直连 attach 正常、PG 扩展无此问题、全关优化器可过）。`_ensure_view`
+  先 `SET mysql_aggregate_pushdown_enabled = false`：聚合在 DuckDB
+  本地执行，语义不变；视图 + count/groupby/指纹全部正常。回归点：
+  删掉该 SET 会立刻复现（test_mysql_integration.py 全红）
+- **变更感知（继承 PG 语义）**：调度器 `_source_fingerprint` 已支持
+  `mysql://`（`_is_remote_db_path` + 源类型推导）；`content_fingerprint()`
+  与 PG 同款（行序无关、NULL 不折叠、并入 schema_hash 与行数）；
+  同内容跳过、变更重扫、源不可达不误跳过
+- **类型归一化**：复用 `FileDataHandle.schema()` 的
+  `_normalize_physical_type`；MySQL INT→INTEGER、DECIMAL(10,2)→DECIMAL、
+  TIMESTAMP→TIMESTAMP 已由集成测试锁定
+- **集成测试**：tests/test_mysql_integration.py 全部 integration marker，
+  fixture 先 `_mysql_available` 探测（LOAD mysql + 只读 ATTACH），失败
+  即 skip；写路径实测可用——DuckDB mysql 扩展支持无 READ_ONLY 的
+  ATTACH 建表/DML，fixture 用它灌数（不引入 pymysql）；本地默认连
+  docker 映射 3307 端口（datasentry-mysql-test，root/testpass），CI
+  test job 有 mysql:8 service + `TEST_MYSQL_DSN` env
+- **坑位备忘**：
+  - 与 PG 同：FakeExecutor 惰性替换 `handle._executor`；`_RedactingExecutor`
+    只捕 `duckdb.Error`，连接器族异常原样透传
+  - `_ensure_view` 三类失败提示区分同 PG（扩展加载/连接失败/表不存在，
+    注意 MySQL 版表不存在文案是 `mysql table not found: <table>`）
+  - mysql 扩展加载后需联网（首次）；MySQL 8.4 caching_sha2_password
+    1.5.5 实测可连（无需老式 native password 兼容配置）
+  - 灌数用的 `_seed` 要先 `DROP TABLE IF EXISTS` 再建表（脏表残留会
+    让 CREATE IF NOT EXISTS 静默沿用旧列结构）
