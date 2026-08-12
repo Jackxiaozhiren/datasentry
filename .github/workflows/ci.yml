@@ -11,6 +11,22 @@ jobs:
     timeout-minutes: 20
     env:
       PYTHON_VERSION: "3.12"
+      # Step 55：真实 PG 集成用例（test_postgres_integration.py）经此 DSN 连 service
+      TEST_POSTGRES_DSN: postgresql://testuser:testpass@localhost:5432/testdb
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U testuser -d testdb"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 

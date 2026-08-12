@@ -80,6 +80,39 @@ def file_sha256(path: str) -> str:
     return digest.hexdigest()
 
 
+def _is_pg_path(path: str) -> bool:
+    return path.startswith("postgresql://") or path.startswith("postgres://")
+
+
+def _source_fingerprint(command: JobCommand) -> str | None:
+    """源内容指纹（Step 55）：文件源=文件 SHA-256（Step 53 原语义）；
+    PostgreSQL 源=表内容指纹（无文件字节，经连接器 handle 计算）。
+
+    源不可达（文件缺失/PG 断连/缺表名）返回 None——与 Step 53「文件缺失
+    不跳过」语义一致：交给执行器触发正常失败路径，绝不误跳过。
+    """
+    if isinstance(command.path, str) and _is_pg_path(command.path):
+        from datasentry_core.connectors import DataSourceSpec, DataSourceType, default_registry
+
+        try:
+            handle = default_registry().open(
+                DataSourceSpec(
+                    source_type=DataSourceType.POSTGRESQL,
+                    table_name=command.table_name,
+                    options={"dsn": command.path},
+                )
+            )
+        except Exception:
+            return None
+        try:
+            return handle.content_fingerprint()
+        except Exception:
+            return None
+        finally:
+            handle.close()
+    return file_sha256(command.path)
+
+
 @runtime_checkable
 class ScanExecutor(Protocol):
     """扫描执行抽象：当前为本地执行，未来可替换为云函数/远端。"""
@@ -114,12 +147,16 @@ class LocalScanExecutor:
         for issue in issues:
             by_severity[issue.severity.value] = by_severity.get(issue.severity.value, 0) + 1
         score = scan_run.quality_score.overall if scan_run.quality_score else 0.0
+        # Step 55：文件源沿用 file_sha256（full 档）；PG 源无文件字节，
+        # full 档指纹的 content_sample_hash 即内容指纹——两侧同一字段（TEXT）落库
+        fingerprint = scan_run.fingerprint
+        source_hash = fingerprint.file_sha256 or fingerprint.content_sample_hash
         return JobResult(
             scan_run_id=scan_run.id,
             total_issues=len(issues),
             quality_score=score,
             issues_by_severity=by_severity,
-            file_hash=file_sha256(command.path),
+            file_hash=source_hash,
         )
 
 
@@ -187,7 +224,7 @@ class Scheduler:
         if job is None:
             return
         try:
-            current_hash = file_sha256(job.command.path)
+            current_hash = _source_fingerprint(job.command)
         except OSError:
             current_hash = None
         if current_hash is not None and self.store.last_successful_hash(job.job_id) == current_hash:

@@ -286,6 +286,11 @@ class CsvDataHandle:
         self._executor.close()
         self._closed = True
 
+    def content_fingerprint(self) -> str:
+        """内容指纹（Step 55）：文件源 = 文件 SHA-256（Step 53 调度哈希语义）。"""
+        assert self._path is not None
+        return _file_sha256(self._path)
+
 
 def _file_sha256(path: Path) -> str:
     """流式文件 SHA-256（≤1GB 全量，大文件走 sampled 档）。"""

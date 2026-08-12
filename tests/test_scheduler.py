@@ -631,3 +631,166 @@ class TestChangeAware:
         clock.advance(minutes=1)
         scheduler.tick()
         assert store.last_successful_hash("job_x") == first
+
+
+# ---- Step 55：PG 任务变更感知（无文件字节 → 内容指纹） -----------------------
+
+
+class _FakePgHandle:
+    def __init__(self, holder: dict[str, str]) -> None:
+        self._holder = holder
+        self.closed = False
+
+    def content_fingerprint(self) -> str:
+        return self._holder["fp"]
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakePgRegistry:
+    """替换 default_registry 工厂：PG spec → 假 handle，指纹来自共享状态。"""
+
+    def __init__(self, holder: dict[str, str]) -> None:
+        self._holder = holder
+        self.opened_specs: list[Any] = []
+        self.last_handle: _FakePgHandle | None = None
+
+    def open(self, spec: Any) -> _FakePgHandle:
+        self.opened_specs.append(spec)
+        handle = _FakePgHandle(self._holder)
+        self.last_handle = handle
+        return handle
+
+
+class _PgScanClient:
+    """模拟 PG 扫描客户端：scan_run.fingerprint.content_sample_hash 即内容指纹。"""
+
+    def __init__(self, holder: dict[str, str]) -> None:
+        self._holder = holder
+        self.calls: list[tuple[str, str | None]] = []
+
+    def scan_file(
+        self,
+        path: str,
+        *,
+        dataset_id: str | None = None,
+        table_name: str | None = None,
+        config: Any = None,
+        references: Any = None,
+    ) -> Any:
+        from datasentry_core.models.fingerprint import DatasetFingerprint
+        from datasentry_core.models.quality import QualityScore
+        from datasentry_core.models.scan import ReproducibilityInfo, ScanConfig, ScanRun
+
+        self.calls.append((path, table_name))
+        fingerprint = DatasetFingerprint(
+            dataset_id=dataset_id or "pg",
+            fingerprint_type="full",
+            file_sha256=None,
+            schema_hash="schema-hash",
+            row_count=2,
+            column_count=1,
+            column_signature=[("a", "INTEGER")],
+            content_sample_hash=self._holder["fp"],
+        )
+        scan = ScanRun(
+            id=f"scan_{len(self.calls)}",
+            dataset_id=fingerprint.dataset_id,
+            status="completed",
+            config=ScanConfig(),
+            fingerprint=fingerprint,
+            quality_score=QualityScore(overall=80.0),
+            reproducibility=ReproducibilityInfo(datasentry_version="test", seed=42),
+        )
+        return scan, [], []
+
+    def close(self) -> None:
+        pass
+
+
+def _pg_job(job_id: str, **kw: Any) -> ScheduledJob:
+    job = _job(job_id=job_id, **kw)
+    job.command = JobCommand(
+        project=job.command.project,
+        path="postgresql://user:secret@localhost:55432/testdb",
+        table_name="orders",
+    )
+    return job
+
+
+class TestPgChangeAware:
+    def test_pg_unchanged_skips_and_change_resumes(
+        self, store: SchedulerStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from datasentry.scheduler.core import LocalScanExecutor
+        from datasentry_core.connectors import DataSourceType
+
+        holder = {"fp": "pg-hash-1"}
+        registry = _FakePgRegistry(holder)
+        monkeypatch.setattr("datasentry_core.connectors.default_registry", lambda: registry)
+        client = _PgScanClient(holder)
+        clock = _Clock(T0)
+        scheduler = Scheduler(
+            store=store,
+            executor=LocalScanExecutor(client_factory=lambda _project: client),
+            clock=clock,
+        )
+        store.create_job(_pg_job("job_pg", next_at=T0 - timedelta(minutes=1), cron="* * * * *"))
+
+        scheduler.tick()
+        assert client.calls == [("postgresql://user:secret@localhost:55432/testdb", "orders")]
+        spec = registry.opened_specs[0]
+        assert spec.source_type == DataSourceType.POSTGRESQL
+        assert spec.options["dsn"] == "postgresql://user:secret@localhost:55432/testdb"
+
+        clock.advance(minutes=1)
+        scheduler.tick()
+        assert client.calls == [("postgresql://user:secret@localhost:55432/testdb", "orders")]
+        runs = store.list_runs("job_pg")
+        assert runs[0].skipped is True
+        assert runs[0].file_hash == "pg-hash-1"
+        assert json.loads(runs[0].summary or "{}")["skipped"] is True
+
+        holder["fp"] = "pg-hash-2"
+        clock.advance(minutes=1)
+        scheduler.tick()
+        assert len(client.calls) == 2
+        runs = store.list_runs("job_pg")
+        assert runs[0].skipped is False
+        assert runs[0].file_hash == "pg-hash-2"
+        assert runs[0].file_hash != runs[1].file_hash
+
+    def test_pg_unreachable_falls_back_to_full_run(
+        self, store: SchedulerStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class _BrokenRegistry:
+            def open(self, spec: Any) -> Any:
+                raise RuntimeError("postgres unreachable")
+
+        monkeypatch.setattr("datasentry_core.connectors.default_registry", _BrokenRegistry)
+        executor = _FakeExecutor()
+        clock = _Clock(T0)
+        scheduler = Scheduler(store=store, executor=executor, clock=clock)
+        store.create_job(_pg_job("job_pg2", next_at=T0 - timedelta(minutes=1), cron="* * * * *"))
+        scheduler.tick()
+        assert executor.calls == ["postgresql://user:secret@localhost:55432/testdb"]
+        run = store.list_runs("job_pg2")[0]
+        assert run.skipped is False
+        assert run.scan_run_id is not None
+
+    def test_pg_fingerprint_handle_closed(
+        self, store: SchedulerStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        holder = {"fp": "x"}
+        registry = _FakePgRegistry(holder)
+        monkeypatch.setattr("datasentry_core.connectors.default_registry", lambda: registry)
+        executor = _FakeExecutor()
+        scheduler = Scheduler(store=store, executor=executor, clock=_Clock(T0))
+        store.create_job(_pg_job("job_pg3", next_at=T0 - timedelta(minutes=1)))
+        scheduler.tick()
+        assert len(registry.opened_specs) == 1
+        assert registry.last_handle is not None
+        assert registry.last_handle.closed is True  # 指纹句柄用完即关
+        runs = store.list_runs("job_pg3")
+        assert runs[0].skipped is False
