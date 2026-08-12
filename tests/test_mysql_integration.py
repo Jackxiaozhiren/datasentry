@@ -240,6 +240,65 @@ class TestMysqlIntegration:
         assert third.scan_run_id is not None
         assert third.file_hash != first.file_hash
 
+        # Step 58 统计层：插入一行（row_count 变）→ 统计层即判定变更 → 重扫
+        con = duckdb.connect(database=":memory:")
+        try:
+            con.execute("LOAD mysql")
+            con.execute(f"ATTACH '{mysql_dsn}' AS w (TYPE mysql)")
+            con.execute(
+                f"INSERT INTO w.{orders_table} (order_id, customer_email, "
+                "status, order_total) VALUES (999, 'ins@x.com', 'pending', 9.99)"
+            )
+        finally:
+            con.close()
+        fourth_id = scheduler.trigger("job_mysql_it")
+        fourth = store.get_run(fourth_id)
+        assert fourth is not None
+        assert fourth.skipped is False
+        assert fourth.file_hash != third.file_hash
+        _seed(orders_table, mysql_dsn, with_timestamps=True)
+
+    @pytest.mark.integration
+    def test_stats_layer_semantics_real_mysql(self, mysql_dsn: str, orders_table: str) -> None:
+        """Step 58 统计层语义（真实 MySQL）：原地 UPDATE（行数不变）不移动统计层，
+        插入行移动统计层——调度第一层（DESCRIBE+count）的判定边界。"""
+        spec = DataSourceSpec(
+            source_type=DataSourceType.MYSQL,
+            table_name=orders_table,
+            options={"dsn": mysql_dsn},
+        )
+        handle = default_registry().open(spec)
+        try:
+            stats1 = handle.stats_fingerprint()
+            assert handle.stats_fingerprint() == stats1  # 同一状态稳定
+
+            content1 = handle.content_fingerprint()
+            con = duckdb.connect(database=":memory:")
+            try:
+                con.execute("LOAD mysql")
+                con.execute(f"ATTACH '{mysql_dsn}' AS w (TYPE mysql)")
+                con.execute(f"UPDATE w.{orders_table} SET status = 'cancelled' WHERE order_id = 1")
+            finally:
+                con.close()
+            stats2 = handle.stats_fingerprint()
+            assert stats2 == stats1  # 原地 UPDATE：统计层不敏感
+            assert handle.content_fingerprint() != content1  # 内容层兜底捕获
+
+            con = duckdb.connect(database=":memory:")
+            try:
+                con.execute("LOAD mysql")
+                con.execute(f"ATTACH '{mysql_dsn}' AS w (TYPE mysql)")
+                con.execute(
+                    f"INSERT INTO w.{orders_table} (order_id, customer_email, "
+                    "status, order_total) VALUES (998, 'ins2@x.com', 'pending', 9.98)"
+                )
+            finally:
+                con.close()
+            assert handle.stats_fingerprint() != stats2  # 插入行：统计层移动
+        finally:
+            handle.close()
+        _seed(orders_table, mysql_dsn, with_timestamps=True)
+
     @pytest.mark.integration
     def test_credentials_never_leak(
         self, mysql_dsn: str, orders_table: str, tmp_path: Path

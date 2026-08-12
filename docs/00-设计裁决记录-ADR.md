@@ -1565,3 +1565,45 @@
   默认注册 remote；scheduler/core.py 云 URI 前缀感知；
   EXT_TO_SOURCE_TYPE 上移 spec.py；SDK/CLI/MCP 接入；测试 22 例
   单元 + 6 例集成 + 调度器 4 例；CI minio service。
+
+## ADR-058：远程源分层增量指纹（V5 增量调度，Step 58）
+
+- **状态**：已确认（Step 58, V5）
+- **背景**：Step 55/56/57 后，PG/MySQL 任务每次 tick 都跑内容指纹
+  （全表哈希）、云文件任务每次 HEAD 元数据——百万行级表 tick 开销
+  可观，且内容层哈希随表增长线性恶化。V5 计划 Step 58 要求远程源
+  「分层快速失效」：先用廉价统计判定，再决定是否读内容。
+- **决策**：
+  1. **两层复合指纹**：`stats_fingerprint()` 协议成员（`FileDataHandle`
+     默认实现）= `sha256(schema_hash|row_count)`，DESCRIBE（目录
+     查询）+ count，零内容读取。落库 `last_successful_hash` 为定序
+     JSON `{"stats": ..., "content": ...}`（TEXT 列兼容，`_composite_hash`
+     /`_parse_composite_hash` 辅助）。
+  2. **调度第一层**：`_source_fingerprint(command, previous)`——
+     统计层与上次复合指纹不一致 → 立即判定变更，返回 content=None
+     （**零内容读取**）；一致 → 内容层指纹（PG/MySQL 全表哈希 /
+     云文件 size+last_modified 元数据）判跳过。两层都一致才 skip。
+  3. **扫描后落库完整复合**：`LocalScanExecutor` 用扫描指纹（
+     schema_hash+row_count+content_sample_hash）组装复合落库——
+     修正计划缺陷：若统计层变更后落 content=None，下一轮统计层
+     比对必不等 → 再扫一次（双重扫描）。扫描自带最新内容层，落库
+     后下一轮即两层全跳。
+  4. **遗留迁移**：Step 55/56/57 时代的单段 hash 解析失败（统计层
+     未知）→ 保守走内容层比对（等价旧语义），成功即迁移为复合。
+  5. **不实现采样层**（计划选项 3）：内容哈希抽样存在误跳过风险
+     （未采样到变更行），违反「内容变必重扫」硬不变量；增益可被
+     option（外部数据源自身变更水印）取代，MVP 不引入。
+- **理由**：统计层（目录查询+count）与内容层（全表哈希）成本差
+  一个量级（PG 百万行实测 0.20s vs 0.86s，4.2×，判据 ≥3×）；
+  两层判定保持「只增不减」语义——统计层变必重扫、统计层不变内容
+  变必重扫（内容层兜底），无漏检；复合 JSON 定序序列化保证
+  previous == current 判定稳定；本地文件源不参与（沿用 Step 53
+  单层 SHA-256，语义零回归）。
+- **影响**：base.py DataHandle 协议新增 stats_fingerprint（默认体
+  抛 NotImplementedError，本地文件句柄 CsvDataHandle 显式实现
+  「不参与」）；file_based.py 默认实现；scheduler/core.py
+  `_source_fingerprint` 两层化 + `_run_job` 传 previous +
+  LocalScanExecutor 复合落库；scheduler 单测 5 例（两层跳过矩阵/
+  统计层变更零内容调用/遗留迁移/复合落库/句柄关闭）+ PG/MySQL
+  集成各 2 例（统计层语义 + 调度四阶段）；benchmarks/
+  bench_layered_fingerprint.py；DEVELOPMENT.md 章节。

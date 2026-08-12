@@ -701,3 +701,30 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
   - read_blob 的 last_modified 裸取报 pytz 缺失 → 连接器 str() 包裹
   - 桶必须预建（缺桶 PUT 400）；gzip 压缩对象不在本步范围（后缀
     推断失败抛可操作错误）
+
+## 分层增量指纹（Step 58，ADR-058，V5）
+
+- **问题**：Step 55 内容指纹（PG/MySQL 全表哈希、云文件 size+last_modified）
+  每次 tick 都读全表/HEAD 元数据——百万行级表 tick 开销可观
+- **设计**：远程源两层复合指纹，落库 `last_successful_hash` 为定序 JSON
+  `{"stats": ..., "content": ...}`：
+  - 统计层 `stats_fingerprint()`（协议成员，`FileDataHandle` 默认实现）：
+    `sha256(schema_hash|row_count)`——DESCRIBE（目录查询）+ count，
+    零内容读取
+  - 调度器 `_source_fingerprint(command, previous)`：统计层与上次复合
+    指纹不一致 → 立即判定变更（content=None，**零内容读取**）；一致
+    才算内容层指纹（PG/MySQL 全表哈希 / 云文件元数据）判跳过
+  - 扫描成功后 `LocalScanExecutor` 用扫描指纹（schema+row_count+
+    content）落库完整复合——避免「统计层变更→重扫→落库缺内容→下轮
+    再扫一次」的双重扫描
+- **迁移**：Step 55/56/57 时代落库的单段 hash 视为「统计层未知」→
+  保守走内容层比对（等价旧语义），成功后自动迁移为复合
+- **不实现采样层**（计划选项 3）：内容哈希抽样有误跳过风险，违反
+  「内容变必重扫」硬不变量（ADR-058 记录理由）
+- **基准**（benchmarks/bench_layered_fingerprint.py，PG 百万行）：
+  统计层 0.20s vs 内容层 0.86s（4.2×）；判据 ≥3× PASS——同内容
+  tick 开销从全表哈希降到目录查询 + count
+- **测试**：scheduler 单测（统计层变更零内容调用、统计同+内容同跳过、
+  统计同+内容异重扫、遗留迁移、复合落库）；PG/MySQL 集成（原地
+  UPDATE 统计层不敏感+内容层兜底、INSERT 统计层移动、真实调度
+  四阶段 skip/UPDATE 重扫/INSERT 重扫）

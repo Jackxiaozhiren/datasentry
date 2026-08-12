@@ -637,12 +637,25 @@ class TestChangeAware:
 
 
 class _FakePgHandle:
+    """假远程句柄：stats/content 双指纹来自共享状态（Step 58 两层语义）。
+
+    stats_fingerprint 与 LocalScanExecutor 落库口径一致：
+    sha256(f"{schema_hash}|{row_count}")。
+    """
+
     def __init__(self, holder: dict[str, str]) -> None:
         self._holder = holder
         self.closed = False
 
     def content_fingerprint(self) -> str:
+        self._holder["content_calls"] = self._holder.get("content_calls", 0) + 1
         return self._holder["fp"]
+
+    def stats_fingerprint(self) -> str:
+        self._holder["stats_calls"] = self._holder.get("stats_calls", 0) + 1
+        import hashlib
+
+        return hashlib.sha256(self._holder["stats"].encode()).hexdigest()
 
     def close(self) -> None:
         self.closed = True
@@ -684,12 +697,16 @@ class _PgScanClient:
         from datasentry_core.models.scan import ReproducibilityInfo, ScanConfig, ScanRun
 
         self.calls.append((path, table_name))
+        # Step 58：fingerprint 的 schema/row_count 由 holder["stats"] 推导
+        # （"<schema>|<count>" 原串），保证 LocalScanExecutor 落库的复合
+        # 统计层与 handle.stats_fingerprint()（sha256 同串）一致
+        schema_part, count_part = self._holder["stats"].split("|")
         fingerprint = DatasetFingerprint(
             dataset_id=dataset_id or "pg",
             fingerprint_type="full",
             file_sha256=None,
-            schema_hash="schema-hash",
-            row_count=2,
+            schema_hash=schema_part,
+            row_count=int(count_part),
             column_count=1,
             column_signature=[("a", "INTEGER")],
             content_sample_hash=self._holder["fp"],
@@ -728,6 +745,13 @@ def _cloud_job(job_id: str, **kw: Any) -> ScheduledJob:
     return job
 
 
+def _pg_stats(raw: str) -> str:
+    """Step 58 统计层落库口径：sha256(f"{schema_hash}|{row_count}")。"""
+    import hashlib
+
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
 class TestPgChangeAware:
     def test_pg_unchanged_skips_and_change_resumes(
         self, store: SchedulerStore, monkeypatch: pytest.MonkeyPatch
@@ -735,7 +759,7 @@ class TestPgChangeAware:
         from datasentry.scheduler.core import LocalScanExecutor
         from datasentry_core.connectors import DataSourceType
 
-        holder = {"fp": "pg-hash-1"}
+        holder = {"fp": "pg-hash-1", "stats": "schema-hash|2"}
         registry = _FakePgRegistry(holder)
         monkeypatch.setattr("datasentry_core.connectors.default_registry", lambda: registry)
         client = _PgScanClient(holder)
@@ -758,7 +782,9 @@ class TestPgChangeAware:
         assert client.calls == [("postgresql://user:secret@localhost:55432/testdb", "orders")]
         runs = store.list_runs("job_pg")
         assert runs[0].skipped is True
-        assert runs[0].file_hash == "pg-hash-1"
+        stored = json.loads(runs[0].file_hash)
+        assert stored["stats"] == _pg_stats("schema-hash|2")
+        assert stored["content"] == "pg-hash-1"
         assert json.loads(runs[0].summary or "{}")["skipped"] is True
 
         holder["fp"] = "pg-hash-2"
@@ -767,8 +793,47 @@ class TestPgChangeAware:
         assert len(client.calls) == 2
         runs = store.list_runs("job_pg")
         assert runs[0].skipped is False
-        assert runs[0].file_hash == "pg-hash-2"
         assert runs[0].file_hash != runs[1].file_hash
+
+    def test_pg_stats_change_zero_content_read(
+        self, store: SchedulerStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Step 58 统计层：行数/结构变 → 立即判定变更，内容层零读取。"""
+        from datasentry.scheduler.core import LocalScanExecutor
+
+        holder = {"fp": "pg-hash-1", "stats": "schema-hash|2"}
+        registry = _FakePgRegistry(holder)
+        monkeypatch.setattr("datasentry_core.connectors.default_registry", lambda: registry)
+        client = _PgScanClient(holder)
+        clock = _Clock(T0)
+        scheduler = Scheduler(
+            store=store,
+            executor=LocalScanExecutor(client_factory=lambda _project: client),
+            clock=clock,
+        )
+        store.create_job(_pg_job("job_pg4", next_at=T0 - timedelta(minutes=1), cron="* * * * *"))
+
+        scheduler.tick()
+
+        clock.advance(minutes=1)
+        scheduler.tick()
+        assert store.list_runs("job_pg4")[0].skipped is True
+        content_calls_before_stats_change = holder.get("content_calls", 0)
+
+        holder["stats"] = "schema-hash|3"  # 追加行（行数变，内容未变）
+        clock.advance(minutes=1)
+        scheduler.tick()
+        assert (
+            holder.get("content_calls", 0) == content_calls_before_stats_change
+        )  # 统计层判定变更 → 内容层零调用
+        assert len(client.calls) == 2  # 判定变更 → 重新扫描
+        stored = json.loads(store.list_runs("job_pg4")[0].file_hash)
+        assert stored["stats"] == _pg_stats("schema-hash|3")
+
+        clock.advance(minutes=1)
+        scheduler.tick()
+        assert len(client.calls) == 2  # 新统计层已落库（含扫描后内容层）→ 跳过
+        assert store.list_runs("job_pg4")[0].skipped is True
 
     def test_pg_unreachable_falls_back_to_full_run(
         self, store: SchedulerStore, monkeypatch: pytest.MonkeyPatch
@@ -791,7 +856,7 @@ class TestPgChangeAware:
     def test_pg_fingerprint_handle_closed(
         self, store: SchedulerStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        holder = {"fp": "x"}
+        holder = {"fp": "x", "stats": "schema-hash|2"}
         registry = _FakePgRegistry(holder)
         monkeypatch.setattr("datasentry_core.connectors.default_registry", lambda: registry)
         executor = _FakeExecutor()
@@ -803,6 +868,47 @@ class TestPgChangeAware:
         assert registry.last_handle.closed is True  # 指纹句柄用完即关
         runs = store.list_runs("job_pg3")
         assert runs[0].skipped is False
+
+    def test_pg_legacy_hash_migrates_to_composite(
+        self, store: SchedulerStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Step 58 迁移：Step 55/56/57 时代落库的单段 hash 视为统计层未知 →
+        保守走内容层比对 → 重扫成功后落库复合指纹（下次可两层跳过）。"""
+        import sqlite3
+
+        from datasentry.scheduler.core import LocalScanExecutor
+
+        holder = {"fp": "pg-hash-1", "stats": "schema-hash|2"}
+        registry = _FakePgRegistry(holder)
+        monkeypatch.setattr("datasentry_core.connectors.default_registry", lambda: registry)
+        client = _PgScanClient(holder)
+        clock = _Clock(T0)
+        scheduler = Scheduler(
+            store=store,
+            executor=LocalScanExecutor(client_factory=lambda _project: client),
+            clock=clock,
+        )
+        store.create_job(_pg_job("job_pg5", next_at=T0 - timedelta(minutes=1), cron="* * * * *"))
+
+        scheduler.tick()
+        assert len(client.calls) == 1
+
+        # 模拟遗留库：把落库的复合指纹篡改为单段 hash
+        with sqlite3.connect(str(store._db_path)) as conn:
+            conn.execute(
+                "UPDATE job_runs SET file_hash = 'legacy-single-hash' WHERE job_id = 'job_pg5'"
+            )
+
+        clock.advance(minutes=1)
+        scheduler.tick()
+        assert len(client.calls) == 2  # 内容层保守比对 → 判定「未知」→ 重扫
+        stored = json.loads(store.list_runs("job_pg5")[0].file_hash)
+        assert stored["content"] == "pg-hash-1"
+
+        clock.advance(minutes=1)
+        scheduler.tick()
+        assert len(client.calls) == 2  # 复合指纹已落库 → 两层跳过
+        assert store.list_runs("job_pg5")[0].skipped is True
 
 
 class _FakeCloudRegistry:
@@ -829,7 +935,7 @@ class TestCloudChangeAware:
         from datasentry.scheduler.core import LocalScanExecutor
         from datasentry_core.connectors import DataSourceType
 
-        holder = {"fp": "cloud-hash-1"}
+        holder = {"fp": "cloud-hash-1", "stats": "schema-hash|2"}
         registry = _FakeCloudRegistry(holder)
         monkeypatch.setattr("datasentry_core.connectors.default_registry", lambda: registry)
         client = _PgScanClient(holder)
@@ -852,7 +958,9 @@ class TestCloudChangeAware:
         assert client.calls == [("s3://test-bucket/orders.csv", None)]
         runs = store.list_runs("job_s3")
         assert runs[0].skipped is True
-        assert runs[0].file_hash == "cloud-hash-1"
+        stored = json.loads(runs[0].file_hash)
+        assert stored["stats"] == _pg_stats("schema-hash|2")
+        assert stored["content"] == "cloud-hash-1"
         assert json.loads(runs[0].summary or "{}")["skipped"] is True
 
         holder["fp"] = "cloud-hash-2"
@@ -861,7 +969,7 @@ class TestCloudChangeAware:
         assert len(client.calls) == 2
         runs = store.list_runs("job_s3")
         assert runs[0].skipped is False
-        assert runs[0].file_hash == "cloud-hash-2"
+        assert json.loads(runs[0].file_hash)["content"] == "cloud-hash-2"
         assert runs[0].file_hash != runs[1].file_hash
 
     def test_cloud_unreachable_falls_back_to_full_run(

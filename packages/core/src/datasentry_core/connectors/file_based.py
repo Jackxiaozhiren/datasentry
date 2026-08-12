@@ -203,6 +203,18 @@ class FileDataHandle:
             raise ConnectorError("file fingerprint requires a local file path")
         return _file_sha256(self._path)
 
+    def stats_fingerprint(self) -> str:
+        """统计层指纹（Step 58，ADR-058）：schema_hash + row_count 组合。
+
+        零内容读取：DESCRIBE（目录查询，PG/MySQL 为扩展目录、云文件为
+        parquet footer/CSV 元数据）+ count（远程库为 count 扫描，云文件
+        为 footer 行数）。调度两层快速失效第一层：统计层一致才进内容层。
+        """
+        self._check_open()
+        signature = [(c.name, c.physical_type) for c in self.schema().columns]
+        row_count = self.count_rows()
+        return hashlib.sha256(f"{_schema_hash(signature)}|{row_count}".encode()).hexdigest()
+
     def warnings(self) -> list[LoadWarning]:
         """公式注入标记（11.7）：遍历批处理扫描字符串列，前 _WARNING_CAP 条。"""
         self._check_open()

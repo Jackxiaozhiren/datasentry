@@ -98,6 +98,16 @@ class DataHandle(Protocol):
         由子类实现内容哈希——调度器变更感知（Step 53/55）的跳过判定基准。"""
         ...
 
+    def stats_fingerprint(self) -> str:
+        """统计层指纹（Step 58，ADR-058）：schema_hash + row_count 组合，零内容读取。
+
+        调度两层快速失效第一层：统计层一致才计算内容指纹；统计层变化
+        立即判定变更。远程源（PG/MySQL/云文件）由 FileDataHandle 默认
+        实现（DESCRIBE 目录查询 + count），文件源不参与（沿用 Step 53
+        单层文件 SHA-256）。协议默认体：本地文件句柄不实现（调度器不会
+        对本地文件调用），实现者不覆盖即视为不适用。"""
+        raise NotImplementedError("stats_fingerprint is not supported by this handle")
+
     def warnings(self) -> list[LoadWarning]: ...
     def close(self) -> None: ...
 

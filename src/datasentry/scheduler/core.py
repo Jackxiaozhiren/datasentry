@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import threading
 from collections.abc import Callable
@@ -95,64 +96,104 @@ def _db_source_type(path: str) -> str:
     return "postgresql"
 
 
-def _source_fingerprint(command: JobCommand) -> str | None:
-    """源内容指纹（Step 55/56/57）：文件源=文件 SHA-256（Step 53 原语义）；
-    PostgreSQL/MySQL 源=表内容指纹（无文件字节，经连接器 handle 计算）；
-    s3:// gs:// az:// 云文件源=远程句柄 content_fingerprint（快速失效层：
-    size+last_modified 元数据组合，免下载，Step 57，ADR-057）。
+def _is_remote_source(path: str) -> bool:
+    """远程源判定（Step 58）：远程库（PG/MySQL）或云文件 URI 走两层指纹。"""
+    return _is_remote_db_path(path) or _is_cloud_uri(path)
+
+
+def _composite_hash(stats: str, content: str | None) -> str:
+    """复合指纹（Step 58，ADR-058）：{"stats": ..., "content": ...} 定序 JSON。
+
+    内容层未计算（统计层已判定变更）时 content=None——跳过判定永不成立，
+    但统计层已足够证明变更，零内容读取。
+    """
+    return json.dumps({"stats": stats, "content": content}, separators=(",", ":"))
+
+
+def _parse_composite_hash(raw: str | None) -> tuple[str, str | None] | None:
+    """解析复合指纹；非复合（None/遗留单段 hash，Step 55/56/57 时代）返回 None。"""
+    if raw is None or not raw.startswith("{"):
+        return None
+    try:
+        obj = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    stats = obj.get("stats")
+    if not isinstance(stats, str):
+        return None
+    content = obj.get("content")
+    return stats, content if isinstance(content, str) else None
+
+
+def _source_fingerprint(command: JobCommand, previous: str | None) -> str | None:
+    """源指纹（Step 55/56/57/58）：文件源=文件 SHA-256（Step 53 原语义）；
+    远程源（PG/MySQL/云文件）=两层复合指纹（Step 58，ADR-058）：
+      第一层统计（schema_hash+row_count，零内容读取）：与上次复合指纹的
+      统计层不一致 → 立即判定变更（返回 content=None，不读内容）；
+      一致 → 第二层内容指纹（PG/MySQL 全表哈希 / 云文件 size+last_modified
+      元数据组合）判定跳过。
+    previous：最近一次成功执行的复合指纹；遗留单段 hash 视为「统计层未知」
+      → 保守走内容层比对（等价旧语义），成功后落库复合指纹完成迁移。
 
     源不可达（文件缺失/库断连/缺表名/对象删除或不可读）返回 None——与
     Step 53「文件缺失不跳过」语义一致：交给执行器触发正常失败路径，
     绝不误跳过。
     """
-    if isinstance(command.path, str) and _is_cloud_uri(command.path):
-        from datasentry_core.connectors import (
-            DataSourceSpec,
-            DataSourceType,
-            default_registry,
-        )
-        from datasentry_core.connectors.spec import EXT_TO_SOURCE_TYPE
-
-        suffix = command.path.rsplit(".", 1)[-1].lower()
-        source_type = EXT_TO_SOURCE_TYPE.get(f".{suffix}")
-        if source_type not in (DataSourceType.CSV, DataSourceType.PARQUET, DataSourceType.JSONL):
+    if isinstance(command.path, str) and _is_remote_source(command.path):
+        handle = _open_remote_handle(command)
+        if handle is None:
             return None
         try:
-            handle = default_registry().open(
-                DataSourceSpec(
-                    source_type=source_type,
-                    path=command.path,
-                    options={"dataset_id": command.path.rsplit("/", 2)[1]},
-                )
-            )
-        except Exception:
-            return None
-        try:
-            return handle.content_fingerprint()
-        except Exception:
-            return None
-        finally:
-            handle.close()
-    if isinstance(command.path, str) and _is_remote_db_path(command.path):
-        from datasentry_core.connectors import DataSourceSpec, DataSourceType, default_registry
-
-        try:
-            handle = default_registry().open(
-                DataSourceSpec(
-                    source_type=DataSourceType(_db_source_type(command.path)),
-                    table_name=command.table_name,
-                    options={"dsn": command.path},
-                )
-            )
-        except Exception:
-            return None
-        try:
-            return handle.content_fingerprint()
-        except Exception:
-            return None
+            try:
+                stats = handle.stats_fingerprint()
+            except Exception:
+                return None
+            prev = _parse_composite_hash(previous)
+            if prev is not None and prev[0] == stats:
+                try:
+                    content = handle.content_fingerprint()
+                except Exception:
+                    return None
+                return _composite_hash(stats, content)
+            return _composite_hash(stats, None)
         finally:
             handle.close()
     return file_sha256(command.path)
+
+
+def _open_remote_handle(command: JobCommand) -> Any | None:
+    """远程源（PG/MySQL/云文件）指纹句柄；不可开（断连/缺表名/缺后缀）返回 None。"""
+    from datasentry_core.connectors import DataSourceSpec, DataSourceType, default_registry
+    from datasentry_core.connectors.spec import EXT_TO_SOURCE_TYPE
+
+    path = command.path
+    assert isinstance(path, str)
+    try:
+        if _is_cloud_uri(path):
+            suffix = path.rsplit(".", 1)[-1].lower()
+            source_type = EXT_TO_SOURCE_TYPE.get(f".{suffix}")
+            if source_type not in (
+                DataSourceType.CSV,
+                DataSourceType.PARQUET,
+                DataSourceType.JSONL,
+            ):
+                return None
+            return default_registry().open(
+                DataSourceSpec(
+                    source_type=source_type,
+                    path=path,
+                    options={"dataset_id": path.rsplit("/", 2)[1]},
+                )
+            )
+        return default_registry().open(
+            DataSourceSpec(
+                source_type=DataSourceType(_db_source_type(path)),
+                table_name=command.table_name,
+                options={"dsn": path},
+            )
+        )
+    except Exception:
+        return None
 
 
 @runtime_checkable
@@ -191,8 +232,19 @@ class LocalScanExecutor:
         score = scan_run.quality_score.overall if scan_run.quality_score else 0.0
         # Step 55/56：文件源沿用 file_sha256（full 档）；PG/MySQL 源无文件字节，
         # full 档指纹的 content_sample_hash 即内容指纹——两侧同一字段（TEXT）落库
+        # Step 58：远程源落库复合指纹（统计层+内容层）——扫描成功即携带最新统计
+        # 与内容，下一次 tick 两层比对；统计层变化时跳过判定零内容读取
         fingerprint = scan_run.fingerprint
         source_hash = fingerprint.file_sha256 or fingerprint.content_sample_hash
+        if (
+            source_hash is not None
+            and isinstance(command.path, str)
+            and _is_remote_source(command.path)
+        ):
+            stats = hashlib.sha256(
+                f"{fingerprint.schema_hash}|{fingerprint.row_count}".encode()
+            ).hexdigest()
+            source_hash = _composite_hash(stats, fingerprint.content_sample_hash)
         return JobResult(
             scan_run_id=scan_run.id,
             total_issues=len(issues),
@@ -265,11 +317,12 @@ class Scheduler:
         job = self.store.get_job(job_id)
         if job is None:
             return
+        previous = self.store.last_successful_hash(job.job_id)
         try:
-            current_hash = _source_fingerprint(job.command)
+            current_hash = _source_fingerprint(job.command, previous)
         except OSError:
             current_hash = None
-        if current_hash is not None and self.store.last_successful_hash(job.job_id) == current_hash:
+        if current_hash is not None and previous == current_hash:
             self._finish_skipped(job, run_id, current_hash)
             return
         try:

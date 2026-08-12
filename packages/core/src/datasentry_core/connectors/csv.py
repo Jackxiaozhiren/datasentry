@@ -292,6 +292,13 @@ class CsvDataHandle:
             raise ConnectorError("csv fingerprint requires a local file path")
         return _file_sha256(self._path)
 
+    def stats_fingerprint(self) -> str:
+        """统计层指纹（Step 58）：本地文件源不参与两层指纹——调度器仅对
+        远程源（PG/MySQL/云文件）调用，本地文件沿用 Step 53 单层语义。"""
+        raise NotImplementedError(
+            "local file handles do not participate in two-layer fingerprinting"
+        )
+
 
 def _file_sha256(path: Path) -> str:
     """流式文件 SHA-256（≤1GB 全量，大文件走 sampled 档）。"""
