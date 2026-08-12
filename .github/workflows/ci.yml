@@ -15,6 +15,13 @@ jobs:
       TEST_POSTGRES_DSN: postgresql://testuser:testpass@localhost:5432/testdb
       # Step 56：真实 MySQL 集成用例（test_mysql_integration.py）经此 DSN 连 service
       TEST_MYSQL_DSN: mysql://root:testpass@localhost:3306/testdb
+      # Step 57：真实 MinIO 集成用例（test_remote_file_integration.py）经此端点/凭据连 service
+      TEST_MINIO_ENDPOINT: localhost:9000
+      TEST_MINIO_ACCESS_KEY: minioadmin
+      TEST_MINIO_SECRET_KEY: minioadmin
+      AWS_ENDPOINT_URL_S3: localhost:9000
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
     services:
       postgres:
         image: postgres:16-alpine
@@ -41,6 +48,19 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      minio:
+        image: minio/minio:latest
+        command: server /data
+        ports:
+          - 9000:9000
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
 
@@ -60,6 +80,12 @@ jobs:
 
       - name: 2 · ruff format check
         run: uv run ruff format --check .
+
+      - name: 2b · create MinIO bucket (Step 57 integration fixture)
+        run: |
+          docker run --rm --network host \
+            -e MC_HOST_minio="http://minioadmin:minioadmin@localhost:9000" \
+            minio/mc:latest mb --ignore-existing minio/test-bucket
 
       - name: 3 · mypy --strict (datasentry_core + datasentry)
         run: uv run mypy packages/core/src/datasentry_core src/datasentry

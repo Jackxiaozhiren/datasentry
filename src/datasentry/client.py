@@ -21,6 +21,7 @@ from datasentry_core.connectors import (
     DataSourceType,
     default_registry,
 )
+from datasentry_core.connectors.spec import EXT_TO_SOURCE_TYPE as _EXT_TO_SOURCE_TYPE
 from datasentry_core.detectors import DetectionContext, DetectorRegistry
 from datasentry_core.detectors.initial import register_default_detectors
 from datasentry_core.detectors.runner import ScanRunner
@@ -40,21 +41,6 @@ from datasentry_core.scoring.gate import GateResult, QualityGateEvaluator
 from datasentry_core.storage import MetadataStore
 
 _SEVERITY_ORDER = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO]
-
-# 文件扩展名 → 数据源类型（Step 18：scan_file 自动推断，覆盖 CSV/Parquet/JSONL/XLSX）
-_EXT_TO_SOURCE_TYPE: dict[str, DataSourceType] = {
-    ".csv": DataSourceType.CSV,
-    ".tsv": DataSourceType.CSV,
-    ".parquet": DataSourceType.PARQUET,
-    ".pq": DataSourceType.PARQUET,
-    ".jsonl": DataSourceType.JSONL,
-    ".ndjson": DataSourceType.JSONL,
-    ".xlsx": DataSourceType.XLSX,
-    ".duckdb": DataSourceType.DUCKDB,
-    ".db": DataSourceType.SQLITE,
-    ".sqlite": DataSourceType.SQLITE,
-    ".sqlite3": DataSourceType.SQLITE,
-}
 
 
 def _source_type_for_path(path: Path) -> DataSourceType | None:
@@ -177,6 +163,10 @@ class DataSentry:
             spec, dataset_id = self._postgres_spec(path, dataset_id, table_name)
         elif isinstance(path, str) and path.startswith("mysql://"):
             spec, dataset_id = self._mysql_spec(path, dataset_id, table_name)
+        elif isinstance(path, str) and (
+            path.startswith("s3://") or path.startswith("gs://") or path.startswith("az://")
+        ):
+            spec, dataset_id = self._remote_spec(path, dataset_id, table_name)
         else:
             source_path = Path(path).expanduser()
             if not source_path.is_file():
@@ -240,6 +230,42 @@ class DataSentry:
                 source_type=DataSourceType.MYSQL,
                 table_name=table_name,
                 options={"dsn": dsn, "dataset_id": resolved},
+            ),
+            resolved,
+        )
+
+    @staticmethod
+    def _remote_spec(
+        uri: str,
+        dataset_id: str | None,
+        table_name: str | None,
+    ) -> tuple[DataSourceSpec, str]:
+        """云存储文件数据源 spec（Step 57，V5）：s3:// gs:// az:// URI。
+
+        格式按 URI 路径后缀推断（csv/parquet/jsonl）；凭据只走进程环境
+        （httpfs 原生读取），非机密会话配置（endpoint/region 等）可经
+        options["s3_*"] 传入；缺后缀（.gz 等）由连接器报可操作错误。
+        """
+        from urllib.parse import urlparse
+
+        suffix = urlparse(uri).path.rsplit(".", 1)[-1].lower()
+        source_type = _source_type_for_path(Path(f"x.{suffix}"))
+        if source_type is None or source_type not in (
+            DataSourceType.CSV,
+            DataSourceType.PARQUET,
+            DataSourceType.JSONL,
+        ):
+            raise FileNotFoundError(
+                f"unsupported cloud data source format: s3:// gs:// az:// files "
+                f"must use .csv/.parquet/.jsonl suffixes, got: {uri}"
+            )
+        resolved = dataset_id or uri.split("/", 3)[2]
+        return (
+            DataSourceSpec(
+                source_type=source_type,
+                path=uri,
+                table_name=table_name,
+                options={"dataset_id": resolved},
             ),
             resolved,
         )

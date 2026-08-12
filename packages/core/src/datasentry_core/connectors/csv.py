@@ -27,7 +27,7 @@ from datasentry_core.connectors.base import (
     SamplingMethod,
     SchemaInfo,
 )
-from datasentry_core.connectors.errors import DataSourceNotFoundError
+from datasentry_core.connectors.errors import ConnectorError, DataSourceNotFoundError
 from datasentry_core.connectors.spec import DataSourceSpec, DataSourceType
 from datasentry_core.engine import DuckDBExecutor
 from datasentry_core.models.enums import Severity
@@ -91,8 +91,8 @@ class CsvDataHandle:
     """CSV 数据句柄：pyarrow 流式读取 + duckdb 只读聚合。"""
 
     def __init__(self, spec: DataSourceSpec) -> None:
-        if spec.path is None:
-            raise DataSourceNotFoundError("csv source requires a path")
+        if spec.path is None or isinstance(spec.path, str):
+            raise DataSourceNotFoundError("csv source requires a local file path")
         self._spec = spec
         self._path = spec.path
         self._encoding = _detect_encoding(spec.path, override=spec.options.get("encoding"))
@@ -108,7 +108,7 @@ class CsvDataHandle:
         return self._spec.source_type
 
     @property
-    def source_path(self) -> Path | None:
+    def source_path(self) -> Path | str | None:
         return self._path
 
     @property
@@ -288,7 +288,8 @@ class CsvDataHandle:
 
     def content_fingerprint(self) -> str:
         """内容指纹（Step 55）：文件源 = 文件 SHA-256（Step 53 调度哈希语义）。"""
-        assert self._path is not None
+        if not isinstance(self._path, Path):
+            raise ConnectorError("csv fingerprint requires a local file path")
         return _file_sha256(self._path)
 
 
@@ -308,7 +309,12 @@ class CsvConnector:
     display_name = "CSV"
 
     def supports(self, source: DataSourceSpec) -> bool:
-        return source.source_type == DataSourceType.CSV and source.path is not None
+        # Step 57：本地文件连接器排除云 URI（s3:// gs:// az:// 归 RemoteFileConnector）
+        return (
+            source.source_type == DataSourceType.CSV
+            and source.path is not None
+            and not isinstance(source.path, str)
+        )
 
     def open(self, source: DataSourceSpec) -> DataHandle:
         return CsvDataHandle(source)

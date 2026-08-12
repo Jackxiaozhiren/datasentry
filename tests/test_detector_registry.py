@@ -150,6 +150,7 @@ class TestDetectorRegistry:
             "sqlite",  # Step 54：SQLite 文件连接器入默认注册表
             "postgres",  # Step 55：PostgreSQL 连接器入默认注册表（V4）
             "mysql",  # Step 56：MySQL 连接器入默认注册表（V5）
+            "remote",  # Step 57：云存储文件源连接器入默认注册表（V5）
         ]
 
 

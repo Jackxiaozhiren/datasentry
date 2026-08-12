@@ -35,7 +35,7 @@ class DuckDBDataHandle(FileDataHandle):
 
     def __init__(self, spec: DataSourceSpec) -> None:
         super().__init__(spec)
-        if spec.path is None or not spec.path.is_file():
+        if spec.path is None or isinstance(spec.path, str) or not spec.path.is_file():
             raise DataSourceNotFoundError(f"duckdb file not found: {spec.path}")
         if spec.table_name is None:
             raise DataSourceNotFoundError("duckdb connector requires table_name")

@@ -1499,3 +1499,69 @@
   registry 默认注册 mysql；scheduler/core.py 远程库路径/源类型感知；
   SDK/CLI/MCP 接入；测试 28 例单元 + 6 例集成 + 调度器 2 例 +
   SDK/CLI 负路径（缺表 exit 2、连接失败 exit 4 净化断言）。
+
+## ADR-057：云存储文件源连接器（V5 多数据源第四落点，Step 57）
+
+- **状态**：已确认（Step 57, V5）
+- **背景**：V5 蓝图——让 `scan s3://bucket/orders.csv`（及 gs://、
+  az:// 前缀的 CSV/Parquet/JSONL）直达对象存储文件，复用全部
+  检测器/评分/报告/门禁/修复闭环/漂移能力，并支持调度变更感知。
+  约束同 ADR-055/056：零新依赖（数据文件读取已在 DuckDB 能力圈内）、
+  凭据不入库、复用 FileDataHandle 共享实现。
+- **决策**：
+  1. **经 DuckDB httpfs 扩展直读对象存储**（开工前实测通过）：
+     `LOAD httpfs` + `SET s3_*` 会话配置 + `read_csv_auto/read_parquet/
+     read_json_auto(uri)` 注册只读 `data` 视图，复用 FileDataHandle
+     全家桶（schema 归一化/抽样/聚合/count/警告扫描）；URI 在
+     `spec.path`（类型放宽 `Path | str | None`）。单连接器
+     `RemoteFileConnector` 按 URI 前缀分派三种格式；本地文件连接器
+     supports 收紧为排除字符串 path，注册序不产生抢占（Registry 断言
+     测试覆盖）。gs:// 与 az:// 前缀识别 + httpfs 原生读取（环境变量
+     认证，GCS/Azure 高级项不在本步范围）。
+  2. **S3 会话配置**：自定义 endpoint（MinIO 等）经
+     `options["s3_endpoint"]`（或 env `AWS_ENDPOINT_URL_S3`）传入，
+     自动 path-style + 非 SSL（MinIO 必需，实测 vhost-style 404）；
+     无 endpoint 走 AWS 默认（vhost-style + SSL），零配置。
+     凭据只走进程环境变量（AWS_ACCESS_KEY_ID/SECRET_ACCESS_KEY 等
+     httpfs 原生读取），不进 spec/DB/日志/evidence。
+  3. **URI 净化**：az:// URI 可含 SAS token 等查询参数——错误文本中
+     完整 URI 整体替换为 `<remote-uri>`（`_RemoteRedactingExecutor`
+     包装 + `redact_uri`），DuckDB 异常净化后转 ConnectorError；
+     DataSourceNotFoundError 文本同样不含 URI。
+  4. **内容指纹（快速失效层）**：httpfs 不暴露对象 ETag（glob 仅
+     file 列），`content_fingerprint()` = `sha256(uri|size|last_modified)`
+     经 `read_blob` 元数据列（HEAD 级开销 ~0.004s，免下载）。
+     语义：同内容 → size/mtime 不变 → 指纹相同（调度 skipped）；
+     覆盖写 → Last-Modified 必更新 → 重扫。已知局限：同秒同 size
+     覆盖的极限窗口会漏判（S3 对象覆盖写语义下可接受）；元数据
+     抖动只多扫一次（无害）。调度器 `_source_fingerprint` 支持
+     s3:// gs:// az:// 前缀，源不可达返回 None → 正常失败路径
+     （绝不误跳过）。
+  5. **fingerprint 全档**：云文件无本地字节 → `file_sha256=None`、
+     content_sample_hash=快速失效层指纹（与 PG/MySQL 语义一致）。
+     read_batches 走 DuckDB execute_stream（无本地路径，不能用
+     pq.ParquetFile）。
+  6. **SDK/CLI/MCP 接入**：`client.scan_file` 对三前缀识别为远程
+     文件源（`_remote_spec`，格式按 URI 后缀推断，缺后缀/非
+     csv/parquet/jsonl 抛可操作 FileNotFoundError）；CLI/MCP 帮助
+     文案同步；registry 默认注册 remote。扩展名映射表
+     `EXT_TO_SOURCE_TYPE` 上移至 connectors/spec.py（单源，SDK 与
+     调度器共用）。
+  7. **测试与 CI**：22 例单元（FakeExecutor：前缀识别/净化/会话
+     序列（LOAD 先行、endpoint 条件 SET）/探测失败 404/快速指纹/
+     fingerprint 全档）；6 例集成（真实 MinIO：schema 归一化、
+     远程 vs 本地扫描可比、parquet/jsonl 扫描、指纹覆盖写变化、
+     缺对象 404）经 httpfs COPY TO 灌数（同路径，无 boto3）；
+     调度器 4 例（skipped/恢复、不可达回退、未知后缀回退、句柄
+     关闭）。CI test job 加 minio service + mc 建桶步骤 +
+     TEST_MINIO_ENDPOINT/凭据 env。
+- **理由**：httpfs 是 DuckDB 官方扩展（随发行版分发、离线可预装），
+  与 mysql/postgres 扩展同属「零新依赖 + 复用 FileDataHandle」路线；
+  快速失效层解决云文件无本地字节时的调度跳过判定（读元数据不读
+  数据），成本与正确性平衡，Step 58（远程增量指纹）可在此之上演进。
+- **影响**：新增 connectors/remote_file.py（RemoteFileConnector +
+  RemoteFileDataHandle + _RemoteRedactingExecutor + redact_uri）；
+  spec.path 放宽（本地连接器 supports/构造收窄防御）；registry
+  默认注册 remote；scheduler/core.py 云 URI 前缀感知；
+  EXT_TO_SOURCE_TYPE 上移 spec.py；SDK/CLI/MCP 接入；测试 22 例
+  单元 + 6 例集成 + 调度器 4 例；CI minio service。

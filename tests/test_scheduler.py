@@ -719,6 +719,15 @@ def _pg_job(job_id: str, **kw: Any) -> ScheduledJob:
     return job
 
 
+def _cloud_job(job_id: str, **kw: Any) -> ScheduledJob:
+    job = _job(job_id=job_id, **kw)
+    job.command = JobCommand(
+        project=job.command.project,
+        path="s3://test-bucket/orders.csv",
+    )
+    return job
+
+
 class TestPgChangeAware:
     def test_pg_unchanged_skips_and_change_resumes(
         self, store: SchedulerStore, monkeypatch: pytest.MonkeyPatch
@@ -793,4 +802,111 @@ class TestPgChangeAware:
         assert registry.last_handle is not None
         assert registry.last_handle.closed is True  # 指纹句柄用完即关
         runs = store.list_runs("job_pg3")
+        assert runs[0].skipped is False
+
+
+class _FakeCloudRegistry:
+    """替换 default_registry 工厂：云 URI spec → 假 handle，指纹来自共享状态。"""
+
+    def __init__(self, holder: dict[str, str]) -> None:
+        self._holder = holder
+        self.opened_specs: list[Any] = []
+        self.last_handle: _FakePgHandle | None = None
+
+    def open(self, spec: Any) -> _FakePgHandle:
+        self.opened_specs.append(spec)
+        handle = _FakePgHandle(self._holder)
+        self.last_handle = handle
+        return handle
+
+
+class TestCloudChangeAware:
+    """Step 57：s3:// gs:// az:// 云文件源变更感知（content_fingerprint 快速失效层）。"""
+
+    def test_cloud_unchanged_skips_and_change_resumes(
+        self, store: SchedulerStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from datasentry.scheduler.core import LocalScanExecutor
+        from datasentry_core.connectors import DataSourceType
+
+        holder = {"fp": "cloud-hash-1"}
+        registry = _FakeCloudRegistry(holder)
+        monkeypatch.setattr("datasentry_core.connectors.default_registry", lambda: registry)
+        client = _PgScanClient(holder)
+        clock = _Clock(T0)
+        scheduler = Scheduler(
+            store=store,
+            executor=LocalScanExecutor(client_factory=lambda _project: client),
+            clock=clock,
+        )
+        store.create_job(_cloud_job("job_s3", next_at=T0 - timedelta(minutes=1), cron="* * * * *"))
+
+        scheduler.tick()
+        assert client.calls == [("s3://test-bucket/orders.csv", None)]
+        spec = registry.opened_specs[0]
+        assert spec.source_type == DataSourceType.CSV
+        assert spec.path == "s3://test-bucket/orders.csv"
+
+        clock.advance(minutes=1)
+        scheduler.tick()
+        assert client.calls == [("s3://test-bucket/orders.csv", None)]
+        runs = store.list_runs("job_s3")
+        assert runs[0].skipped is True
+        assert runs[0].file_hash == "cloud-hash-1"
+        assert json.loads(runs[0].summary or "{}")["skipped"] is True
+
+        holder["fp"] = "cloud-hash-2"
+        clock.advance(minutes=1)
+        scheduler.tick()
+        assert len(client.calls) == 2
+        runs = store.list_runs("job_s3")
+        assert runs[0].skipped is False
+        assert runs[0].file_hash == "cloud-hash-2"
+        assert runs[0].file_hash != runs[1].file_hash
+
+    def test_cloud_unreachable_falls_back_to_full_run(
+        self, store: SchedulerStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class _BrokenRegistry:
+            def open(self, spec: Any) -> Any:
+                raise RuntimeError("s3 unreachable")
+
+        monkeypatch.setattr("datasentry_core.connectors.default_registry", _BrokenRegistry)
+        executor = _FakeExecutor()
+        clock = _Clock(T0)
+        scheduler = Scheduler(store=store, executor=executor, clock=clock)
+        store.create_job(_cloud_job("job_s3b", next_at=T0 - timedelta(minutes=1)))
+        scheduler.tick()
+        assert executor.calls == ["s3://test-bucket/orders.csv"]
+        run = store.list_runs("job_s3b")[0]
+        assert run.skipped is False
+
+    def test_cloud_unsupported_suffix_falls_back(self, store: SchedulerStore) -> None:
+        """缺后缀/未知后缀：指纹返回 None，正常执行（不跳过也不误判）。"""
+        executor = _FakeExecutor()
+        scheduler = Scheduler(store=store, executor=executor, clock=_Clock(T0))
+        job = _cloud_job("job_s3c", next_at=T0 - timedelta(minutes=1))
+        job.command = JobCommand(
+            project=job.command.project,
+            path="s3://test-bucket/orders",
+        )
+        store.create_job(job)
+        scheduler.tick()
+        assert executor.calls == ["s3://test-bucket/orders"]
+        assert store.list_runs("job_s3c")[0].skipped is False
+
+    def test_cloud_fingerprint_handle_closed(
+        self, store: SchedulerStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        holder = {"fp": "x"}
+        registry = _FakeCloudRegistry(holder)
+        monkeypatch.setattr("datasentry_core.connectors.default_registry", lambda: registry)
+        executor = _FakeExecutor()
+        scheduler = Scheduler(store=store, executor=executor, clock=_Clock(T0))
+        store.create_job(_cloud_job("job_s3d", next_at=T0 - timedelta(minutes=1)))
+        scheduler.tick()
+        assert len(registry.opened_specs) == 1
+        assert registry.last_handle is not None
+        assert registry.last_handle.closed is True  # 指纹句柄用完即关
+        runs = store.list_runs("job_s3d")
         assert runs[0].skipped is False

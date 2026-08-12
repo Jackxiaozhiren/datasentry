@@ -59,7 +59,11 @@ class JsonlConnector:
     display_name = "JSONL"
 
     def supports(self, source: DataSourceSpec) -> bool:
-        return source.source_type == DataSourceType.JSONL and source.path is not None
+        return (
+            source.source_type == DataSourceType.JSONL
+            and source.path is not None
+            and not isinstance(source.path, str)
+        )
 
     def open(self, source: DataSourceSpec) -> JsonlDataHandle:
         return JsonlDataHandle(source)

@@ -663,3 +663,41 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
     1.5.5 实测可连（无需老式 native password 兼容配置）
   - 灌数用的 `_seed` 要先 `DROP TABLE IF EXISTS` 再建表（脏表残留会
     让 CREATE IF NOT EXISTS 静默沿用旧列结构）
+
+## 云存储文件源连接器（Step 57，ADR-057，V5）
+
+- **架构**：connectors/remote_file.py 的 `RemoteFileDataHandle(FileDataHandle)`，
+  `_ensure_view` 里 `LOAD httpfs` +（有 endpoint 时）`SET s3_endpoint/
+  s3_region/s3_url_style='path'/s3_use_ssl=false` + 探测
+  `SELECT 1 FROM read_*(uri) LIMIT 0` + 建 `data` 视图（按格式分派
+  read_csv_auto/read_parquet/read_json_auto）——schema/抽样/聚合/
+  count/警告扫描全复用；`read_batches` 走 execute_stream（无本地
+  路径，不能用 pq.ParquetFile）；`RemoteFileConnector` 按 URI 前缀
+  分派 CSV/PARQUET/JSONL 并注册进 default_registry
+- **URI 与凭据**：`spec.path` 放宽为 `Path | str | None`——s3:// gs://
+  az:// 走字符串；本地连接器（csv/parquet/jsonl/duckdb/sqlite/xlsx）
+  supports 与构造均已收窄排除字符串 path（注册序不抢占）。
+  **凭据只走进程环境变量**（AWS_ACCESS_KEY_ID/SECRET_ACCESS_KEY 等
+  httpfs 原生读取）；非机密会话配置经 `options["s3_endpoint"]`（或
+  env `AWS_ENDPOINT_URL_S3`）传入，有自定义 endpoint 自动
+  path-style + 非 SSL（MinIO 必需，vhost 404）
+- **净化**：az:// URI 可含 SAS token——`_RemoteRedactingExecutor` +
+  `redact_uri` 把错误文本中的完整 URI 替换为 `<remote-uri>` 再转
+  ConnectorError；DataSourceNotFoundError 文本同样不含 URI
+- **变更感知（快速失效层）**：httpfs 不暴露 ETag → `content_fingerprint()`
+  = `sha256(uri|size|last_modified)` 经 read_blob 元数据（HEAD 级
+  开销，免下载）；覆盖写必变、同秒同 size 覆盖是已知局限（ADR-057）；
+  调度器 `_source_fingerprint` 已支持 s3:// gs:// az:// 前缀，源
+  不可达返回 None 不误跳过；`fingerprint('full')` 的 file_sha256=None
+- **集成测试**：tests/test_remote_file_integration.py 全部 integration
+  marker，fixture 先 `_minio_available` 探测（glob 桶内对象），失败
+  即 skip；fixture 数据经 httpfs COPY TO 灌入（同路径，无 boto3）；
+  本地默认连 docker 9000 端口（datasentry-minio-test，
+  minioadmin/minioadmin，桶 test-bucket 需 mc mb 预建）；CI test job
+  有 minio service + mc 建桶步骤 + TEST_MINIO_ENDPOINT/凭据 env
+- **坑位备忘**：
+  - endpoint env 探测：httpfs 不认 `AWS_ENDPOINT_URL_S3`，必须经
+    连接器 `SET s3_endpoint`（连接器会自己读 env 并下发 SET）
+  - read_blob 的 last_modified 裸取报 pytz 缺失 → 连接器 str() 包裹
+  - 桶必须预建（缺桶 PUT 400）；gzip 压缩对象不在本步范围（后缀
+    推断失败抛可操作错误）

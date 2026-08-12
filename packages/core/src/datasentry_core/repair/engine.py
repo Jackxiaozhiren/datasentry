@@ -251,7 +251,7 @@ class RepairEngine:
         repairs_dir.mkdir(parents=True, exist_ok=True)
         run_id = f"rep_{uuid.uuid4().hex[:12]}"
         source_path = context.handle.source_path
-        if source_path is None or not source_path.exists():
+        if source_path is None or isinstance(source_path, str) or not source_path.exists():
             raise FileNotFoundError("repair requires an on-disk source file")
         suffix = self._suffix(context)
         artifact_path = repairs_dir / f"{run_id}.before{suffix}"

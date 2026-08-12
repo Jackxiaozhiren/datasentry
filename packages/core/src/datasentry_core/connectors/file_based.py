@@ -90,7 +90,7 @@ class FileDataHandle:
         return self._spec.source_type
 
     @property
-    def source_path(self) -> Path | None:
+    def source_path(self) -> Path | str | None:
         return self._path
 
     @property
@@ -174,8 +174,8 @@ class FileDataHandle:
         file_sha256: str | None = None
         content_sample_hash: str | None = None
         if mode == "full":
-            if self._path is None:
-                raise ConnectorError("file fingerprint requires a path")
+            if not isinstance(self._path, Path):
+                raise ConnectorError("file fingerprint requires a local file path")
             file_sha256 = _file_sha256(self._path)
         elif mode == "sampled":
             head = self._executor.execute("SELECT * FROM data LIMIT 1000")
@@ -199,7 +199,8 @@ class FileDataHandle:
 
     def content_fingerprint(self) -> str:
         """内容指纹（Step 55）：文件源 = 文件 SHA-256（Step 53 调度哈希语义）。"""
-        assert self._path is not None
+        if not isinstance(self._path, Path):
+            raise ConnectorError("file fingerprint requires a local file path")
         return _file_sha256(self._path)
 
     def warnings(self) -> list[LoadWarning]:

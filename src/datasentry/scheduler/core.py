@@ -84,6 +84,10 @@ def _is_remote_db_path(path: str) -> bool:
     return path.startswith(("postgresql://", "postgres://", "mysql://"))
 
 
+def _is_cloud_uri(path: str) -> bool:
+    return path.startswith(("s3://", "gs://", "az://"))
+
+
 def _db_source_type(path: str) -> str:
     """远程库 URL → DataSourceType（Step 55/56：PG 与 MySQL 源类型不同）。"""
     if path.startswith("mysql://"):
@@ -92,12 +96,43 @@ def _db_source_type(path: str) -> str:
 
 
 def _source_fingerprint(command: JobCommand) -> str | None:
-    """源内容指纹（Step 55/56）：文件源=文件 SHA-256（Step 53 原语义）；
-    PostgreSQL/MySQL 源=表内容指纹（无文件字节，经连接器 handle 计算）。
+    """源内容指纹（Step 55/56/57）：文件源=文件 SHA-256（Step 53 原语义）；
+    PostgreSQL/MySQL 源=表内容指纹（无文件字节，经连接器 handle 计算）；
+    s3:// gs:// az:// 云文件源=远程句柄 content_fingerprint（快速失效层：
+    size+last_modified 元数据组合，免下载，Step 57，ADR-057）。
 
-    源不可达（文件缺失/库断连/缺表名）返回 None——与 Step 53「文件缺失
-    不跳过」语义一致：交给执行器触发正常失败路径，绝不误跳过。
+    源不可达（文件缺失/库断连/缺表名/对象删除或不可读）返回 None——与
+    Step 53「文件缺失不跳过」语义一致：交给执行器触发正常失败路径，
+    绝不误跳过。
     """
+    if isinstance(command.path, str) and _is_cloud_uri(command.path):
+        from datasentry_core.connectors import (
+            DataSourceSpec,
+            DataSourceType,
+            default_registry,
+        )
+        from datasentry_core.connectors.spec import EXT_TO_SOURCE_TYPE
+
+        suffix = command.path.rsplit(".", 1)[-1].lower()
+        source_type = EXT_TO_SOURCE_TYPE.get(f".{suffix}")
+        if source_type not in (DataSourceType.CSV, DataSourceType.PARQUET, DataSourceType.JSONL):
+            return None
+        try:
+            handle = default_registry().open(
+                DataSourceSpec(
+                    source_type=source_type,
+                    path=command.path,
+                    options={"dataset_id": command.path.rsplit("/", 2)[1]},
+                )
+            )
+        except Exception:
+            return None
+        try:
+            return handle.content_fingerprint()
+        except Exception:
+            return None
+        finally:
+            handle.close()
     if isinstance(command.path, str) and _is_remote_db_path(command.path):
         from datasentry_core.connectors import DataSourceSpec, DataSourceType, default_registry
 

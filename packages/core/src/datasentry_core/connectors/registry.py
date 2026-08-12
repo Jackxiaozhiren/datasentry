@@ -10,6 +10,7 @@ from datasentry_core.connectors.jsonl import JsonlConnector
 from datasentry_core.connectors.mysql import MySQLConnector
 from datasentry_core.connectors.parquet import ParquetConnector
 from datasentry_core.connectors.postgres import PostgresConnector
+from datasentry_core.connectors.remote_file import RemoteFileConnector
 from datasentry_core.connectors.spec import DataSourceSpec
 from datasentry_core.connectors.sqlite import SqliteConnector
 from datasentry_core.connectors.xlsx import XlsxConnector
@@ -58,4 +59,5 @@ def default_registry() -> ConnectorRegistry:
     registry.register(SqliteConnector())
     registry.register(PostgresConnector())
     registry.register(MySQLConnector())
+    registry.register(RemoteFileConnector())
     return registry

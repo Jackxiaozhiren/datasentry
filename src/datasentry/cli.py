@@ -848,17 +848,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_scan = sub.add_parser(
         "scan",
-        help="scan a data file, PostgreSQL table (postgresql://DSN, Step 55) "
-        "or MySQL table (mysql://DSN, Step 56)",
+        help="scan a data file, PostgreSQL table (postgresql://DSN, Step 55), "
+        "MySQL table (mysql://DSN, Step 56) or cloud file (s3:// gs:// az:// "
+        "CSV/Parquet/JSONL, Step 57)",
     )
-    p_scan.add_argument("path", type=str, help="data file path, postgresql:// or mysql:// DSN")
+    p_scan.add_argument(
+        "path",
+        type=str,
+        help="data file path, postgresql:// or mysql:// DSN, or s3:// gs:// az:// URI",
+    )
     p_scan.add_argument(
         "--table",
         type=str,
         default=None,
         help="table name for DuckDB/SQLite files or PostgreSQL/MySQL "
         "(required for .duckdb/.db/.sqlite and postgresql:// / mysql:// DSN, "
-        "Step 38/54/55/56)",
+        "Step 38/54/55/56; ignored for cloud file URIs)",
     )
     p_scan.add_argument(
         "--contract",

@@ -23,6 +23,7 @@ from datasentry_core.connectors.mysql import MySQLConnector, MySQLDataHandle
 from datasentry_core.connectors.parquet import ParquetConnector
 from datasentry_core.connectors.postgres import PostgresConnector, PostgresDataHandle
 from datasentry_core.connectors.registry import ConnectorRegistry, default_registry
+from datasentry_core.connectors.remote_file import RemoteFileConnector, RemoteFileDataHandle
 from datasentry_core.connectors.spec import DataSourceSpec, DataSourceType
 from datasentry_core.connectors.sqlite import SqliteConnector
 from datasentry_core.connectors.xlsx import XlsxConnector
@@ -47,6 +48,8 @@ __all__ = [
     "ParquetConnector",
     "PostgresConnector",
     "PostgresDataHandle",
+    "RemoteFileConnector",
+    "RemoteFileDataHandle",
     "SamplingMethod",
     "SchemaInfo",
     "SqliteConnector",

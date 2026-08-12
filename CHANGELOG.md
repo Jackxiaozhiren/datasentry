@@ -6,7 +6,26 @@
 
 ## [0.7.0] - 2026-08-12
 
-V5 多数据源：MySQL 数据源连接器。
+V5 多数据源：MySQL 数据源连接器 + 云存储文件源连接器。
+
+### 新增（Step 57，云存储文件源连接器，ADR-057）
+
+- **Step 57**：对象存储文件 —— `scan s3://bucket/orders.csv`（及
+  gs://、az:// 前缀的 CSV/Parquet/JSONL）直达云文件：经 DuckDB
+  httpfs 扩展只读直读（零新依赖），复用全部检测器/评分/报告/
+  门禁/修复/漂移能力；MCP `scan_file` 同步支持
+- **端点配置**：MinIO 等自定义 endpoint 经
+  `options["s3_endpoint"]`（或 env `AWS_ENDPOINT_URL_S3`）传入，
+  自动 path-style + 非 SSL（MinIO 必需）；无 endpoint 走 AWS 默认
+  零配置；凭据只走进程环境变量（AWS_ACCESS_KEY_ID 等 httpfs 原生
+  读取），不落库/日志/报告；az:// URI（可含 SAS token）错误净化
+  为 `<remote-uri>`
+- **变更感知（快速失效层）**：调度器源指纹支持 s3:// gs:// az://
+  前缀 —— `content_fingerprint()` = size+last_modified 元数据组合
+  哈希（HEAD 级开销免下载），同内容 skipped、覆盖写重扫、源不可达
+  不误跳过；已知局限（同秒同 size 覆盖窗口）记录于 ADR-057
+- **集成测试与 CI**：真实 MinIO 集成用例（integration marker，
+  无服务自动跳过）；CI test job 加 minio service + mc 建桶步骤
 
 ### 新增（Step 56，MySQL 数据源连接器，ADR-056）
 
