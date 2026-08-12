@@ -9,6 +9,16 @@
 V5 多数据源：MySQL 数据源连接器 + 云存储文件源连接器 + 分层增量指纹 +
 凭据管理完善。
 
+### 发布说明（V5 收尾）
+
+- V5 四个落点全部落地：MySQL（Step 56）、云存储文件（Step 57）、
+  远程源分层增量指纹（Step 58）、凭据管理（Step 59）；版本统一
+  v0.7.0，tag `v0.7.0` 触发 PyPI 发布 + Pages 更新
+- 多数据源矩阵：CSV/Parquet/JSONL/XLSX/DuckDB/SQLite（本地文件）+
+  PostgreSQL + MySQL + s3/gs/az 云文件；调度器变更感知对全部远程
+  源生效（统计层 + 内容层两层快速失效），凭据统一走
+  env > secrets.env 解析链且零落库
+
 ### 新增（Step 59，凭据管理完善，ADR-059）
 
 - **Step 59**：`datasentry secrets set|get|list|rm` 凭据管理——
