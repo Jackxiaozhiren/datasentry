@@ -143,7 +143,9 @@ class TestCloudUri:
 
 
 class TestS3SessionOptions:
-    def test_no_endpoint_no_sets(self) -> None:
+    def test_no_endpoint_no_sets(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("AWS_ENDPOINT_URL_S3", raising=False)
+        monkeypatch.delenv("AWS_ENDPOINT_URL", raising=False)
         assert _s3_session_options(_base_spec()) == []
 
     def test_options_endpoint(self) -> None:
