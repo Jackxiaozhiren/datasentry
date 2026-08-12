@@ -1387,3 +1387,61 @@
   映射（DataSourceNotFoundError→404、其余 ConnectorError→400）；
   测试 tests/test_sqlite_connector.py 11 例 + api 2 例 + 两处既有
   注册表断言更新。
+
+## ADR-055：PostgreSQL 数据源连接器（V4 多数据源第二落点）（Step 55）
+
+- **状态**：已确认（Step 55, V4）
+- **背景**：V4 蓝图——打通 `DataSourceType.POSTGRESQL` 预留位，让
+  `scan postgresql://...` 与 `--table` 直达 PostgreSQL 库表，复用
+  全部检测器/评分/报告/门禁/修复闭环/漂移能力，与 SQLite（V3）
+  并列为多数据源路线完整落地。ADR-054 决策 6「Postgres 仍预留，
+  等凭据管理成熟再接」——V4 正面回应：凭据以「CLI 参数/环境变量
+  引用（DATASENTRY_ 前缀）」为 MVP 语义，DSN 只走内存态，**依旧
+  不引入 psycopg2 依赖**。
+- **决策**：
+  1. **经 DuckDB postgres 扩展读 PostgreSQL**（方案 A，开工前实测
+     通过）：`LOAD postgres` + `ATTACH dsn AS pg (TYPE postgres,
+     READ_ONLY)` 注册只读 libpq 视图，`PostgresDataHandle(FileDataHandle)`
+     复用 schema/read_sample/sql_aggregate/count_rows/warnings 全家桶；
+     表名必填（缺表名抛 DataSourceNotFoundError→404），schema 名经
+     options["schema"]，标识符/DSN 字面量双引号/单引号转义。
+  2. **凭据红线**：DSN 仅存内存态（spec.options["dsn"]）或
+     connection_ref 指向的环境变量名（如 DATASENTRY_PG_DSN）；不落库、
+     不进日志/evidence/报告。`_RedactingExecutor` 包装 DuckDB 执行器：
+     DuckDB 异常文本含 DSN/密码时先净化（DSN→`postgresql://***`、
+     密码→`***`）再转 ConnectorError 传播——CLI 错误面（退出码 4）与
+     REST 400 只见净化文本。连接失败/扩展加载失败给可操作提示。
+  3. **无文件字节 → 内容指纹**：PG 表没有文件，Step 53 文件 SHA-256
+     跳过判定永不生效。`content_fingerprint()`（DataHandle 协议新增
+     成员）= 单查询全表哈希：每行 `md5(concat_ws(chr(31), coalesce(col
+     ::VARCHAR, chr(0))...))` 聚合 `string_agg(..., ORDER BY rh)`（行序
+     无关、NULL 不折叠），并入 schema_hash 与行数得 SHA-256。调度器
+    `_source_fingerprint` 源感知：文件源走文件哈希（原语义），PG 源
+     走内容指纹——同内容 skipped、内容变更重扫；源不可达返回 None
+     不误跳过（走正常失败路径）。`last_successful_hash` 字段本身是
+     TEXT，两侧指纹同字段落库，零 schema 变更。
+  4. **SDK/REST/CLI/MCP 接入**：`client.scan_file` 对 `postgresql://`/
+     `postgres://` 前缀识别为 POSTGRESQL 源（DSN 进 options），
+     `--table`/table_name 必填语义沿用 DuckDB/SQLite；CLI 新增
+     ConnectorError→退出码 4（源不可用）；MCP scan_file 工具描述同步。
+  5. **类型归一化**：DuckDB postgres 扩展返回的 DECIMAL(n,p) 与
+     TIMESTAMP WITH TIME ZONE 等物理类型不命中检测器/画像的精确
+     类型集合 → FileDataHandle.schema 统一 `_normalize_physical_type`
+     （DECIMAL(n,p)→DECIMAL、别名时间→规范名）；evidence 序列化
+     兜底 Decimal→float（PG 聚合实测触发，JSON 契约一次放行）。
+  6. **集成测试与 CI**：真实 PG 集成用例（integration marker）经
+     DuckDB postgres 扩展读写 ATTACH 建表灌数（不引入 psycopg），
+     本地无 PG/离线时连接探测失败自动 skip——本地与无 PG 的 CI
+     环境保持全绿；CI test job 加 postgres:16-alpine service +
+     TEST_POSTGRES_DSN env 跑集成用例。
+- **理由**：DuckDB postgres 扩展是唯一同时满足「零新依赖（AD-054
+  约束）」「复用 FileDataHandle 共享实现」「只读 ATTACH 不写回源库」
+  三条硬约束的路径；内容指纹查询是单语句 pushdown 的轻量聚合，
+  远程源 MVP 不做增量采样优化（ADR-055 边界）。
+- **影响**：新增 connectors/postgres.py（PostgresConnector +
+  PostgresDataHandle + _RedactingExecutor + redact_credentials）；
+  FileDataHandle.requires_path ClassVar（PG False）；engine/base.py
+  SetupExecutor 协议；registry 默认注册 postgres；scheduler/core.py
+  `_source_fingerprint` + LocalScanExecutor 指纹派生；storage/store.py
+  Decimal 兜底；SDK/REST/CLI/MCP 接入；测试 28 例单元（FakeExecutor）+
+  6 例集成（真实 PG）+ 调度器 3 例 + SDK/CLI/API 负路径。

@@ -27,7 +27,7 @@
 
 ## What is DataSentry?
 
-DataSentry scans your data (CSV / Parquet / JSONL / XLSX / DuckDB) and produces:
+DataSentry scans your data (CSV / Parquet / JSONL / XLSX / DuckDB / SQLite / PostgreSQL) and produces:
 
 - **39 evidence-driven detectors** — missingness, dates, encodings, cross-field rules, cross-table foreign keys, duplicates (exact + fuzzy), outlier models (Isolation Forest / LOF), and more. Every issue carries a statistical evidence chain: samples, ratios, confidence.
 - **Six-dimension quality score** — completeness, validity, uniqueness, consistency, integrity, timeliness — with explainable weights and per-dimension contributions.
@@ -56,10 +56,20 @@ datasentry drift latest orders           # drift between the two latest scans
 datasentry-server                       # Web UI + REST API at http://localhost:8000
 ```
 
-Scan a DuckDB file (optional — any CSV/Parquet/JSONL/XLSX works):
+Scan a DuckDB file (optional — any CSV/Parquet/JSONL/XLSX/SQLite works):
 
 ```bash
 datasentry scan analytics.duckdb --table payments
+datasentry scan analytics.db --table payments     # SQLite (Step 54)
+```
+
+Scan a PostgreSQL table (V4, Step 55 — DSN is passed on the command line /
+via `DATASENTRY_PG_DSN` and is never persisted or logged):
+
+```bash
+datasentry scan "postgresql://user:pass@localhost:5432/analytics" --table payments
+DATASENTRY_PG_DSN="postgresql://user:pass@localhost:5432/analytics" \
+  datasentry scan postgresql:// --table payments --schema public
 ```
 
 Contract-driven scanning (optional):
@@ -76,7 +86,8 @@ datasentry scan orders.csv --contract contract.yaml     # gate + rules bound
 flowchart LR
     subgraph Sources
         CSV[CSV / Parquet / JSONL / XLSX] --> Exec[DuckDB SQL executor]
-        DDB[(.duckdb file)] --> Exec
+        DDB[(.duckdb / .db files)] --> Exec
+        PG[(PostgreSQL / SQLite)] --> Exec
     end
     Exec --> Dets[39 detectors]
     Dets --> Fuse[Evidence fusion]

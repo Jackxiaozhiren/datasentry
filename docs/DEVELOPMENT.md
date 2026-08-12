@@ -572,3 +572,49 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
   - 调度联动测试同样有同秒排序竞态：断言用 trigger 返回的 run_id
     查 store，不要依赖 list_runs 的 DESC 顺序
   - `LOAD sqlite` 幂等（DuckDB 扩展自动加载，CI ubuntu 同样可用）
+
+## PostgreSQL 数据源连接器（Step 55，ADR-055，V4）
+
+- **架构**：connectors/postgres.py 的 `PostgresDataHandle(FileDataHandle)`，
+  `_ensure_view` 里 `LOAD postgres` + `ATTACH dsn AS pg (TYPE postgres,
+  READ_ONLY)` 注册只读 libpq 视图——共享实现全复用；`requires_path=False`
+  （无文件字节）；表名必填（缺表名 DataSourceNotFoundError→404/CLI 2），
+  schema 名经 `options["schema"]`；`PostgresConnector` 注册进
+  default_registry；client 对 `postgresql://`/`postgres://` 前缀识别为
+  POSTGRESQL（DSN 进 spec.options，不落库）
+- **凭据红线（硬性）**：DSN 只走内存态或 connection_ref 环境变量引用
+  （如 `DATASENTRY_PG_DSN`）；`_RedactingExecutor` 包装 DuckDB 执行器，
+  异常净化（DSN→`postgresql://***`、密码→`***`）后转 ConnectorError；
+  CLI 连接失败退出码 4、错误面无凭据，evidence/报告零泄漏
+  （test_postgres_integration.py 有泄漏断言）
+- **变更感知（关键语义）**：PG 无文件，调度器 `_source_fingerprint`
+  源感知——文件源走文件 SHA-256（Step 53 原语义），PG 源走
+  `handle.content_fingerprint()`（单查询全表哈希：每行
+  `md5(concat_ws(chr(31), coalesce(col::VARCHAR, chr(0))...))` +
+  `string_agg(..., ORDER BY rh)` 行序无关；并入 schema_hash 与行数）；
+  同内容跳过、变更重扫、源不可达不误跳过；`last_successful_hash` 是
+  TEXT，两侧指纹同字段，零 schema 变更
+- **类型归一化**：DuckDB postgres 扩展返回的物理类型不命中检测器
+  精确集合——`FileDataHandle.schema()` 统一 `_normalize_physical_type`
+  （DECIMAL(n,p)→DECIMAL、TIMESTAMP WITH TIME ZONE→TIMESTAMPTZ）；
+  回归点：曾有检测器把 PG 的 DECIMAL 聚合写进 evidence 导致
+  `json.dumps` 崩（`Object of type Decimal is not JSON serializable`）
+  ——store.save_scan 已加 `default=_json_default`（Decimal→float）兜底
+- **集成测试**：tests/test_postgres_integration.py 全部 integration
+  marker，fixture 先 `_pg_available` 探测（LOAD postgres + 只读 ATTACH），
+  失败即 skip（本地无 PG/离线保持全绿）；**写路径实测可用**——
+  DuckDB postgres 扩展支持无 READ_ONLY 的 ATTACH 建表/DML，fixture 就
+  用它在测试内灌数据（不引入 psycopg，CI 同路径）；CI test job 有
+  postgres:16-alpine service + `TEST_POSTGRES_DSN` env
+- **坑位备忘**：
+  - 单元测试用 FakeExecutor 惰性替换 `handle._executor`（构造不连库，
+    连库只发生在 `_ensure_view`）；`_RedactingExecutor` 只捕
+    `duckdb.Error`，UnsafeSqlError 等连接器族异常原样透传（404/400 语义不变）
+  - `DATASENTRY_PG_DSN` 等 connection_ref 环境变量缺失要报
+    DataSourceNotFoundError（可操作提示），不要裸 KeyError
+  - 指纹查询的 `chr(31)`（US 分隔符）防 md5 拼接歧义；`chr(0)` 标记
+    NULL；行序无关靠 `string_agg(rh, '' ORDER BY rh)`
+  - `_ensure_view` 里区分三类失败提示：扩展加载失败/连接失败/表不存在
+    （前两者 ConnectorError 带 hint，后者 DataSourceNotFoundError）
+  - `LOAD postgres` 首次需联网装扩展；`requires_path` 是 ClassVar，
+    PG 子类置 False，配置文件源子类默认 True

@@ -4,6 +4,29 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.6.0] - 2026-08-12
+
+V4 多数据源：PostgreSQL 数据源连接器。
+
+### 新增（Step 55，PostgreSQL 数据源连接器，ADR-055）
+
+- **Step 55**：PostgreSQL —— `scan postgresql://user:pass@host/db --table <t>`
+  直达远程库表：经 DuckDB postgres 扩展只读 ATTACH（不引入 psycopg），
+  复用全部检测器/评分/报告/门禁/修复/漂移能力；表名必填、schema 可选；
+  MCP `scan_file` 同步支持
+- **凭据红线**：DSN 只走 CLI 参数/内存态/环境变量引用
+  （`DATASENTRY_PG_DSN` 等 connection_ref），不落库、不进日志/evidence/
+  报告；DuckDB 错误净化（DSN/密码打码）后转 ConnectorError——CLI
+  连接失败退出码 4，错误面无凭据
+- **变更感知演进**：PG 无文件字节 → 内容指纹（单查询全表哈希，
+  行序无关、NULL 不折叠）——同内容调度 skipped、表内容变更重扫，
+  `last_successful_hash` 同字段落库零 schema 变更
+- **类型归一化**：DECIMAL(n,p)→DECIMAL、TIMESTAMP WITH TIME ZONE→
+  TIMESTAMPTZ 等物理类型规范化，检测器/画像精确匹配；evidence
+  序列化兜底 Decimal→float
+- **集成测试与 CI**：真实 PG 集成用例（integration marker，无 PG
+  自动跳过）；CI test job 加 postgres:16-alpine service
+
 ## [0.5.1] - 2026-08-11
 
 ### 修复
