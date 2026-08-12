@@ -6,7 +6,22 @@
 
 ## [0.7.0] - 2026-08-12
 
-V5 多数据源：MySQL 数据源连接器 + 云存储文件源连接器 + 分层增量指纹。
+V5 多数据源：MySQL 数据源连接器 + 云存储文件源连接器 + 分层增量指纹 +
+凭据管理完善。
+
+### 新增（Step 59，凭据管理完善，ADR-059）
+
+- **Step 59**：`datasentry secrets set|get|list|rm` 凭据管理——
+  `~/.config/datasentry/secrets.env`（DATASENTRY_CONFIG_HOME /
+  XDG_CONFIG_HOME 可覆盖），父目录 700/文件 600 强制；`set` getpass
+  无回显 + 二次确认（不进 shell history）；`list` 仅显示键名（审计
+  语义）
+- **统一解析链**：CLI 参数 > 进程环境变量 > secrets.env 自动加载——
+  connection_ref 语义扩展（env 找不到回落 secrets 文件，仍无 →
+  DataSourceNotFoundError），PG/MySQL 连接器收敛到 `lookup_secret`，
+  SDK/CLI/MCP/调度器共享
+- **凭据红线不变**：DSN 仍只走内存态/配置面，不落库/日志/报告；
+  错误净化（URL/KV 双形态）持续
 
 ### 新增（Step 58，远程源分层增量指纹，ADR-058）
 

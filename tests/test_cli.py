@@ -689,3 +689,77 @@ class TestCli:
         assert code == 0
         payload = json.loads(capsys.readouterr().out)
         assert payload["data"]["rotated"] == 1
+
+
+class TestSecretsCli:
+    """Step 59 凭据管理（ADR-059）：secrets set/get/list/rm 子命令族。"""
+
+    @pytest.fixture(autouse=True)
+    def _isolate_secrets(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DATASENTRY_CONFIG_HOME", str(tmp_path / "cfg"))
+
+    @staticmethod
+    def _fake_getpass(
+        monkeypatch: pytest.MonkeyPatch, value: str = "postgresql://u:p@h/db"
+    ) -> None:
+        import getpass
+
+        monkeypatch.setattr(getpass, "getpass", lambda prompt="": value)
+
+    def test_set_get_list_rm_roundtrip(self, capsys, monkeypatch) -> None:
+        self._fake_getpass(monkeypatch)
+        assert main(["secrets", "set", "DATASENTRY_PG_DSN"]) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["key"] == "DATASENTRY_PG_DSN"
+        assert "secrets.env" in out["path"]
+
+        assert main(["--format", "json", "secrets", "list"]) == 0
+        listed = json.loads(capsys.readouterr().out)
+        assert listed["data"]["keys"] == ["DATASENTRY_PG_DSN"]
+
+        assert main(["--format", "json", "secrets", "get", "DATASENTRY_PG_DSN"]) == 0
+        got = json.loads(capsys.readouterr().out)
+        assert got["data"]["value"] == "postgresql://u:p@h/db"
+
+        assert main(["secrets", "rm", "DATASENTRY_PG_DSN"]) == 0
+        capsys.readouterr()
+        assert main(["--format", "json", "secrets", "list"]) == 0
+        assert json.loads(capsys.readouterr().out)["data"]["keys"] == []
+
+    def test_list_never_shows_values(self, capsys, monkeypatch) -> None:
+        self._fake_getpass(monkeypatch, value="super-secret-value")
+        assert main(["secrets", "set", "DATASENTRY_PG_DSN"]) == 0
+        assert main(["--format", "json", "secrets", "list"]) == 0
+        out = capsys.readouterr().out
+        assert "super-secret-value" not in out
+
+    def test_set_confirmation_mismatch_exit_2(self, capsys, monkeypatch) -> None:
+        import getpass
+
+        calls = iter(["first", "second"])
+        monkeypatch.setattr(getpass, "getpass", lambda prompt="": next(calls))
+        assert main(["secrets", "set", "DATASENTRY_PG_DSN"]) == 2
+        assert json.loads(capsys.readouterr().out)["error"].startswith("confirmation mismatch")
+        assert main(["--format", "json", "secrets", "list"]) == 0
+        assert json.loads(capsys.readouterr().out)["data"]["keys"] == []
+
+    def test_invalid_key_rejected(self, capsys) -> None:
+        assert main(["secrets", "set", "lowercase"]) == 2
+        out = capsys.readouterr().out
+        assert "invalid key" in out
+
+    def test_get_missing_exit_2(self, capsys) -> None:
+        assert main(["--format", "json", "secrets", "get", "DATASENTRY_PG_DSN"]) == 2
+        assert json.loads(capsys.readouterr().out)["data"]["error"].startswith("secret not set")
+
+    def test_rm_missing_exit_2(self, capsys) -> None:
+        assert main(["--format", "json", "secrets", "rm", "DATASENTRY_PG_DSN"]) == 2
+
+    def test_file_perms_after_set(self, capsys, monkeypatch) -> None:
+        self._fake_getpass(monkeypatch)
+        assert main(["secrets", "set", "DATASENTRY_PG_DSN"]) == 0
+        listed = json.loads(capsys.readouterr().out)
+        from pathlib import Path as P
+
+        mode = P(listed["path"]).stat().st_mode & 0o777
+        assert mode == 0o600

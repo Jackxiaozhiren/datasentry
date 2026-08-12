@@ -76,6 +76,96 @@ def _cmd_init(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+_SECRET_KEY_HELP = "secret key (must match env-var shape [A-Z][A-Z0-9_]*, e.g. DATASENTRY_PG_DSN)"
+
+
+def _secret_key_or_error(name: str, fmt: str) -> str | None:
+    import re
+
+    from datasentry_core.secrets import _KEY_PATTERN
+
+    if not re.fullmatch(_KEY_PATTERN.pattern, name):
+        _emit(_envelope("secrets", {"error": f"invalid key {name!r}; {_SECRET_KEY_HELP}"}), fmt)
+        return None
+    return name
+
+
+def _cmd_secrets_set(args: argparse.Namespace) -> int:
+    """secrets set：交互式无回显写入/更新凭据（chmod 600 强制，不进 shell history）。"""
+    fmt = args.format
+    name = _secret_key_or_error(args.key, fmt)
+    if name is None:
+        return EXIT_CONFIG
+    import getpass
+
+    from datasentry_core.secrets import SecretsFileError, set_secret
+
+    value = getpass.getpass(f"secret value for {name} (no echo): ")
+    confirm = getpass.getpass(f"confirm {name}: ")
+    if value != confirm:
+        _emit(_envelope("secrets", {"error": "confirmation mismatch, secret not saved"}), fmt)
+        return EXIT_CONFIG
+    try:
+        path = set_secret(name, value)
+    except SecretsFileError as exc:
+        _emit(_envelope("secrets", {"error": str(exc)}), fmt)
+        return EXIT_CONFIG
+    _emit(_envelope("secrets set", {"key": name, "path": str(path)}), fmt)
+    return EXIT_OK
+
+
+def _cmd_secrets_get(args: argparse.Namespace) -> int:
+    """secrets get：读出单条凭据（stdout 原值，供脚本/环境注入）。"""
+    fmt = args.format
+    name = _secret_key_or_error(args.key, fmt)
+    if name is None:
+        return EXIT_CONFIG
+    from datasentry_core.secrets import lookup_secret
+
+    value = lookup_secret(name)
+    if value is None:
+        _emit(
+            _envelope("secrets", {"error": f"secret not set (env or secrets.env): {name}"}),
+            fmt,
+        )
+        return EXIT_CONFIG
+    _emit(_envelope("secrets get", {"key": name, "value": value}), fmt)
+    return EXIT_OK
+
+
+def _cmd_secrets_list(args: argparse.Namespace) -> int:
+    """secrets list：仅显示键名与文件路径，绝不显示值（审计语义）。"""
+    from datasentry_core.secrets import load_secrets, secrets_path
+
+    path = secrets_path()
+    secrets = load_secrets(path)
+    _emit(
+        _envelope("secrets list", {"path": str(path), "keys": sorted(secrets)}),
+        args.format,
+    )
+    return EXIT_OK
+
+
+def _cmd_secrets_rm(args: argparse.Namespace) -> int:
+    """secrets rm：删除单条凭据。"""
+    fmt = args.format
+    name = _secret_key_or_error(args.key, fmt)
+    if name is None:
+        return EXIT_CONFIG
+    from datasentry_core.secrets import SecretsFileError, remove_secret
+
+    try:
+        removed = remove_secret(name)
+    except SecretsFileError as exc:
+        _emit(_envelope("secrets", {"error": str(exc)}), fmt)
+        return EXIT_CONFIG
+    if not removed:
+        _emit(_envelope("secrets", {"error": f"secret not set: {name}"}), fmt)
+        return EXIT_CONFIG
+    _emit(_envelope("secrets rm", {"key": name}), fmt)
+    return EXIT_OK
+
+
 def _cmd_scan(args: argparse.Namespace) -> int:
     """22.1 scan：导入 → 扫描 → 评分 → 落库；数据源缺失退出码 4；门禁失败退出码 1。
 
@@ -1006,6 +1096,24 @@ def build_parser() -> argparse.ArgumentParser:
     plugin_sub = p_plugin.add_subparsers(dest="plugin_cmd", required=True)
     p_plugin_list = plugin_sub.add_parser("list", help="list plugins & load failures")
     p_plugin_list.set_defaults(func=_cmd_plugin_list)
+
+    p_secrets = sub.add_parser(
+        "secrets",
+        help="credential store (~/.config/datasentry/secrets.env, chmod 600; "
+        "Step 59, ADR-059): connection_ref 统一解析链 env > secrets.env",
+    )
+    secrets_sub = p_secrets.add_subparsers(dest="secrets_cmd", required=True)
+    p_set = secrets_sub.add_parser("set", help="set/update a secret (interactive, no echo)")
+    p_set.add_argument("key", type=str, help=_SECRET_KEY_HELP)
+    p_set.set_defaults(func=_cmd_secrets_set)
+    p_get = secrets_sub.add_parser("get", help="read a secret value")
+    p_get.add_argument("key", type=str, help=_SECRET_KEY_HELP)
+    p_get.set_defaults(func=_cmd_secrets_get)
+    p_list = secrets_sub.add_parser("list", help="list secret key names only (audit)")
+    p_list.set_defaults(func=_cmd_secrets_list)
+    p_rm = secrets_sub.add_parser("rm", help="remove a secret")
+    p_rm.add_argument("key", type=str, help=_SECRET_KEY_HELP)
+    p_rm.set_defaults(func=_cmd_secrets_rm)
 
     from datasentry.mcp_server import build_mcp_parser, run_mcp
 

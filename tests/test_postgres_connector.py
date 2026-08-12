@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
+from pathlib import Path
 from typing import Any
 
 import duckdb
@@ -203,6 +204,46 @@ class TestDsnResolution:
 
     def test_connection_ref_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("DATASENTRY_PG_DSN", "postgresql://env:ref@h:1/db")
+        handle = PostgresDataHandle(
+            DataSourceSpec(
+                source_type=DataSourceType.POSTGRESQL,
+                table_name="t",
+                connection_ref="DATASENTRY_PG_DSN",
+                options={"dataset_id": "x"},
+            )
+        )
+        assert handle._dsn == "postgresql://env:ref@h:1/db"
+        handle.close()
+
+    def test_connection_ref_secrets_file_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Step 59：connection_ref 统一解析链——env 缺位时回落 secrets.env。"""
+        monkeypatch.delenv("DATASENTRY_PG_DSN", raising=False)
+        monkeypatch.setenv("DATASENTRY_CONFIG_HOME", str(tmp_path / "cfg"))
+        from datasentry_core.secrets import set_secret
+
+        set_secret("DATASENTRY_PG_DSN", "postgresql://file:ref@h:1/db")
+        handle = PostgresDataHandle(
+            DataSourceSpec(
+                source_type=DataSourceType.POSTGRESQL,
+                table_name="t",
+                connection_ref="DATASENTRY_PG_DSN",
+                options={"dataset_id": "x"},
+            )
+        )
+        assert handle._dsn == "postgresql://file:ref@h:1/db"
+        handle.close()
+
+    def test_connection_ref_secrets_file_env_wins(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Step 59：env > secrets.env（统一解析链优先级）。"""
+        monkeypatch.setenv("DATASENTRY_PG_DSN", "postgresql://env:ref@h:1/db")
+        monkeypatch.setenv("DATASENTRY_CONFIG_HOME", str(tmp_path / "cfg"))
+        from datasentry_core.secrets import set_secret
+
+        set_secret("DATASENTRY_PG_DSN", "postgresql://file:ref@h:1/db")
         handle = PostgresDataHandle(
             DataSourceSpec(
                 source_type=DataSourceType.POSTGRESQL,

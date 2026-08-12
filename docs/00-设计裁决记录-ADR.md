@@ -1607,3 +1607,40 @@
   统计层变更零内容调用/遗留迁移/复合落库/句柄关闭）+ PG/MySQL
   集成各 2 例（统计层语义 + 调度四阶段）；benchmarks/
   bench_layered_fingerprint.py；DEVELOPMENT.md 章节。
+
+## ADR-059：凭据管理完善（统一解析链 + secrets 子命令）（V5 收尾，Step 59）
+
+- **状态**：已确认（Step 59, V5）
+- **背景**：多数据源（PG/MySQL/云文件）时代，DSN 分散在 CLI 参数与
+  shell/env，无统一加载与审计；connection_ref 仅解析进程环境变量，
+  缺一处可查看/管理的凭据存放面。
+- **决策**：
+  1. **凭据文件**：`~/.config/datasentry/secrets.env`（
+     `DATASENTRY_CONFIG_HOME` > `XDG_CONFIG_HOME` > `~/.config`），
+     行格式 `KEY=VALUE`（空行/`#` 注释忽略），键名必须匹配环境变量
+     命名 `[A-Z][A-Z0-9_]*`；父目录 700、文件 600 双向强制——读取
+     侧权限过松直接拒绝（可操作报错），写入侧整体重写自动修正
+     权限。
+  2. **统一解析链**：CLI 参数（scan path DSN，最高优先）>
+     connection_ref 解析（进程环境变量 > secrets.env 回落），均无
+     → DataSourceNotFoundError。连接器 `_resolve_dsn` 统一走
+     `lookup_secret`（postgres/mysql 两处收敛），SDK/CLI/MCP/调度器
+     天然共享（全部经 spec 落内存态）。
+  3. **`datasentry secrets` 子命令族**：`set`（getpass 交互无回显
+     输入 + 二次确认，不进 shell history）/ `get`（stdout 原值）/
+     `list`（**仅键名**，审计语义）/ `rm`；统一 envelope 输出与
+     EXIT_CONFIG 语义（无效键/未设置/确认不一致/权限错误均退出码 2）。
+  4. **审计**：`list` 只显示键名；全仓库凭据 grep（URL 密码、KV
+     passwd、AWS key 形态）确认零真实凭据——测试/文档仅占位符
+     （user:pass / testpass / minioadmin 本地默认）。MinIO 本地
+     默认值不进远程凭据语义（变配时替换）。
+- **理由**：零新依赖（getpass/标准库）；secrets.env 是 shell env
+  的超集语义（可直接 source，也可被 datasentry secrets 管理），
+  迁移平滑；600 强制避免「配置即泄漏」的常见失误；连接器层收敛
+  保证新增数据源自动获得同一解析链。
+- **影响**：新增 packages/core/.../secrets.py（secrets_path/
+  load_secrets/lookup_secret/set_secret/remove_secret/write_secrets/
+  SecretsFileError）；postgres.py/mysql.py `_resolve_dsn` 换
+  lookup_secret（错误文案同步）；cli.py 新增 secrets 子命令族；
+  测试 19 例单测 + 连接器回落 4 例 + CLI 7 例；README 凭据一节；
+  DEVELOPMENT.md 章节。

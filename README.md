@@ -63,6 +63,15 @@ datasentry scan analytics.duckdb --table payments
 datasentry scan analytics.db --table payments     # SQLite (Step 54)
 ```
 
+Scan a MySQL table (V5, Step 56 — via DuckDB mysql extension, no client
+library; `--table` required) or a cloud file (V5, Step 57 — CSV/Parquet/
+JSONL over s3:// gs:// az://, credentials from process env / `secrets`):
+
+```bash
+datasentry scan "mysql://user:pass@localhost:3306/analytics" --table payments
+datasentry scan s3://bucket/orders.csv            # AWS credentials from env
+```
+
 Scan a PostgreSQL table (V4, Step 55 — DSN is passed on the command line /
 via `DATASENTRY_PG_DSN` and is never persisted or logged):
 
@@ -71,6 +80,25 @@ datasentry scan "postgresql://user:pass@localhost:5432/analytics" --table paymen
 DATASENTRY_PG_DSN="postgresql://user:pass@localhost:5432/analytics" \
   datasentry scan postgresql:// --table payments --schema public
 ```
+
+### Credentials (V5, Step 59 — ADR-059)
+
+`connection_ref` resolution chain: process environment variable, then
+`~/.config/datasentry/secrets.env` (overridable via `DATASENTRY_CONFIG_HOME`
+or `XDG_CONFIG_HOME`), then `DataSourceNotFoundError`:
+
+```bash
+datasentry secrets set DATASENTRY_PG_DSN      # interactive, no echo, chmod 600
+datasentry secrets list                       # key names only (audit-safe)
+datasentry secrets get DATASENTRY_PG_DSN
+datasentry secrets rm DATASENTRY_PG_DSN
+```
+
+The secrets file uses `KEY=VALUE` lines (env-var-shaped keys, source-able);
+the directory is `0700` and the file `0600` — both enforced on read and
+write. Credentials never enter scan runs, logs, reports, or webhook
+payloads; all connector errors are redacted (`postgresql://***` /
+`passwd=***`).
 
 Contract-driven scanning (optional):
 

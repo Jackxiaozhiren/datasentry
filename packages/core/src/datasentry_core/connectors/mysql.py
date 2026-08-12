@@ -21,7 +21,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 from collections.abc import Iterator
 from typing import ClassVar
@@ -37,6 +36,7 @@ from datasentry_core.connectors.spec import DataSourceSpec, DataSourceType
 from datasentry_core.engine import DuckDBExecutor
 from datasentry_core.engine.base import SqlParams
 from datasentry_core.models.fingerprint import DatasetFingerprint
+from datasentry_core.secrets import lookup_secret
 
 #: ATTACH 目标别名（连接器内部名，避开用户数据命名冲突概率极低）
 _DB_ALIAS = "my"
@@ -82,18 +82,19 @@ def redact_credentials(text: str, dsn: str) -> str:
 
 
 def _resolve_dsn(spec: DataSourceSpec) -> str:
-    """DSN 解析：spec.options["dsn"]（内存态）或 connection_ref 环境变量引用。"""
+    """DSN 解析（Step 59，ADR-059）：options["dsn"] 内存态 > connection_ref
+    统一解析链（进程环境变量 > secrets.env，`lookup_secret`）。"""
     dsn = spec.options.get("dsn")
     if isinstance(dsn, str) and dsn:
         return dsn
     if spec.connection_ref:
         ref = spec.connection_ref
-        dsn = os.environ.get(ref)
+        dsn = lookup_secret(ref)
         if dsn:
             return dsn
-        raise DataSourceNotFoundError(f"mysql connection_ref env not set: {ref}")
+        raise DataSourceNotFoundError(f"mysql connection_ref not set (env or secrets.env): {ref}")
     raise DataSourceNotFoundError(
-        "mysql connector requires a dsn (options['dsn'] or connection_ref env)"
+        "mysql connector requires a dsn (options['dsn'] or connection_ref env/secrets)"
     )
 
 

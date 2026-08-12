@@ -728,3 +728,25 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
   统计同+内容异重扫、遗留迁移、复合落库）；PG/MySQL 集成（原地
   UPDATE 统计层不敏感+内容层兜底、INSERT 统计层移动、真实调度
   四阶段 skip/UPDATE 重扫/INSERT 重扫）
+
+## 凭据管理（Step 59，ADR-059，V5）
+
+- **凭据文件**：`~/.config/datasentry/secrets.env`（
+  `DATASENTRY_CONFIG_HOME` > `XDG_CONFIG_HOME` > `~/.config` 取值，
+  测试经 DATASENTRY_CONFIG_HOME 隔离）；行格式 `KEY=VALUE`，键名
+  必须匹配 `[A-Z][A-Z0-9_]*`（环境变量命名形态，可直接 source）；
+  父目录 700/文件 600 强制——读取权限过松拒绝（给 chmod 提示），
+  set/rm 整体重写自动修正
+- **统一解析链**：CLI 参数（scan path DSN）> connection_ref：
+  进程环境变量 > secrets.env（`lookup_secret`），均无 →
+  DataSourceNotFoundError；postgres/mysql 的 `_resolve_dsn` 已收敛，
+  新增数据源同样走 lookup_secret 即可获得链路
+- **CLI**：`datasentry secrets set|get|list|rm`——set 用 getpass
+  无回显 + 二次确认（不进 shell history），list 仅显示键名与路径
+  （审计语义，值永不出现在输出）
+- **坑位备忘**：
+  - `secrets set` 读取侧绕过权限检查（本操作随即重写 600），否则
+    过松权限文件永远无法自愈
+  - 凭据 grep 审计命令（发布前跑）：
+    `grep -rInE --exclude-dir={.git,__pycache__,.venv} "postgresql://[^:]+:[^@/ ]+@|mysql://[^:]+:[^@/ ]+@|passwd=[^ ]+" src packages tests examples docs`
+    预期仅剩净化正则与占位符（user:pass / testpass / minioadmin）
