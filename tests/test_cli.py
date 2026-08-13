@@ -459,6 +459,52 @@ class TestCli:
         code = main(["--project", str(workspace), "score", "nope"])
         assert code == 2
 
+    def test_trend_list_empty(self, workspace: Path, capsys) -> None:
+        code = main(["--project", str(workspace), "--format", "json", "trend", "list"])
+        assert code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["command"] == "trend list"
+        assert payload["data"] == {"trends": [], "count": 0}
+
+    def test_trend_list_groups_datasets_with_summary(
+        self, sample_csv: Path, workspace: Path, capsys
+    ) -> None:
+        main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
+        capsys.readouterr()
+        main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
+        capsys.readouterr()
+        code = main(["--project", str(workspace), "--format", "json", "trend", "list"])
+        assert code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["data"]["count"] == 1
+        trend = payload["data"]["trends"][0]
+        assert trend["dataset_id"] == "orders"
+        assert len(trend["points"]) == 2
+        assert trend["points"][0]["run_id"] != trend["points"][1]["run_id"]
+        assert all(
+            "score" in p and "issues_total" in p and "finished_at" in p for p in trend["points"]
+        )
+        assert "delta" in trend and "direction" in trend and "latest_score" in trend
+
+    def test_trend_list_dataset_filter(self, sample_csv: Path, workspace: Path, capsys) -> None:
+        main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
+        capsys.readouterr()
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "trend",
+                "list",
+                "--dataset-id",
+                "nope",
+            ]
+        )
+        assert code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["data"] == {"trends": [], "count": 0}
+
     def test_scan_gate_fail_exit_1(self, sample_csv: Path, workspace: Path, capsys) -> None:
         code = main(
             [

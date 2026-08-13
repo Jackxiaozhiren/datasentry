@@ -630,6 +630,31 @@ def _cmd_drift_latest(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_trend_list(args: argparse.Namespace) -> int:
+    """V7（ADR-065）trend list：跨扫描趋势数据面（同 build_trends）。"""
+    from datasentry.trends import build_trends
+
+    client = DataSentry(args.project)
+    trends = build_trends(client.list_scan_runs())
+    if args.dataset_id is not None:
+        trends = [t for t in trends if t.dataset_id == args.dataset_id]
+    data = {
+        "trends": [
+            {
+                **t.to_report_dict(),
+                "delta": t.delta,
+                "direction": t.direction,
+                "latest_score": t.latest_score,
+                "latest_issues": t.latest_issues,
+            }
+            for t in trends
+        ],
+        "count": len(trends),
+    }
+    _emit(_envelope("trend list", data), args.format)
+    return EXIT_OK
+
+
 def _cmd_llm_status(args: argparse.Namespace) -> int:
     """LLM 提供方状态与配置来源（13.11 审计查询入口）+ PII 加密保险库状态。"""
     from datasentry.llm_providers import load_llm_config
@@ -1018,6 +1043,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_score = sub.add_parser("score", help="quality score (27 章)")
     p_score.add_argument("run_id", type=str)
     p_score.set_defaults(func=_cmd_score)
+
+    p_trend = sub.add_parser("trend", help="cross-scan quality trends (V7, ADR-065)")
+    trend_sub = p_trend.add_subparsers(dest="trend_cmd", required=True)
+    p_trend_list = trend_sub.add_parser("list", help="list per-dataset trends")
+    p_trend_list.add_argument("--dataset-id", type=str, default=None, help="restrict to dataset")
+    p_trend_list.set_defaults(func=_cmd_trend_list)
 
     p_contract = sub.add_parser("contract", help="data contracts (V1 engine; MVP validates only)")
     contract_sub = p_contract.add_subparsers(dest="contract_cmd", required=True)
