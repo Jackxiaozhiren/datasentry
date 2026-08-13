@@ -1714,3 +1714,32 @@
   导出路径接入 sidecar；测试新增 20 例（core 18 + app 2）；CHANGELOG
   [Unreleased]；DEVELOPMENT.md（reporting 段/V2 方向/存储布局）；
   docs/V6_DEV_PROMPT.md（列画像从候选转落地）。
+
+## ADR-062：修复建议预览内联展开（V6，Step 62）
+
+- **状态**：已确认（Step 62, V6）
+- **背景**：修复建议目前只在两条路径出现——server 模式的修复工作台
+  （`POST /ui/.../issues/{id}` 需服务在线 + LLM）与 CLI `repair propose`
+  （需数据源句柄）。离线 HTML 报告里 Issue 详情行只有描述/置信度/受影响
+  行，无任何「这问题怎么修」的线索；V6 候选清单点名「修复建议预览内联
+  展开（无 server 场景）」。
+- **方案**：确定性建议 + 显示侧纯函数，零存储：
+  1. **纯函数 `suggest_repairs(issue)`**（core `reporting/suggestions.py`）：
+     按 issue 的 `detector_ids` 反查显示侧映射表（镜像 `repair/engine.py`
+     的 `_PROPOSAL_MAP` / `_CLIP_ISSUE_TYPES` 与 `repair_ai.py` 的
+     `_CONTEXT_OPS` 知识），输出 ≤3 条去重建议：operation / label /
+     rationale / risk（风险分级同 repair_ai：SET_NULL、CLIP_VALUE、
+     REPLACE_MISSING_TOKEN 为 medium，其余 low）/ targetColumns。
+  2. **下发**：`issue_rows()` 每行挂 `suggestions` 键，随 `issue-data`
+     JSON 内嵌（`json_script` 转义）；JS 详情行追加「Repair suggestions:」
+     块（textContent 写文本，风格与既有详情行一致）；未知检测器 →
+     「No built-in repair suggestion」诚实降级。
+  3. **PII 纪律**：label/rationale 经 `mask_text_pii` 掩码（与 title/
+     description 同轨）；targetColumns 为模式名不掩码。
+- **一致性防护**：不导入 repair 引擎私有常量（显示层自包含），但测试
+  用参数化断言覆盖引擎全部可修检测器必有建议——引擎映射扩展漏配时
+  测试红（漂移防护）。
+- **影响**：core 新增 `reporting/suggestions.py`；interactive.py
+  （`issue_rows` 挂 suggestions、`detailRow` 渲染建议块）；测试新增
+  18 例；CHANGELOG [Unreleased]；DEVELOPMENT.md；docs/V6_DEV_PROMPT.md
+  （修复建议预览从候选转落地）。

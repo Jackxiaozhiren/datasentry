@@ -221,7 +221,7 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 
 ## 报告引擎与质量门禁（Step 12，26/22 章 + ADR-014）
 
-- `reporting/`：`build_report()` = 26.2 规范 JSON 报告（报告头 + scan + detector_runs + issues + quality），SDK `export_report()` 与 CLI `report export --as json` 无差异消费；Markdown 表格化摘要（26.1）、HTML 自包含单文件（内嵌 CSS，8 节：Executive Summary/Quality Score 含 27.3 维度条形图与扣分悬停/Issue Breakdown/Critical Findings 等，Drift/规则/修复历史归 V1）；Step 49/60（ADR-049/060）交互增强：Issue Breakdown 交互表（severity/维度筛选、排序、搜索、详情折叠、分页）+ expand/collapse all + 评分条钻取（`data-dim-link` 联动维度筛选）/ 发现定位（`.finding-link[data-issue-id]` 聚焦高亮）/ 粘性导航 scrollspy + 回到顶部 —— 原生 JS 内联零依赖、事件委托、`#issues._render` 联动契约、无 JS 降级锚点跳转；Step 61（ADR-061）Column Profiles 交互节：`render_html(..., profiles=...)` 消费扫描期画像 sidecar（`<workspace>/.datasentry/profiles/<run_id>.json`，`project_profiles_dir`）——可排序画像表（null/unique/distinct/mean/median/std）、迷你空值条、语义/PII 徽标、top 类别 chips（显示层 `mask_text_pii` 掩码；sidecar 保留完整证据链，不进 26 章 JSON 契约）
+- `reporting/`：`build_report()` = 26.2 规范 JSON 报告（报告头 + scan + detector_runs + issues + quality），SDK `export_report()` 与 CLI `report export --as json` 无差异消费；Markdown 表格化摘要（26.1）、HTML 自包含单文件（内嵌 CSS，8 节：Executive Summary/Quality Score 含 27.3 维度条形图与扣分悬停/Issue Breakdown/Critical Findings 等，Drift/规则/修复历史归 V1）；Step 49/60（ADR-049/060）交互增强：Issue Breakdown 交互表（severity/维度筛选、排序、搜索、详情折叠、分页）+ expand/collapse all + 评分条钻取（`data-dim-link` 联动维度筛选）/ 发现定位（`.finding-link[data-issue-id]` 聚焦高亮）/ 粘性导航 scrollspy + 回到顶部 —— 原生 JS 内联零依赖、事件委托、`#issues._render` 联动契约、无 JS 降级锚点跳转；Step 61（ADR-061）Column Profiles 交互节：`render_html(..., profiles=...)` 消费扫描期画像 sidecar（`<workspace>/.datasentry/profiles/<run_id>.json`，`project_profiles_dir`）——可排序画像表（null/unique/distinct/mean/median/std）、迷你空值条、语义/PII 徽标、top 类别 chips（显示层 `mask_text_pii` 掩码；sidecar 保留完整证据链，不进 26 章 JSON 契约）；Step 62（ADR-062）修复建议预览：`reporting/suggestions.py` 纯函数 `suggest_repairs`（detector_ids → ≤3 条确定性建议，镜像修复引擎映射，rationale 掩码）随 issue 行 JSON 下发，详情行内联「Repair suggestions」块（无 server/LLM 依赖，未知检测器诚实降级）
 - 报告默认落点 `<workspace>/.datasentry/reports/<run_id>.<ext>`（ADR-010），`--output` 可覆盖；HTML 全字段转义（XSS 安全）
 - `scoring/gate.py`：`QualityGateEvaluator`（22 章场景 C）——`fail_on` 精确严重度集合、`maximum_failed_rows_ratio`（受影响行比例上限，max over issues）、`maximum_issues` 按严重度上限；`require_repair_validation` MVP 不支持时显式失败
 - CLI：`scan --fail-on SEV [--max-failure-ratio R]` 激活门禁，失败退出码 1；`report export RUN_ID --as json|markdown|html|junit|sarif [--output PATH]`（Step 36：JUnit 每 issue 一个 failure testcase、SARIF 2.1.0 rules+results，CI 集成格式）
@@ -464,6 +464,11 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
   `client.load_profile` 读取）；画像数据流：`scan_file` → `Profiler`
   → `.datasentry/profiles/<run_id>.json`（app 私有，不进 JSON 契约）
   → HTML 节（显示层 `mask_text_pii` 掩码 top 类别）
+- **Step 62（ADR-062）修复建议预览**：`reporting/suggestions.py` 纯函数
+  `suggest_repairs`（按 detector_ids 反查显示侧映射，镜像 repair/engine
+  知识，≤3 条去重，label/rationale 掩码）；`issue_rows` 行内挂
+  `suggestions` 键，JS 详情行内联渲染；零存储零依赖，测试参数化防引擎
+  映射漂移
 - **注入防护**：数据经 `json_script` 内嵌（dumps 后 replace `<`/`>`/`&`
   为 `\uXXXX`，`</script>` 无法提前闭合）；JS 全部用 `textContent` 建
   单元格、severity 样式类走白名单映射；服务端数据已过 `mask_text_pii`

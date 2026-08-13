@@ -21,6 +21,7 @@ from html import escape
 from typing import Any
 
 from datasentry_core.reporting import Report, mask_text_pii
+from datasentry_core.reporting.suggestions import suggest_repairs
 
 SEVERITY_ORDER = ("critical", "high", "medium", "low", "info")
 _SORT_KEYS = frozenset({"priority", "severity", "affected", "title"})
@@ -94,6 +95,16 @@ _INTERACTIVE_JS = """(function () {
     lines.push("Affected rows: " + r.affected + " (" + (r.affectedRatio * 100).toFixed(2) + "%)");
     var ids = r.affectedRowIds || [];
     if (ids.length) { lines.push("Row ids (first 10): " + ids.slice(0, 10).join(", ")); }
+    var sugs = r.suggestions || [];
+    if (sugs.length) {
+      lines.push("Repair suggestions:");
+      sugs.forEach(function (s) {
+        lines.push("  - [" + s.operation + "] " + s.label +
+                   " (risk: " + (s.risk || "n/a") + "): " + s.rationale);
+      });
+    } else {
+      lines.push("No built-in repair suggestion for this issue type.");
+    }
     td.textContent = lines.join("\\n");
     td.style.whiteSpace = "pre-line";
     tr.appendChild(td);
@@ -220,6 +231,7 @@ def issue_rows(report: Report) -> list[dict[str, Any]]:
                 "columns": list(issue["columns"]),
                 "detectors": list(issue["detector_ids"]),
                 "dimensions": [str(d) for d in (issue.get("quality_dimensions") or [])],
+                "suggestions": suggest_repairs(issue),
             }
         )
     return rows

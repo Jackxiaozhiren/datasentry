@@ -38,6 +38,19 @@ V6 报告交互增强进行中（目标版本待定，阶段收尾统一升版�
 - 实现延续 Step 49/60 风格：纯函数参照（`profile_rows`/`sort_profiles`）、
   原生 JS 内联、`json_script` 转义、`textContent` 写单元格
 
+### 新增（Step 62，修复建议预览内联展开，ADR-062）
+
+- **确定性建议**：`reporting/suggestions.py` 纯函数 `suggest_repairs` 按
+  detector_ids 反查显示侧映射（镜像修复引擎知识），≤3 条去重建议
+  （operation / label / rationale / risk / targetColumns）
+- **内联展示**：Issue 详情行新增「Repair suggestions」块（无 server /
+  LLM / 数据源句柄依赖），未知检测器显示「No built-in repair
+  suggestion」诚实降级
+- **零存储**：建议由报告数据纯函数推导，不落库、不进 26 章 JSON 契约
+- **PII 纪律**：label / rationale 显示前经 `mask_text_pii` 掩码
+- **漂移防护**：测试参数化覆盖修复引擎全部可修检测器必有建议
+- 测试新增 18 例；覆盖率 94.97%
+
 ## [0.7.0] - 2026-08-12
 
 V5 多数据源：MySQL 数据源连接器 + 云存储文件源连接器 + 分层增量指纹 +

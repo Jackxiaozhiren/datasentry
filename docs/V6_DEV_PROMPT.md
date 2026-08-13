@@ -16,11 +16,14 @@
 3. **表格工具**：Issue Breakdown 一键全部展开/收起详情。
 4. **列画像节**（Step 61，ADR-061）：扫描期画像 sidecar + HTML 交互节
    （可排序画像表、迷你空值条、语义/PII 徽标、top 类别 chips）。
+5. **修复建议预览**（Step 62，ADR-062）：Issue 详情行内联确定性修复
+   建议（无 server/LLM 依赖，rationale 掩码，未知检测器诚实降级）。
 
 ### 落地状态
 
 - Step 60（ADR-060）：联动 + 导航 + 表格工具 已完成（commit 2522f76）
-- Step 61（ADR-061）：Column Profiles 画像节 已完成
+- Step 61（ADR-061）：Column Profiles 画像节 已完成（commit c08a9a0）
+- Step 62（ADR-062）：修复建议预览内联展开 已完成
 
 ### 约束（勘察结论 + 既有约定）
 
@@ -52,5 +55,4 @@
 ## 三、候选后续（未排期，供下一阶段决策）
 
 - 报告间对比（同数据集多 run 评分/问题数并列）
-- 修复建议预览内联展开（无 server 场景）
 - 深色模式（`prefers-color-scheme`）
