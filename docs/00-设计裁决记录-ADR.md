@@ -1806,3 +1806,53 @@
   条件 9 例、CLI 二次扫描集成 1 例 + helper 扩展）；CHANGELOG
   [Unreleased]；DEVELOPMENT.md；docs/V6_DEV_PROMPT.md（报告间对比从
   候选转落地，候选清空 → 阶段收尾升版 v0.8.0）。
+
+## ADR-065：CLI trend list（V7，Step 65）
+
+- **状态**：已确认（Step 65, V7）
+- **背景**：趋势数据层 `trends.build_trends`（Step 45）只有 HTML 报告迷你
+  SVG 与 `/ui/trends` 页两个消费方；CLI 无任何趋势命令，脚本无法取趋势。
+- **方案**：`datasentry trend list [--dataset-id DS]` → envelope 数据面：
+  `data.trends` = `DatasetTrend.to_report_dict()` 每项追加 delta /
+  direction / latest_score / latest_issues 摘要；`count`；空数据退出 0
+  合法空列表（与 issues list 同语义，非错误）；`--dataset-id` 过滤单
+  数据集（过滤后为空同样退出 0）。
+- **边界**：零引擎改动——直接消费 `build_trends` + `client.list_scan_runs()`
+  （CLI 已 import 同款模式）；text/json 输出沿用 `_emit`/`_envelope`。
+- **影响**：cli.py（`p_trend` 子命令 + `_cmd_trend_list`）；测试新增 3 例
+  （空/分组摘要/过滤）；ADR-065 + CHANGELOG [Unreleased] + V7_DEV_PROMPT。
+
+## ADR-066：REST 趋势与画像数据端点（V7，Step 66）
+
+- **状态**：已确认（Step 66, V7）
+- **背景**：`/ui/trends` 只出 HTML；画像 sidecar（Step 61）无任何 REST
+  数据面（`client.load_profile` 仅 core 渲染消费）；外部集成方无法取
+  趋势/画像 JSON。
+- **方案**：
+  1. `GET /trends[?dataset_id=]`：JSON `{"trends": [...], "count": n}`，
+     结构与 CLI trend list 完全一致（同源 `build_trends`，摘要字段同
+     ADR-065）。
+  2. `GET /scans/{run_id}/profiles`：画像 sidecar 原样 JSON
+     （`load_profile`），缺失/未知 run → 404 `column profiles
+     unavailable`（与 `/scans/{run_id}/score` 404 语义同款）。
+- **边界**：无 response_model（与 `/scans/{run_id}/report` 的
+  `dict[str, object]` 先例一致）；不变更 sidecar 格式。
+- **影响**：api.py（2 端点）；测试新增 3 例（空/过滤/404 + 字段断言）；
+  ADR-066 + CHANGELOG [Unreleased] + V7_DEV_PROMPT。
+
+## ADR-067：UI 趋势页可视化增强（V7，Step 67）
+
+- **状态**：已确认（Step 67, V7）
+- **背景**：`/ui/trends` 页只有条状图（Step 45），无折线趋势；run 表无
+  变化方向视图。
+- **方案**：
+  1. **Sparkline**：每数据集标题下内联 SVG 折线（`_sparkline` 纯函数：
+     min-max 归一化 polyline + 首尾端点 circle + aria-label 分数序列），
+     零依赖、零 JS；数据点不足 2 不渲染。
+  2. **run 行 Δ badge**：Score 后新增 Δ 列——对前一 run 差值，正
+     `delta-up`（绿）、负 `delta-down`（红）、0/首行灰 `meta`（—）。
+- **边界**：CSS 新增 3 类（`.trend-spark`/`.delta-up`/`.delta-down`），
+  ui.py 独立于报告 CSS（Step 63 变量化不变量不适用此文件）。
+- **影响**：ui.py（`_sparkline`/`_delta_cell`/render_trends 表头 Δ 列）；
+  测试新增 1 例（sparkline/polyline/Δ 列/首行 —）；ADR-067 +
+  CHANGELOG [Unreleased] + DEVELOPMENT.md + V7_DEV_PROMPT 落地状态。

@@ -6,7 +6,26 @@
 
 ## [Unreleased]
 
-（V6 已发布 v0.8.0；下一阶段开发计划书发布后继续）
+V7 趋势/画像数据面补全进行中（目标版本待定，阶段收尾统一升版）。
+
+### 新增（Step 65，CLI trend list，ADR-065）
+
+- **`datasentry trend list [--dataset-id DS]`**：跨扫描趋势数据面——
+  `data.trends` 每项含 `DatasetTrend.to_report_dict()` 全字段 +
+  delta/direction/latest_score/latest_issues 摘要；`count`；空数据
+  退出 0（合法空列表）；`--dataset-id` 过滤单数据集
+
+### 新增（Step 66，REST 趋势/画像端点，ADR-066）
+
+- **`GET /trends[?dataset_id=]`**：趋势 JSON 数据面（与 CLI trend list
+  同源同构）
+- **`GET /scans/{run_id}/profiles`**：画像 sidecar 原样 JSON，缺失 404
+
+### 新增（Step 67，UI 趋势页可视化增强，ADR-067）
+
+- **Sparkline**：每数据集内联 SVG 折线（min-max 归一化 polyline +
+  首尾端点 + aria-label），零依赖零 JS
+- **run 行 Δ 列**：对前一 run 差值，正绿负红、0/首行灰 —
 
 ## [0.8.0] - 2026-08-13
 
