@@ -87,6 +87,41 @@ class TestApiApp:
         assert resp.status_code == 200
         assert all(Severity(i["severity"]) is not None for i in resp.json())
 
+    def test_trends_json_endpoint(self, tmp_path: Path) -> None:
+        csv = _sample_csv(tmp_path)
+        client = TestClient(create_app(project=tmp_path))
+        empty = client.get("/trends")
+        assert empty.status_code == 200
+        assert empty.json() == {"trends": [], "count": 0}
+        client.post("/scans", json={"path": str(csv)})
+        client.post("/scans", json={"path": str(csv)})
+        body = client.get("/trends").json()
+        assert body["count"] == 1
+        trend = body["trends"][0]
+        assert trend["dataset_id"] == "customers"
+        assert len(trend["points"]) == 2
+        assert {"score", "issues_total", "finished_at"} <= set(trend["points"][0])
+        assert "delta" in trend and "direction" in trend
+
+    def test_trends_dataset_filter(self, tmp_path: Path) -> None:
+        csv = _sample_csv(tmp_path)
+        client = TestClient(create_app(project=tmp_path))
+        client.post("/scans", json={"path": str(csv)})
+        body = client.get("/trends", params={"dataset_id": "nope"}).json()
+        assert body == {"trends": [], "count": 0}
+
+    def test_scan_profiles_endpoint(self, tmp_path: Path) -> None:
+        csv = _sample_csv(tmp_path)
+        client = TestClient(create_app(project=tmp_path))
+        assert client.get("/scans/nope/profiles").status_code == 404
+        resp = client.post("/scans", json={"path": str(csv)})
+        run_id = resp.json()["run"]["id"]
+        body = client.get(f"/scans/{run_id}/profiles")
+        assert body.status_code == 200
+        data = body.json()
+        assert "column_profiles" in data
+        assert isinstance(data["column_profiles"], dict)
+
     def test_interactive_report_html_endpoint(self, tmp_path: Path) -> None:
         csv = _sample_csv(tmp_path)
         client = TestClient(create_app(project=tmp_path))

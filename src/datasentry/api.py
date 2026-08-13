@@ -274,6 +274,34 @@ def create_app(project: str | Path | None = None) -> FastAPI:
             )
         )
 
+    @app.get("/trends", tags=["trends"])
+    def list_trends(dataset_id: str | None = Query(default=None)) -> dict[str, object]:
+        """跨扫描趋势 JSON 数据面（Step 65 同源，ADR-066）：build_trends 摘要。"""
+        from datasentry.trends import build_trends
+
+        trends = build_trends(client.list_scan_runs())
+        if dataset_id is not None:
+            trends = [t for t in trends if t.dataset_id == dataset_id]
+        data = [
+            {
+                **t.to_report_dict(),
+                "delta": t.delta,
+                "direction": t.direction,
+                "latest_score": t.latest_score,
+                "latest_issues": t.latest_issues,
+            }
+            for t in trends
+        ]
+        return {"trends": data, "count": len(data)}
+
+    @app.get("/scans/{run_id}/profiles", tags=["scans"])
+    def get_scan_profiles(run_id: str) -> dict[str, object]:
+        """画像 sidecar JSON（Step 61 数据面，ADR-066）：缺失 404。"""
+        profiles = client.load_profile(run_id)
+        if profiles is None:
+            raise HTTPException(status_code=404, detail="column profiles unavailable")
+        return profiles
+
     @app.get("/issues", response_model=list[Issue], tags=["issues"])
     def list_all_issues(
         severity_at_least: str | None = Query(default=None),
