@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from html import escape
 
-from datasentry.trends import DatasetTrend
+from datasentry.trends import DatasetTrend, ScanPoint
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
 from datasentry_core.models.scan import ScanRun
@@ -70,6 +70,11 @@ footer { margin-top: 3rem; font-size: .8rem; color: #57606a; border-top: 1px sol
              overflow: hidden; }
 .trend-bar span { display: block; background: #0969da; color: #fff; font-size: .7rem;
                   line-height: 1.1rem; padding-left: .3rem; white-space: nowrap; }
+.trend-spark { display: block; margin: .4rem 0; }
+.trend-spark polyline { fill: none; stroke: #0969da; stroke-width: 1.5; }
+.trend-spark circle { fill: #0969da; }
+.delta-up { color: #1a7f37; font-weight: 600; }
+.delta-down { color: #cf222e; font-weight: 600; }
 """
 
 
@@ -142,6 +147,44 @@ def _direction_badge(direction: str) -> str:
     return '<span class="badge">flat</span>'
 
 
+def _sparkline(scores: list[float]) -> str:
+    """内联 SVG 折线（零依赖，Step 67，ADR-067）：分数序列 → 迷你趋势线。"""
+    if len(scores) < 2:
+        return ""
+    width, height = 220, 40
+    low, high = min(scores), max(scores)
+    span = max(high - low, 1.0)
+    pad = 4
+    points = []
+    step = (width - 2 * pad) / max(len(scores) - 1, 1)
+    for i, score in enumerate(scores):
+        x = pad + i * step
+        y = height - pad - ((score - low) / span) * (height - 2 * pad)
+        points.append(f"{x:.1f},{y:.1f}")
+    polyline = f'<polyline points="{" ".join(points)}"/>'
+    circles = "".join(
+        f'<circle cx="{points[i].split(",")[0]}" cy="{points[i].split(",")[1]}" r="2"/>'
+        for i in (0, len(points) - 1)
+    )
+    return (
+        f'<svg class="trend-spark" width="{width}" height="{height}" '
+        f'aria-label="score trend: {" → ".join(f"{s:.1f}" for s in scores)}">'
+        f"{polyline}{circles}</svg>"
+    )
+
+
+def _delta_cell(point: ScanPoint, previous: ScanPoint | None) -> str:
+    """run 行 Δ badge（对前一 run，首行 —）：Step 67，ADR-067。"""
+    if previous is None:
+        return '<td class="meta">—</td>'
+    delta = point.score - previous.score
+    if delta > 0:
+        return f'<td class="delta-up">+{delta:.1f}</td>'
+    if delta < 0:
+        return f'<td class="delta-down">{delta:.1f}</td>'
+    return '<td class="meta">0.0</td>'
+
+
 def render_trends(trends: list[DatasetTrend]) -> str:
     """跨扫描趋势页（Step 45，18.2 V1）。trends 来自 trends.build_trends。"""
     if not trends:
@@ -152,14 +195,16 @@ def render_trends(trends: list[DatasetTrend]) -> str:
         points = trend.points
         rows = []
         bars = []
-        for point in points:
+        for index, point in enumerate(points):
             width = max(0.0, min(100.0, point.score))
+            prior = points[index - 1] if index else None
             rows.append(
                 "<tr>"
                 f'<td><a href="/ui/scans/{escape(point.run_id)}">{escape(point.run_id)}</a></td>'
                 f"<td>{point.finished_at:%Y-%m-%d %H:%M}</td>"
                 f'<td class="priority">{point.score:.1f}</td>'
-                f"<td>{point.issues_total}</td>"
+                + _delta_cell(point, prior)
+                + f"<td>{point.issues_total}</td>"
                 "</tr>"
             )
             bars.append(
@@ -174,9 +219,12 @@ def render_trends(trends: list[DatasetTrend]) -> str:
             f'<span class="meta">delta {trend.delta:+.1f}</span></h2>'
             f'<p class="meta">{len(points)} completed scans · latest score '
             f"{latest:.1f} · latest issues {trend.latest_issues}</p>"
-            '<div class="trend-bars">' + "".join(bars) + "</div>"
+            + _sparkline([p.score for p in points])
+            + '<div class="trend-bars">'
+            + "".join(bars)
+            + "</div>"
             "<table><tr><th>Run ID</th><th>Finished</th><th>Score</th>"
-            "<th>Issues</th></tr>" + "".join(rows) + "</table>"
+            "<th>Δ</th><th>Issues</th></tr>" + "".join(rows) + "</table>"
             "</section>"
         )
     return _page("Trends", "\n".join(sections))

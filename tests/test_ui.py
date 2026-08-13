@@ -163,6 +163,17 @@ class TestTrendsPage:
         assert "delta" in resp.text
         assert "completed scans" in resp.text
 
+    def test_trends_sparkline_and_delta_cells(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        _scan(client, tmp_path)
+        _scan(client, tmp_path)
+        resp = client.get("/ui/trends")
+        assert 'class="trend-spark"' in resp.text
+        assert "<polyline" in resp.text
+        assert "<th>Δ</th>" in resp.text
+        assert 'class="meta">—</td>' in resp.text  # 首行无前一 run
+        assert "delta-up" in resp.text or "delta-down" in resp.text or "0.0" in resp.text
+
     def test_home_nav_links_to_trends(self, tmp_path: Path) -> None:
         client = TestClient(create_app(project=tmp_path))
         resp = client.get("/ui/")
