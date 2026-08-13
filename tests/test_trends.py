@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from datasentry.trends import build_trends
+from datasentry.trends import build_comparison, build_trends
 from datasentry_core import __version__
 from datasentry_core.models.enums import Severity
 from datasentry_core.models.quality import QualityScore
@@ -21,8 +21,13 @@ def _scan(
     finished: datetime | None = None,
     status: str = "completed",
     issues: int = 0,
+    dims: dict[str, float] | None = None,
+    sev_issues: dict[str, int] | None = None,
 ) -> ScanRun:
     issues_count = {Severity.HIGH: issues} if issues else {}
+    if sev_issues is not None:
+        issues_count = {Severity(s): n for s, n in sev_issues.items()}
+    quality = QualityScore(overall=score, dimensions=dims or {}) if score is not None else None
     return ScanRun(
         id=run_id,
         dataset_id=dataset_id,
@@ -36,7 +41,7 @@ def _scan(
             "column_count": 1,
             "column_signature": [("c", "BIGINT")],
         },
-        quality_score=QualityScore(overall=score) if score is not None else None,
+        quality_score=quality,
         issues_count=issues_count,
         started_at=finished or datetime(2026, 1, 1, tzinfo=UTC),
         finished_at=finished or datetime(2026, 1, 1, tzinfo=UTC),
@@ -103,3 +108,76 @@ class TestBuildTrends:
         scan = _scan("r1", "a", 50.0, finished=datetime(2026, 1, 1), issues=3)
         trends = build_trends([scan])
         assert trends[0].points[0].issues_total == 3
+
+
+class TestBuildComparison:
+    def test_less_than_two_runs_returns_none(self) -> None:
+        t0 = datetime(2026, 1, 1)
+        assert build_comparison([], "a", "r1") is None
+        assert build_comparison([_scan("r1", "a", 90.0, finished=t0)], "a", "r1") is None
+
+    def test_requires_two_scored_completed_runs(self) -> None:
+        t0 = datetime(2026, 1, 1)
+        scans = [
+            _scan("r1", "a", 90.0, finished=t0),
+            _scan("r2", "a", None, finished=t0),
+            _scan("r3", "a", 80.0, finished=t0, status="failed"),
+            _scan("r4", "b", 70.0, finished=t0),
+        ]
+        assert build_comparison(scans, "a", "r1") is None
+
+    def test_filters_dataset_and_orders_oldest_first_with_delta(self) -> None:
+        t0 = datetime(2026, 1, 1)
+        scans = [
+            _scan("r_new", "a", 92.4, finished=t0 + timedelta(days=2)),
+            _scan("r_old", "a", 85.0, finished=t0),
+            _scan("r_other", "b", 10.0, finished=t0 + timedelta(days=9)),
+            _scan("r_mid", "a", 87.8, finished=t0 + timedelta(days=1)),
+        ]
+        rows = build_comparison(scans, "a", "r_new")
+        assert rows is not None
+        assert [r["run_id"] for r in rows] == ["r_old", "r_mid", "r_new"]
+        assert rows[0]["delta"] is None
+        assert rows[1]["delta"] == pytest.approx(2.8)
+        assert rows[2]["delta"] == pytest.approx(4.6)
+        assert rows[2]["current"] is True
+        assert all(r["current"] is False for r in rows[:2])
+        assert rows[2]["overall"] == 92.4
+
+    def test_carries_dimensions_and_severity_counts(self) -> None:
+        t0 = datetime(2026, 1, 1)
+        scans = [
+            _scan(
+                "r1",
+                "a",
+                80.0,
+                finished=t0,
+                dims={"completeness": 90.25, "accuracy": None},
+                sev_issues={"critical": 1, "high": 2},
+            ),
+            _scan(
+                "r2",
+                "a",
+                90.0,
+                finished=t0 + timedelta(days=1),
+                dims={"completeness": 95.0, "consistency": 100.0},
+                sev_issues={"high": 0},
+            ),
+        ]
+        rows = build_comparison(scans, "a", "r2")
+        assert rows is not None
+        assert rows[0]["dimensions"] == {"completeness": 90.2, "accuracy": None}
+        assert rows[1]["dimensions"] == {"completeness": 95.0, "consistency": 100.0}
+        assert rows[0]["issues"] == {"critical": 1, "high": 2}
+        assert rows[1]["issues"] == {"high": 0}
+
+    def test_unrelated_dataset_runs_excluded(self) -> None:
+        t0 = datetime(2026, 1, 1)
+        scans = [
+            _scan("r1", "a", 90.0, finished=t0),
+            _scan("r2", "a", 91.0, finished=t0 + timedelta(days=1)),
+            _scan("rx", "b", 99.0, finished=t0 + timedelta(days=1)),
+        ]
+        rows = build_comparison(scans, "a", "r2")
+        assert rows is not None
+        assert [r["run_id"] for r in rows] == ["r1", "r2"]

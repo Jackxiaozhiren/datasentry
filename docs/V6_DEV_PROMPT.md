@@ -20,6 +20,9 @@
    建议（无 server/LLM 依赖，rationale 掩码，未知检测器诚实降级）。
 6. **深色模式**（Step 63，ADR-063）：CSS 自定义属性变量化 + 
    `prefers-color-scheme` 暗色覆盖 + `@media print` 强制亮色。
+7. **报告间对比**（Step 64，ADR-064）：同数据集多 run 评分/维度/问题数
+   并列静态表（当前 run 高亮、Δ 按符号上色、维度列与严重度列动态、
+   数据不足 2 run 不渲染）。
 
 ### 落地状态
 
@@ -27,6 +30,9 @@
 - Step 61（ADR-061）：Column Profiles 画像节 已完成（commit c08a9a0）
 - Step 62（ADR-062）：修复建议预览内联展开 已完成（commit d91c6c4）
 - Step 63（ADR-063）：深色模式 已完成
+- Step 64（ADR-064）：报告间对比 已完成（候选清空 → 阶段收尾统一升版
+  v0.8.0：pyproject.toml + 双 `__init__.__version__` + CHANGELOG Unreleased
+  收口 + tag + GitHub release，参照 v0.7.0=895c754 惯例）
 
 ### 约束（勘察结论 + 既有约定）
 
@@ -57,4 +63,5 @@
 
 ## 三、候选后续（未排期，供下一阶段决策）
 
-- 报告间对比（同数据集多 run 评分/问题数并列）
+- （已清空：本阶段目标全部落地，见一、目标 1~7；下一阶段候选
+  待 V7 计划书另行排期）

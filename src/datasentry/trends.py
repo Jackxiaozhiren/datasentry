@@ -102,3 +102,47 @@ def build_trends(scans: list[ScanRun]) -> list[DatasetTrend]:
         trends.append(DatasetTrend(dataset_id=dataset_id, points=ordered))
     trends.sort(key=lambda t: t.points[-1].finished_at, reverse=True)
     return trends
+
+
+def build_comparison(
+    scans: list[ScanRun],
+    dataset_id: str,
+    current_run_id: str,
+) -> list[dict[str, Any]] | None:
+    """同数据集多 run 对比数据（Step 64，V6，ADR-064）。
+
+    仅 completed + 有质量分的扫描，按完成时间升序（最老在前，当前 run
+    最后）；每行携带 overall（1 位小数）、维度分、按严重度 issue 计数、
+    delta（对前一 run 的 overall 差值，首行 None）、current 标记。
+    不足 2 个 run（无法对比）返回 None → 报告不渲染对比节。
+    """
+    rows: list[dict[str, Any]] = []
+    for scan in scans:
+        if scan.dataset_id != dataset_id:
+            continue
+        if scan.status != "completed" or scan.quality_score is None:
+            continue
+        finished = scan.finished_at or scan.started_at
+        rows.append(
+            {
+                "run_id": scan.id,
+                "finished_at": finished.isoformat(),
+                "overall": round(scan.quality_score.overall, 1),
+                "delta": None,
+                "dimensions": {
+                    dim: round(v, 1) if v is not None else None
+                    for dim, v in scan.quality_score.dimensions.items()
+                },
+                "issues": {sev.value: int(n) for sev, n in scan.issues_count.items()},
+                "current": scan.id == current_run_id,
+            }
+        )
+    if len(rows) < 2:
+        return None
+    rows.sort(key=lambda r: r["finished_at"])
+    previous: float | None = None
+    for row in rows:
+        if previous is not None:
+            row["delta"] = round(row["overall"] - previous, 1)
+        previous = row["overall"]
+    return rows

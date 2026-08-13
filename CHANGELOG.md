@@ -51,6 +51,20 @@ V6 报告交互增强进行中（目标版本待定，阶段收尾统一升版�
 - **漂移防护**：测试参数化覆盖修复引擎全部可修检测器必有建议
 - 测试新增 18 例；覆盖率 94.97%
 
+### 新增（Step 64，报告间对比，ADR-064）
+
+- **Run Comparison 节**：同数据集历史 run 评分并列静态表——Run（当前
+  run 徽标 + 整行高亮）/ Scanned at / Overall（Δ 对前一 run 按符号
+  上色：升 var(--ok)、降 var(--critical)）/ 维度分列（跨 run 并集、
+  首字母大写表头）/ 严重度列（仅出现过的严重度，critical→info 序）
+- **构建器**：`trends.build_comparison(scans, dataset_id, current_run_id)`
+  纯函数——过滤同数据集 + completed + 有质量分的 run、时间升序、Δ
+  首行 None、不足 2 run 返回 None（节 + 导航锚点静默不渲染）
+- **接线**：CLI `report export --as html` 与 API
+  `/scans/{run_id}/report.html` 自动注入对比（dataset_id 取自 26 章
+  报告头，杜绝跨数据集串行）；26 章 JSON 契约/元数据库/画像 sidecar
+  零改动
+
 ### 新增（Step 63，深色模式，ADR-063）
 
 - **CSS 变量化**：报告全量色板改为 15 个语义 CSS 自定义属性（:root 亮色

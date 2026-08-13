@@ -21,6 +21,10 @@ Step 63（V6，ADR-063）：深色模式 —— 全 CSS 色板改为 CSS 自定�
 `@media print` 强制亮色防打印白字），趋势 SVG 改走 `.trend-line` /
 `.trend-dot` 类（`var(--accent)`）；评分条六色段为双主题可读的中间饱和
 色，保持硬编码。
+Step 64（V6，ADR-064）：报告间对比 —— `render_html(comparison=...)`
+消费 `build_comparison`（app 侧纯函数，同数据集历史 run 评分/维度/issue
+计数/Δ），静态对比表（当前 run 高亮、Δ 按符号上色、按严重度列动态、
+维度列动态）；节可选，对比数据不足 2 run 时不渲染、导航不含其锚点。
 """
 
 from __future__ import annotations
@@ -161,6 +165,10 @@ tr.issue-row.highlight td { background: var(--highlight); }
         margin-right: .3rem; }
 .badge-semantic { color: var(--semantic); font-weight: 600; }
 .badge-pii { color: var(--critical); font-weight: 600; }
+.cmp-up { color: var(--ok); font-weight: 600; }
+.cmp-down { color: var(--critical); font-weight: 600; }
+tr.cmp-current td { background: var(--surface); font-weight: 600; }
+.cmp-badge { color: var(--accent); font-size: .75rem; margin-left: .4rem; }
 """
 
 _BAR_COLORS = [
@@ -266,13 +274,16 @@ def render_html(
     page_size: int = 25,
     server_base_url: str | None = None,
     profiles: dict[str, Any] | None = None,
+    comparison: list[dict[str, Any]] | None = None,
 ) -> str:
     """26 章报告 → 自包含 HTML（内嵌 CSS/JS，无外部资源）。
 
     trends：trends.py `DatasetTrend.to_report_dict()` 列表 → Quality Trends 迷你 SVG；
     server_base_url：非空时 issue 行附带修复工作台链接（server 模式联动 REST API）；
     profiles：`DatasetProfile.model_dump(mode="json")` → Column Profiles 交互节
-    （Step 61，ADR-061），缺省不渲染该节。
+    （Step 61，ADR-061），缺省不渲染该节；
+    comparison：`build_comparison` 输出（Step 64，ADR-064）→ 同数据集历史
+    run 对比表，缺省/空不渲染。
     """
     parts = [
         "<!DOCTYPE html>",
@@ -280,7 +291,10 @@ def render_html(
         "<title>DataSentry Data Quality Report</title>",
         f"<style>{_CSS}</style></head><body>",
         "<h1>DataSentry Data Quality Report</h1>",
-        _report_nav(include_profiles=bool(profiles and profiles.get("column_profiles"))),
+        _report_nav(
+            include_profiles=bool(profiles and profiles.get("column_profiles")),
+            include_comparison=bool(comparison),
+        ),
         _meta(report),
         _executive_summary(report),
         _quality_score(report),
@@ -296,6 +310,8 @@ def render_html(
     )
     if profiles and profiles.get("column_profiles"):
         parts.append(_column_profiles(profiles))
+    if comparison:
+        parts.append(_comparison_section(comparison))
     parts.extend(
         [
             _methodology(report),
@@ -313,13 +329,69 @@ def _column_profiles(profiles: dict[str, Any]) -> str:
     return '<h2 id="column_profiles">Column Profiles</h2>' + render_column_profiles(profiles)
 
 
-def _report_nav(*, include_profiles: bool = False) -> str:
+def _report_nav(*, include_profiles: bool = False, include_comparison: bool = False) -> str:
     """粘性章节导航（scrollspy 追踪当前章节，脚本见 _LINKAGE_JS）。"""
     sections = list(HTML_SECTIONS)
     if include_profiles:
         sections.append("column_profiles")
+    if include_comparison:
+        sections.append("comparison")
     links = "".join(f'<a href="#{s}">{escape(s.replace("_", " "))}</a>' for s in sections)
     return f'<nav class="report-nav" id="report-nav" aria-label="report sections">{links}</nav>'
+
+
+_SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"]
+
+
+def _comparison_section(comparison: list[dict[str, Any]]) -> str:
+    """同数据集多 run 对比表（Step 64）：静态表，当前 run 高亮，Δ 按符号上色。"""
+    dimensions: list[str] = []
+    for row in comparison:
+        for dim in row.get("dimensions") or {}:
+            if dim not in dimensions:
+                dimensions.append(dim)
+    present = {sev for row in comparison for sev in (row.get("issues") or {})}
+    severities = [s for s in _SEVERITY_ORDER if s in present]
+    heads = ["Run", "Scanned at", "Overall"]
+    heads += [f"{d.capitalize()} score" for d in dimensions]
+    heads += [f"{s.capitalize()} issues" for s in severities]
+    header = "".join(f"<th>{escape(h)}</th>" for h in heads)
+    body = []
+    for row in comparison:
+        cells = []
+        if row.get("current"):
+            badge = '<span class="cmp-badge">current</span>'
+            run_cell = f"<code>{escape(row['run_id'])}</code>{badge}"
+        else:
+            run_cell = f"<code>{escape(row['run_id'])}</code>"
+        cells.append(f"<td>{run_cell}</td>")
+        cells.append(f"<td>{escape(str(row.get('finished_at') or ''))}</td>")
+        overall = row.get("overall")
+        overall_text = f"{overall:.1f}" if overall is not None else "n/a"
+        delta = row.get("delta")
+        if delta is None:
+            cells.append(f"<td>{escape(overall_text)}</td>")
+        elif delta > 0:
+            cells.append(
+                f'<td>{escape(overall_text)} <span class="cmp-up">(+{delta:.1f})</span></td>'
+            )
+        elif delta < 0:
+            cells.append(
+                f'<td>{escape(overall_text)} <span class="cmp-down">({delta:.1f})</span></td>'
+            )
+        else:
+            cells.append(f'<td>{escape(overall_text)} <span class="meta">(0.0)</span></td>')
+        for dim in dimensions:
+            value = (row.get("dimensions") or {}).get(dim)
+            cells.append(f"<td>{escape(f'{value:.1f}' if value is not None else '-')}</td>")
+        for sev in severities:
+            cells.append(f"<td>{int((row.get('issues') or {}).get(sev, 0))}</td>")
+        cls = ' class="cmp-current"' if row.get("current") else ""
+        body.append(f"<tr{cls}>{''.join(cells)}</tr>")
+    return (
+        '<h2 id="comparison">Run Comparison</h2>'
+        f"<table><thead><tr>{header}</tr></thead><tbody>{''.join(body)}</tbody></table>"
+    )
 
 
 def _back_to_top() -> str:

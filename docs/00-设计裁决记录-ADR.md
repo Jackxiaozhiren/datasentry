@@ -1769,3 +1769,40 @@
   （render_trend_svg 类化）；测试新增 8 例（变量定义/不变量/暗色覆盖/
   打印块/SVG 类化/单 style 标签）；CHANGELOG [Unreleased]；
   DEVELOPMENT.md；docs/V6_DEV_PROMPT.md（深色模式从候选转落地）。
+
+## ADR-064：报告间对比（V6，Step 64）
+
+- **状态**：已确认（Step 64, V6）
+- **背景**：V6 候选清单最后一个「报告间对比（同数据集多 run 评分/问题数
+  并列）」；趋势迷你 SVG 只给单数据集单 run 的时间线，缺少历史 run 的
+  评分构成（维度/严重度计数）并列视角。
+- **方案**：
+  1. **app 侧纯函数**：`trends.py` 新增 `build_comparison(scans,
+     dataset_id, current_run_id)` → `list[dict] | None`：过滤同数据集 +
+     completed + 有质量分的 run，按完成时间升序（最老在前，当前 run
+     最后）；每行携带 run_id / finished_at（ISO）/ overall（1 位小数）/
+     delta（对前一 run 的 overall 差值，首行 None）/ dimensions（1 位
+     小数或 None）/ issues（按严重度计数）/ current 标记；不足 2 个
+     run（无法对比）返回 None。
+  2. **core 渲染**：`render_html(..., comparison=...)` 消费 → 静态
+     `Run Comparison` 表（`_comparison_section`）：Run（当前 run
+     `cmp-badge` 徽标 + 整行 `cmp-current` 高亮）/ Scanned at / Overall
+     （Δ 按符号上色：`cmp-up`=var(--ok)、`cmp-down`=var(--critical)、
+     0.0 灰 meta）/ 维度分列（跨行并集，`Capitalize score` 表头）/
+     严重度列（仅出现过的严重度，critical→info 序）；全部单元格
+     escape；节可选——对比数据不足时整节 + 导航锚点不渲染
+     （`_report_nav(include_comparison=...)`，与 Step 61 profiles
+     同一条件节模式）。
+  3. **接线**：CLI `report export --as html` 与 API
+     `/scans/{run_id}/report.html` 用 `client.list_scan_runs()` +
+     `report["scan"]["dataset_id"]` + 当前 run_id 构建对比（dataset_id
+     取自 26 章报告头，杜绝跨数据集串行）。
+- **零改动约束**：仅 HTML 消费方变化，26 章 JSON 契约/元数据库/画像
+  sidecar 均不动；CSS 只加 `var()` 引用（不破坏 Step 63 hex 不变量）。
+- **影响**：trends.py（`build_comparison`）；html.py（comparison 参数 +
+  `_comparison_section` + `_report_nav(include_comparison=)` + 4 条新
+  类规则）；cli.py / api.py 接线；测试新增 19 例（build_comparison
+  过滤/排序/Δ/维度严重度透传 6 例、对比节渲染/转义/Δ 类/当前行/导航
+  条件 9 例、CLI 二次扫描集成 1 例 + helper 扩展）；CHANGELOG
+  [Unreleased]；DEVELOPMENT.md；docs/V6_DEV_PROMPT.md（报告间对比从
+  候选转落地，候选清空 → 阶段收尾升版 v0.8.0）。

@@ -32,7 +32,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -252,7 +252,7 @@ def create_app(project: str | Path | None = None) -> FastAPI:
     @app.get("/scans/{run_id}/report.html", response_class=HTMLResponse, tags=["ui"])
     def ui_report_html(run_id: str, request: Request) -> HTMLResponse:
         """交互式 HTML 报告（Step 49，V2-B）：server 模式注入工作台联动与趋势数据。"""
-        from datasentry.trends import build_trends
+        from datasentry.trends import build_comparison, build_trends
         from datasentry_core.reporting.html import render_html
 
         try:
@@ -262,8 +262,16 @@ def create_app(project: str | Path | None = None) -> FastAPI:
         trends = [t.to_report_dict() for t in build_trends(client.list_scan_runs())]
         base = str(request.base_url).rstrip("/")
         profiles = client.load_profile(run_id)
+        dataset_id = str(cast("dict[str, Any]", report)["scan"]["dataset_id"])
+        comparison = build_comparison(client.list_scan_runs(), dataset_id, run_id)
         return HTMLResponse(
-            render_html(report, trends=trends or None, server_base_url=base, profiles=profiles)
+            render_html(
+                report,
+                trends=trends or None,
+                server_base_url=base,
+                profiles=profiles,
+                comparison=comparison,
+            )
         )
 
     @app.get("/issues", response_model=list[Issue], tags=["issues"])

@@ -414,6 +414,32 @@ class TestCli:
         assert 'href="#column_profiles"' in html
         assert "DataSentry Data Quality Report" in html
 
+    def test_report_export_html_comparison(self, sample_csv: Path, workspace: Path, capsys) -> None:
+        main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
+        capsys.readouterr()
+        main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
+        scan_id = json.loads(capsys.readouterr().out)["data"]["scan_run_id"]
+        out = workspace / "out.html"
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "report",
+                "export",
+                scan_id,
+                "--as",
+                "html",
+                "--output",
+                str(out),
+            ]
+        )
+        assert code == 0
+        html = out.read_text(encoding="utf-8")
+        assert 'id="comparison"' in html  # Step 64：同数据集 2 run → 对比节
+        assert 'href="#comparison"' in html
+        assert 'class="cmp-current"' in html
+        assert "Run Comparison" in html
+
     def test_report_export_missing_exit_2(self, workspace: Path, capsys) -> None:
         code = main(["--project", str(workspace), "report", "export", "nope"])
         assert code == 2

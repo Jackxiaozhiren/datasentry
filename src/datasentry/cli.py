@@ -321,12 +321,19 @@ def _cmd_report_export(args: argparse.Namespace) -> int:
 
         content = json.dumps(render_sarif(report), ensure_ascii=False, indent=2)
     else:
-        from datasentry.trends import build_trends
+        from datasentry.trends import build_comparison, build_trends
         from datasentry_core.reporting.html import render_html
 
         trends = [t.to_report_dict() for t in build_trends(client.list_scan_runs())]
         profiles = client.load_profile(args.run_id)
-        content = render_html(report, trends=trends or None, profiles=profiles)
+        dataset_id = str(cast("dict[str, Any]", report)["scan"]["dataset_id"])
+        comparison = build_comparison(client.list_scan_runs(), dataset_id, args.run_id)
+        content = render_html(
+            report,
+            trends=trends or None,
+            profiles=profiles,
+            comparison=comparison,
+        )
     path = _report_output_path(client, args, args.as_format)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
