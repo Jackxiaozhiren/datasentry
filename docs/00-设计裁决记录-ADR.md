@@ -1676,3 +1676,41 @@
   expand/collapse、`#issues._render` 导出、`find_issue_by_id`）；测试新增
   10 例（纯函数 3 + 表标记 3 + 导航/联动 4）；CHANGELOG [Unreleased]；
   DEVELOPMENT.md reporting 段与 V2 方向标注；docs/V6_DEV_PROMPT.md。
+
+## ADR-061：Column Profiles 画像节（V6，Step 61）
+
+- **状态**：已确认（Step 61, V6）
+- **背景**：26 章报告清单包含 Column Profiles 节（每列画像），但 HTML 报告
+  从未渲染该节——`reporting/profiles.py` 不存在，`Profiler`（18.2 画像引擎）
+  仅在 LLM 修复/规则流（repair_ai/rules_ai）使用，扫描管线不产出画像。
+- **方案**：扫描期画像 + 显示侧 sidecar + HTML 交互节，三段式：
+  1. **扫描期画像**：`scan_file` 在落库后用 `Profiler`（单条 SQL 聚合下推，
+    全源可用，1e6 行预算 < 60s）计算 `DatasetProfile`；无列/聚合异常
+    静默跳过（画像为增值信息，扫描主链路不受影响）。
+  2. **sidecar 落盘**：`<workspace>/.datasentry/profiles/<run_id>.json`
+    （`project_profiles_dir`，ADR-010 布局扩展；`.datasentry/` 已在
+    .gitignore）。**不进元数据库、不进 26 章 JSON 报告契约**——报告 JSON
+    仍是 store 纯读现拼（`client.export_report`），审计面与 schema 版本
+    完全不动；sidecar 缺失/损坏时 HTML 静默降级（不渲染该节）。
+  3. **HTML 交互节**：`render_html(..., profiles=...)` 消费
+    `DatasetProfile.model_dump(mode="json")`，在 Dataset Overview 后插入
+    Column Profiles 节（可选，无画像不渲染、导航不含其锚点）；节内含
+    可排序画像表（null/unique/distinct/mean/median/std + name，默认 null
+    占比降序最差列置顶）、每列迷你空值条、语义类型/PII 徽标、top 类别
+    chips（前 3）。
+- **PII 纪律**：`Profiler` 输出 examples 刻意留空、top_categories 为原始值
+  （机器 sidecar 保留完整证据链）；显示层 `profile_rows` 对 chip 文本经
+  `mask_text_pii` 掩码（email/手机号/身份证/IP/URL → `[REDACTED]`），
+  双保险与 26 章 JSON 契约原则一致（机器契约不掩码、人类输出掩码）。
+- **交互实现**：沿用 ADR-049/060 模式——Python 纯函数（`profile_rows` /
+  `sort_profiles`）作 JS 语义参照（可测）；原生 JS 内联零依赖、数据经
+  `json_script` 转义（`</script>` 免疫）、`textContent` 写单元格、
+  可排序表头 `data-key` 复用既有 th[data-key] CSS（sorted-asc/desc）。
+- **影响**：core 新增 `reporting/column_profiles.py`（序列化/排序/渲染）；
+  html.py（`render_html` 新增可选参数 `profiles`、`_column_profiles`、
+  `_report_nav(include_profiles=...)`、CSS：bar-track/bar/chip/badge）；
+  storage/paths.py（`project_profiles_dir`）；client.py（`profiles_dir`、
+  `load_profile`、`_save_profile`、scan_file 挂钩）；cli.py 与 api.py
+  导出路径接入 sidecar；测试新增 20 例（core 18 + app 2）；CHANGELOG
+  [Unreleased]；DEVELOPMENT.md（reporting 段/V2 方向/存储布局）；
+  docs/V6_DEV_PROMPT.md（列画像从候选转落地）。

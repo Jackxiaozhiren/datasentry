@@ -325,7 +325,8 @@ def _cmd_report_export(args: argparse.Namespace) -> int:
         from datasentry_core.reporting.html import render_html
 
         trends = [t.to_report_dict() for t in build_trends(client.list_scan_runs())]
-        content = render_html(report, trends=trends or None)
+        profiles = client.load_profile(args.run_id)
+        content = render_html(report, trends=trends or None, profiles=profiles)
     path = _report_output_path(client, args, args.as_format)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")

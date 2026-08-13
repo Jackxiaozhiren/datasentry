@@ -12,11 +12,13 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from datasentry.repair_ai import AIRepairService
 from datasentry_core.connectors import (
+    DataHandle,
     DataSourceSpec,
     DataSourceType,
     default_registry,
@@ -97,6 +99,44 @@ class DataSentry:
         from datasentry_core.storage.paths import project_reports_dir
 
         return project_reports_dir(self._workspace)
+
+    @property
+    def profiles_dir(self) -> Path:
+        """画像 sidecar 目录：<workspace>/.datasentry/profiles（Step 61，ADR-061）。"""
+        from datasentry_core.storage.paths import project_profiles_dir
+
+        return project_profiles_dir(self._workspace)
+
+    def load_profile(self, scan_run_id: str) -> dict[str, Any] | None:
+        """按 run_id 读扫描期画像 sidecar（ADR-061）；缺失/损坏返回 None。
+
+        画像为显示侧增值数据：缺 sidecar 时 HTML 报告不渲染 Column Profiles
+        节，JSON 报告契约不受影响。
+        """
+        path = self.profiles_dir / f"{scan_run_id}.json"
+        try:
+            return cast(dict[str, Any] | None, json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            return None
+
+    def _save_profile(self, scan_run: ScanRun, handle: DataHandle) -> None:
+        """扫描期画像 sidecar：单条 SQL 聚合下推（Profiler），全源可用。
+
+        不落元数据库（26 章契约与审计面不动），仅供 HTML Column Profiles 节
+        消费；画像为增值信息，无列/聚合异常时静默跳过，扫描结果不受影响。
+        """
+        from datasentry_core.engine.profiler import Profiler
+
+        try:
+            profile = Profiler(handle, dataset_id=scan_run.dataset_id).profile()
+        except (ValueError, AssertionError):
+            return
+        path = self.profiles_dir / f"{scan_run.id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(profile.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     def _ensure_gitignore(self) -> None:
         """ADR-010：工作区打开即确保 .gitignore 含 .datasentry/ 条目（防元数据入库）。"""
@@ -196,6 +236,7 @@ class DataSentry:
             )
             scan_run, runs, issues = self._runner.run_scan(context, config)
             self._store.save_scan(scan_run, runs, issues)
+            self._save_profile(scan_run, handle)
             return scan_run, runs, issues
         finally:
             handle.close()

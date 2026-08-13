@@ -48,6 +48,28 @@ class TestClient:
             client.scan_file(workspace / "nope.csv")
         client.close()
 
+    def test_scan_writes_profile_sidecar(self, sample_csv: Path, workspace: Path) -> None:
+        """Step 61：扫描期画像落 <workspace>/.datasentry/profiles/<run_id>.json。"""
+        client = DataSentry(project=workspace)
+        scan, _, _ = client.scan_file(sample_csv)
+        path = client.profiles_dir / f"{scan.id}.json"
+        assert path.is_file()
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["row_count"] == 4
+        assert set(data["column_profiles"]) == {"id", "amount", "email"}
+        assert data["column_profiles"]["amount"]["mean"] is not None
+        top = data["column_profiles"]["email"]["top_categories"]
+        assert top is not None
+        assert ("a@x.co", 1) in [tuple(t) for t in top]
+        assert ("not-an-email", 1) in [tuple(t) for t in top]
+        assert client.load_profile(scan.id) == data
+        client.close()
+
+    def test_load_profile_missing_returns_none(self, workspace: Path) -> None:
+        client = DataSentry(project=workspace)
+        assert client.load_profile("scan_nope") is None
+        client.close()
+
     def test_scan_pg_dsn_without_table_raises(self, workspace: Path) -> None:
         """Step 55：postgresql:// DSN 缺 --table → 可操作错误（连接器 open 阶段，无网络）。"""
         client = DataSentry(project=workspace)
@@ -387,6 +409,9 @@ class TestCli:
         assert "score-bar" in html and "executive_summary" in html
         assert "<link" not in html and "<script src=" not in html  # 自包含单文件
         assert 'id="issue-table"' in html  # Step 49：交互式 Issue Breakdown
+        assert 'id="column_profiles"' in html  # Step 61：Column Profiles 节
+        assert 'id="profiles-data"' in html
+        assert 'href="#column_profiles"' in html
         assert "DataSentry Data Quality Report" in html
 
     def test_report_export_missing_exit_2(self, workspace: Path, capsys) -> None:

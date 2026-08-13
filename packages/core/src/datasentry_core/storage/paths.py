@@ -45,3 +45,12 @@ def project_reports_dir(workspace: Path) -> Path:
 def project_repairs_dir(workspace: Path) -> Path:
     """项目修复副本目录：<workspace>/.datasentry/repairs（15 章修复产物，ADR-020）。"""
     return project_data_dir(workspace) / "repairs"
+
+
+def project_profiles_dir(workspace: Path) -> Path:
+    """项目画像 sidecar 目录：<workspace>/.datasentry/profiles（Step 61，ADR-061）。
+
+    扫描期画像（DatasetProfile JSON）按 run_id 存放，供 HTML 报告 Column
+    Profiles 节消费；app 私有 sidecar，不进入 26 章 JSON 报告契约。
+    """
+    return project_data_dir(workspace) / "profiles"

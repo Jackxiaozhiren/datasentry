@@ -261,7 +261,10 @@ def create_app(project: str | Path | None = None) -> FastAPI:
             raise _handle(exc) from exc
         trends = [t.to_report_dict() for t in build_trends(client.list_scan_runs())]
         base = str(request.base_url).rstrip("/")
-        return HTMLResponse(render_html(report, trends=trends or None, server_base_url=base))
+        profiles = client.load_profile(run_id)
+        return HTMLResponse(
+            render_html(report, trends=trends or None, server_base_url=base, profiles=profiles)
+        )
 
     @app.get("/issues", response_model=list[Issue], tags=["issues"])
     def list_all_issues(

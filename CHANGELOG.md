@@ -23,6 +23,21 @@ V6 报告交互增强进行中（目标版本待定，阶段收尾统一升版�
   （脚本顺序无关）、无 JS 时降级为锚点跳转；新增 Python 纯函数
   `find_issue_by_id` 作为 JS 行定位的语义参照
 
+### 新增（Step 61，Column Profiles 画像节，ADR-061）
+
+- **扫描期画像**：`scan_file` 落库后用 `Profiler`（单条 SQL 聚合下推，
+  全源可用）计算列画像 → `<workspace>/.datasentry/profiles/<run_id>.json`
+  sidecar（app 私有，不进元数据库、不动 26 章 JSON 契约）
+- **HTML 交互节**：`render_html(..., profiles=...)` 在 Dataset Overview
+  后渲染 Column Profiles 节（可选，无 sidecar 时不出现）——可排序画像表
+  （null/unique/distinct/mean/median/std + 列名，默认空值率降序最差列
+  置顶）、每列迷你空值条、语义类型/PII 徽标、top 类别 chips（前 3）
+- **导航**：节存在时粘性导航追加 `column_profiles` 锚点
+- **PII 纪律**：sidecar 保留完整证据链（机器数据），显示层 top 类别经
+  `mask_text_pii` 掩码（`[REDACTED]`）
+- 实现延续 Step 49/60 风格：纯函数参照（`profile_rows`/`sort_profiles`）、
+  原生 JS 内联、`json_script` 转义、`textContent` 写单元格
+
 ## [0.7.0] - 2026-08-12
 
 V5 多数据源：MySQL 数据源连接器 + 云存储文件源连接器 + 分层增量指纹 +

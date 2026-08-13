@@ -12,6 +12,10 @@ Step 60（V6，ADR-060）：报告内部联动与导航 —— 评分条维度�
 （scrollspy 高亮当前章节）+ 回到顶部；联动脚本同样原生 JS 内联零依赖，事件委托
 保证脚本顺序无关；契约：`data-dim-link` / `.finding-link[data-issue-id]` /
 `#report-nav` / `#back-to-top` / `#issues._render`。
+Step 61（V6，ADR-061）：Column Profiles 交互节 —— `render_html(profiles=...)`
+消费 `DatasetProfile.model_dump(mode="json")`（扫描期画像 sidecar，见
+client.py），可排序画像表 + 迷你空值条 + 语义/PII 徽标 + top 类别 chips，
+渲染期 PII 掩码；节可选，无画像时不渲染、导航不含其锚点。
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ from html import escape
 from typing import Any
 
 from datasentry_core.reporting import HTML_SECTIONS, Report, critical_findings, mask_text_pii
+from datasentry_core.reporting.column_profiles import render_column_profiles
 from datasentry_core.reporting.interactive import render_interactive_issue_table, render_trend_svg
 
 _CSS = """
@@ -80,6 +85,15 @@ tr.issue-row.highlight td { background: #fff8c5; }
                background: #0969da; color: #fff; border: 0; border-radius: .3rem;
                padding: .45rem .7rem; font-size: .8rem; cursor: pointer; z-index: 20; }
 #back-to-top.show { display: block; }
+.profiles-bar-track { display: inline-block; width: 64px; height: .6rem;
+                      background: #f6f8fa; border: 1px solid #d0d7de;
+                      border-radius: .3rem; vertical-align: middle; overflow: hidden; }
+.profiles-bar { display: block; height: 100%; background: #cf222e; }
+.chip { display: inline-block; background: #f6f8fa; border: 1px solid #d0d7de;
+        border-radius: .8rem; padding: .05rem .45rem; font-size: .78rem;
+        margin-right: .3rem; }
+.badge-semantic { color: #8250df; font-weight: 600; }
+.badge-pii { color: #cf222e; font-weight: 600; }
 """
 
 _BAR_COLORS = [
@@ -184,11 +198,14 @@ def render_html(
     trends: list[dict[str, Any]] | None = None,
     page_size: int = 25,
     server_base_url: str | None = None,
+    profiles: dict[str, Any] | None = None,
 ) -> str:
     """26 章报告 → 自包含 HTML（内嵌 CSS/JS，无外部资源）。
 
     trends：trends.py `DatasetTrend.to_report_dict()` 列表 → Quality Trends 迷你 SVG；
-    server_base_url：非空时 issue 行附带修复工作台链接（server 模式联动 REST API）。
+    server_base_url：非空时 issue 行附带修复工作台链接（server 模式联动 REST API）；
+    profiles：`DatasetProfile.model_dump(mode="json")` → Column Profiles 交互节
+    （Step 61，ADR-061），缺省不渲染该节。
     """
     parts = [
         "<!DOCTYPE html>",
@@ -196,7 +213,7 @@ def render_html(
         "<title>DataSentry Data Quality Report</title>",
         f"<style>{_CSS}</style></head><body>",
         "<h1>DataSentry Data Quality Report</h1>",
-        _report_nav(),
+        _report_nav(include_profiles=bool(profiles and profiles.get("column_profiles"))),
         _meta(report),
         _executive_summary(report),
         _quality_score(report),
@@ -208,6 +225,12 @@ def render_html(
             _issue_breakdown(report, page_size=page_size, server_base_url=server_base_url),
             _critical_findings(report),
             _dataset_overview(report),
+        ]
+    )
+    if profiles and profiles.get("column_profiles"):
+        parts.append(_column_profiles(profiles))
+    parts.extend(
+        [
             _methodology(report),
             _reproducibility(report),
             _footer(report),
@@ -219,9 +242,16 @@ def render_html(
     return "\n".join(parts)
 
 
-def _report_nav() -> str:
+def _column_profiles(profiles: dict[str, Any]) -> str:
+    return '<h2 id="column_profiles">Column Profiles</h2>' + render_column_profiles(profiles)
+
+
+def _report_nav(*, include_profiles: bool = False) -> str:
     """粘性章节导航（scrollspy 追踪当前章节，脚本见 _LINKAGE_JS）。"""
-    links = "".join(f'<a href="#{s}">{escape(s.replace("_", " "))}</a>' for s in HTML_SECTIONS)
+    sections = list(HTML_SECTIONS)
+    if include_profiles:
+        sections.append("column_profiles")
+    links = "".join(f'<a href="#{s}">{escape(s.replace("_", " "))}</a>' for s in sections)
     return f'<nav class="report-nav" id="report-nav" aria-label="report sections">{links}</nav>'
 
 
