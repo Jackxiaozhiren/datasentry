@@ -126,9 +126,18 @@ scan/list_issues/quality_score/drift×2/detectors/contract/jobs×3）。
 
 ## 三、落地状态
 
-（开工后逐 step 更新：ADR + 测试 + CHANGELOG + 本计划书；收尾统一
-升版 v0.10.0：pyproject + 双 `__init__.__version__` + CHANGELOG 收口
-+ tag + GitHub release，参照 v0.9.0=4445bf1 惯例）
+- Step 68（ADR-068）✅ 已落地（commit `351fa00`）：mcp_server.py 3
+  工具 + test_mcp_server.py 4 例，门禁全绿（覆盖 95.03%）
+- Step 69（ADR-069）✅ 已落地（commit `69d79f2`）：i18n.py + 渲染层
+  lang + cli --lang + api/ui ?lang= + 测试 4 例 + 既有 2 例断言随
+  i18n 标签更新，门禁全绿（覆盖 95.03%）
+- Step 70（ADR-070）✅ 已落地（commit `8ab6e3f`）：export_report
+  全链路（schema v7 幂等迁移 + models/store/core/api）+ 测试 4 例，
+  门禁全绿（覆盖 95.05%）
+- 收尾 ✅：ADR-068~070 已追加 docs/00-设计裁决记录-ADR.md；CHANGELOG
+  [0.10.0] 收口 + 发布说明；DEVELOPMENT.md 路线图与 reporting 段更新；
+  升版 v0.10.0（pyproject + 双 `__init__.__version__`）；tag
+  `v0.10.0` + GitHub release 待发布
 
 ## 四、候选后续（未排期，供下一阶段决策）
 

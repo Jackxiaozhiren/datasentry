@@ -6,7 +6,49 @@
 
 ## [Unreleased]
 
-（V7 已发布 v0.9.0；下一阶段开发计划书发布后继续）
+（V8 已发布 v0.10.0；下一阶段候选见 docs/V8_DEV_PROMPT.md「四、候选后续」）
+
+## [0.10.0] - 2026-08-13
+
+V8 MCP 数据面补全 + 报告与 UI 本地化 + 调度报告推送。
+
+### 发布说明（V8 收尾）
+
+- V8 三个落点全部落地：Step 68 MCP trends_list/profiles_get/
+  comparison_build、Step 69 报告与 UI 本地化 --lang zh、Step 70 调度
+  报告推送 export_report；版本统一 v0.10.0，tag `v0.10.0` 触发
+  PyPI 发布 + Pages 更新
+- 零引擎改动：全部消费既有 build_trends/load_profile/build_comparison
+  与 26 章 JSON 契约；报告 JSON 结构化键保持英文；覆盖率 95.05%
+
+### 新增（Step 68，MCP 数据面工具，ADR-068）
+
+- **`trends_list(dataset_id=None)`**：趋势数据面——`{"trends": [...],
+  "count": n}`，摘要字段与 CLI trend list / REST /trends 同源同构
+- **`profiles_get(scan_run_id)`**：画像 sidecar 原样 JSON；缺失返回
+  `{"ok": False, "error": "profile not found: <id>"}`
+- **`comparison_build(dataset_id, current_run_id)`**：报告间对比结构；
+  数据不足返回 `{"ok": True, "comparison": None}`（工具清单 10 → 13）
+
+### 新增（Step 69，报告与 UI 本地化 --lang zh，ADR-069）
+
+- **i18n 模块**：新 `reporting/i18n.py`（L10N en/zh + `t(lang, key)`，
+  未知语言/未知键回退 en）；HTML/Markdown/交互表格/趋势 SVG/列画像
+  渲染全部支持 `lang` 参数
+- **CLI**：`datasentry report export --lang zh`——26 章 HTML/Markdown
+  框架文案（章节标题/表格头/按钮/徽标/导航）中文化；正文与 issue
+  标题不译；默认 en
+- **API/UI**：`/ui/*` 与 `/scans/{run_id}/report.html` 支持 `?lang=`，
+  未知值静默回退 en；UI 页导航/按钮/徽标文案本地化；26 章 JSON 报告
+  结构化键保持英文
+
+### 新增（Step 70，调度报告推送，ADR-070）
+
+- **`POST /jobs` 增 `export_report`**：true 时扫描完成后自动导出 HTML
+  报告到 `.datasentry/reports/<run_id>.html`（失败仅记日志，不影响
+  run 状态）；schema v7 幂等迁移
+- **webhook 载荷扩展**：结果含报告时追加 `report_path`（相对 project）
+  与 `report_size`（字节）；错误/未开启路径不携带
 
 ## [0.9.0] - 2026-08-13
 

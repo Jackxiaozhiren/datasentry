@@ -1856,3 +1856,80 @@
 - **影响**：ui.py（`_sparkline`/`_delta_cell`/render_trends 表头 Δ 列）；
   测试新增 1 例（sparkline/polyline/Δ 列/首行 —）；ADR-067 +
   CHANGELOG [Unreleased] + DEVELOPMENT.md + V7_DEV_PROMPT 落地状态。
+
+## ADR-068：MCP 数据面工具补全（V8，Step 68）
+
+- **状态**：已确认（Step 68, V8）
+- **背景**：Step 65/66/67 补全了趋势/画像的 CLI 与 REST 数据面；MCP 侧
+  仍只有扫描/作业/契约工具，Agent 无法直接取趋势/画像/对比数据。
+- **方案**：
+  1. `trends_list(dataset_id=None)`：复用 `build_trends` +
+    `client.list_scan_runs()` → `{"trends": [...], "count": n}`，
+    摘要字段与 CLI trend list（ADR-065）/ REST（ADR-066）完全一致。
+  2. `profiles_get(scan_run_id)`：画像 sidecar 原样 JSON；缺失返回
+    `{"ok": False, "error": "profile not found: <id>"}`（与 job_create
+    错误返回风格一致，不抛 -32603）。
+  3. `comparison_build(dataset_id, current_run_id)`：
+    `build_comparison(list_scan_runs(), dataset_id, current)` 输出；
+    数据不足返回 `{"ok": True, "comparison": None}`（与 HTML 报告
+    「不渲染」同语义）。
+- **边界**：零引擎改动——全部复用现有 app 层函数；envelope 契约
+  `{"command", "data", "ok"}` 不变；工具清单 10 → 13。
+- **影响**：mcp_server.py；测试新增 4 例（工具清单、trends 空/过滤、
+  profiles 缺失/存在、comparison 空/有 Δ）；ADR-068 + CHANGELOG
+  [Unreleased] + V8_DEV_PROMPT。
+
+## ADR-069：报告与 UI 本地化 --lang zh（V8，Step 69）
+
+- **状态**：已确认（Step 69, V8）
+- **背景**：26 章报告（HTML/Markdown）与 /ui 页面全部硬编码英文框架
+  文案；中文用户与国内 CI 集成的报告/页面不可本地化。
+- **方案**：
+  1. **i18n 模块**：新 `packages/core/src/datasentry_core/reporting/
+    i18n.py`（core 不能依赖 app 层，故落 core 的 reporting 包内）：
+    `L10N = {"en": {...}, "zh": {...}}` 键为框架文案标识（章节标题/
+    按钮/徽标/导航/表格头），`t(lang, key)`：未知语言回退 en、未知键
+    回退 en 表、en 缺键原样返回键名。
+  2. **core 渲染层**：`render_html`/`render_markdown`/
+    `render_interactive_issue_table`/`render_trend_svg`/
+    `render_column_profiles` 增加 `lang="en"` 参数；HTML 服务端文案与
+    JS 交互文案（`data.labels` + `l(key, fallback)`）走 `t()`；正文与
+    issue 标题不译；`<html lang>` 同步。
+  3. **app 接线**：CLI `report export --lang`（en|zh，默认 en，仅
+    HTML/Markdown 面）；API `/ui/*` 与 `/scans/{run_id}/report.html`
+    支持 `?lang=`（未知值静默回退 en，不 422——UI 页不该硬失败）；
+    26 章 JSON 报告结构化键保持英文不动。
+- **边界**：CLI 其他命令 text 输出、JSON/JSONL 报告、元数据库、画像
+  sidecar 均不动；RUF001 per-file-ignore 覆盖 i18n 字典（中文全角标点
+  属有意为之，与 ui.py 同款）。
+- **影响**：i18n.py（新）+ html.py + markdown.py + interactive.py +
+  column_profiles.py + cli.py + api.py + ui.py + pyproject.toml；
+  测试新增 4 例（report.html zh、无效 lang 回退、CLI --lang zh、
+  ui zh 导航）+ 既有 2 例 nav 文案断言随 i18n 标签更新；ADR-069 +
+  CHANGELOG [Unreleased] + DEVELOPMENT.md + V8_DEV_PROMPT。
+
+## ADR-070：调度报告推送（V8，Step 70）
+
+- **状态**：已确认（Step 70, V8）
+- **背景**：webhook 通知只带 JSON 摘要（总分/严重度计数），集成方拿不
+  到完整报告；人工补导出无自动化入口。
+- **方案**：
+  1. **任务字段**：`ScheduledJob.export_report: bool = False`，schema
+    v7 幂等迁移 `ALTER TABLE scheduled_jobs ADD COLUMN export_report
+    INTEGER NOT NULL DEFAULT 0`；`JobCreate`/`JobCommand`/`JobResult`
+    同步携带（JobResult 增 `report_path`/`report_size`）。
+  2. **执行导出**：`LocalScanExecutor` 在 `client.close()` 之前（同一
+    连接可用窗口内）导出 HTML 到
+    `<project>/.datasentry/reports/<run_id>.html`；失败仅记录日志，
+    不影响 run 状态（与 webhook 尽力而为一致）。
+  3. **通知载荷**：`_notify` 在结果含报告时追加 `report_path`（相对
+    project，如 `.datasentry/reports/<run_id>.html`）与 `report_size`
+    （字节）；不存在/错误路径不携带（payload 剔除 None 键）。
+- **边界**：job 面为 API-only（无 CLI job 命令），`export_report` 经
+  `POST /jobs` 透传；只导 HTML（复用 `render_html` 无 server 模式的
+  自包含单文件），Markdown/JSON 导出留给集成方自取。
+- **影响**：schema.py（v7）+ models.py + store.py + core.py + api.py；
+  测试新增 4 例（create 落库字段 + 默认 False、export 成功写 HTML +
+  webhook 带 report_path/size、导出失败不影响 run 状态、未开
+  export_report 无 report 键）；ADR-070 + CHANGELOG [Unreleased] +
+  DEVELOPMENT.md + V8_DEV_PROMPT。
