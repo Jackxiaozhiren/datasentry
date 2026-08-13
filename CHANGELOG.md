@@ -6,7 +6,20 @@
 
 ## [Unreleased]
 
-V7 趋势/画像数据面补全进行中（目标版本待定，阶段收尾统一升版）。
+（V7 已发布 v0.9.0；下一阶段开发计划书发布后继续）
+
+## [0.9.0] - 2026-08-13
+
+V7 趋势/画像数据面补全：CLI trend list + REST 趋势/画像端点 + UI 趋势页
+可视化增强。
+
+### 发布说明（V7 收尾）
+
+- V7 三个落点全部落地：Step 65 CLI trend list、Step 66 REST /trends +
+  /scans/{run_id}/profiles、Step 67 UI 趋势页 Sparkline + Δ 列；版本
+  统一 v0.9.0，tag `v0.9.0` 触发 PyPI 发布 + Pages 更新
+- 零引擎改动：全部消费既有 `build_trends`/`load_profile`；26 章 JSON
+  契约/画像 sidecar 格式不变；覆盖率 95.03%
 
 ### 新增（Step 65，CLI trend list，ADR-065）
 
