@@ -328,7 +328,7 @@ def render_trend_svg(trend: dict[str, Any], *, width: int = 260, height: int = 6
         y = pad + (1 - (score - lo) / span) * (height - 2 * pad)
         coords.append(f"{x:.1f},{y:.1f}")
         dots.append(
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.5" fill="#0969da">'
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.5" class="trend-dot">'
             f"<title>{score:.1f}</title></circle>"
         )
     return (
@@ -336,7 +336,7 @@ def render_trend_svg(trend: dict[str, Any], *, width: int = 260, height: int = 6
         f'<p class="meta"><strong>{dataset}</strong> &mdash; {len(points)} completed scans</p>'
         f'<svg class="trend-svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}" '
         f'role="img" aria-label="{dataset} quality trend">'
-        f'<polyline points="{" ".join(coords)}" fill="none" stroke="#0969da" stroke-width="1.6"/>'
+        f'<polyline points="{" ".join(coords)}" fill="none" class="trend-line" stroke-width="1.6"/>'
         + "".join(dots)
         + "</svg></div>"
     )

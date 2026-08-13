@@ -16,6 +16,11 @@ Step 61（V6，ADR-061）：Column Profiles 交互节 —— `render_html(profil
 消费 `DatasetProfile.model_dump(mode="json")`（扫描期画像 sidecar，见
 client.py），可排序画像表 + 迷你空值条 + 语义/PII 徽标 + top 类别 chips，
 渲染期 PII 掩码；节可选，无画像时不渲染、导航不含其锚点。
+Step 63（V6，ADR-063）：深色模式 —— 全 CSS 色板改为 CSS 自定义属性
+（:root 亮色默认 + `@media (prefers-color-scheme: dark)` 暗色覆盖 +
+`@media print` 强制亮色防打印白字），趋势 SVG 改走 `.trend-line` /
+`.trend-dot` 类（`var(--accent)`）；评分条六色段为双主题可读的中间饱和
+色，保持硬编码。
 """
 
 from __future__ import annotations
@@ -28,72 +33,134 @@ from datasentry_core.reporting.column_profiles import render_column_profiles
 from datasentry_core.reporting.interactive import render_interactive_issue_table, render_trend_svg
 
 _CSS = """
-:root { color-scheme: light; }
+:root {
+  color-scheme: light;
+  --fg: #1f2328;
+  --fg-muted: #57606a;
+  --fg-subtle: #8c959f;
+  --accent: #0969da;
+  --border: #d0d7de;
+  --surface: #f6f8fa;
+  --surface-strong: #fff;
+  --surface-nav: rgba(255,255,255,.95);
+  --on-accent: #fff;
+  --critical: #cf222e;
+  --high: #bc4c00;
+  --medium: #9a6700;
+  --ok: #1a7f37;
+  --highlight: #fff8c5;
+  --semantic: #8250df;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --fg: #e6edf3;
+    --fg-muted: #8c959f;
+    --fg-subtle: #6e7681;
+    --accent: #58a6ff;
+    --border: #30363d;
+    --surface: #21262d;
+    --surface-strong: #161b22;
+    --surface-nav: rgba(22,27,34,.92);
+    --on-accent: #fff;
+    --critical: #f85149;
+    --high: #d29922;
+    --medium: #bb8009;
+    --ok: #3fb950;
+    --highlight: #3d3320;
+    --semantic: #a371f7;
+  }
+}
+@media print {
+  :root {
+    color-scheme: light;
+    --fg: #1f2328;
+    --fg-muted: #57606a;
+    --fg-subtle: #8c959f;
+    --accent: #0969da;
+    --border: #d0d7de;
+    --surface: #f6f8fa;
+    --surface-strong: #fff;
+    --surface-nav: rgba(255,255,255,.95);
+    --on-accent: #fff;
+    --critical: #cf222e;
+    --high: #bc4c00;
+    --medium: #9a6700;
+    --ok: #1a7f37;
+    --highlight: #fff8c5;
+    --semantic: #8250df;
+  }
+}
 body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 2rem auto;
-       max-width: 960px; color: #1f2328; line-height: 1.5; }
-h1 { border-bottom: 2px solid #0969da; padding-bottom: .3rem; }
-h2 { margin-top: 2rem; border-bottom: 1px solid #d0d7de; padding-bottom: .2rem; }
+       max-width: 960px; color: var(--fg); line-height: 1.5; }
+h1 { border-bottom: 2px solid var(--accent); padding-bottom: .3rem; }
+h2 { margin-top: 2rem; border-bottom: 1px solid var(--border); padding-bottom: .2rem; }
 table { border-collapse: collapse; width: 100%; margin: .5rem 0; }
-th, td { border: 1px solid #d0d7de; padding: .35rem .6rem; text-align: left; font-size: .9rem; }
-th { background: #f6f8fa; }
-.badge-critical { color: #cf222e; font-weight: 600; }
-.badge-high { color: #bc4c00; font-weight: 600; }
-.badge-medium { color: #9a6700; font-weight: 600; }
-.badge-low, .badge-info { color: #57606a; }
+th, td { border: 1px solid var(--border); padding: .35rem .6rem; text-align: left;
+       font-size: .9rem; }
+th { background: var(--surface); }
+.badge-critical { color: var(--critical); font-weight: 600; }
+.badge-high { color: var(--high); font-weight: 600; }
+.badge-medium { color: var(--medium); font-weight: 600; }
+.badge-low, .badge-info { color: var(--fg-muted); }
 .score-bar { display: flex; width: 100%; height: 1.4rem; border-radius: .4rem;
-             overflow: hidden; border: 1px solid #d0d7de; }
-.score-bar section { color: #fff; font-size: .7rem; text-align: center; }
-footer { margin-top: 3rem; font-size: .8rem; color: #57606a; border-top: 1px solid #d0d7de; }
-.notes { font-size: .85rem; color: #57606a; background: #f6f8fa; padding: .6rem;
+             overflow: hidden; border: 1px solid var(--border); }
+.score-bar section { color: var(--on-accent); font-size: .7rem; text-align: center; }
+footer { margin-top: 3rem; font-size: .8rem; color: var(--fg-muted);
+         border-top: 1px solid var(--border); }
+.notes { font-size: .85rem; color: var(--fg-muted); background: var(--surface); padding: .6rem;
          border-radius: .4rem; }
 .issue-controls { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;
                   margin: .6rem 0; }
 .issue-controls select, .issue-controls input[type=search] { padding: .25rem .45rem;
                   font-size: .85rem; }
 .issue-row td { cursor: pointer; }
-.issue-detail td { background: #f6f8fa; font-size: .85rem; }
+.issue-detail td { background: var(--surface); font-size: .85rem; }
 .issue-detail.collapsed { display: none; }
 th[data-key] { cursor: pointer; user-select: none; white-space: nowrap; }
-th[data-key]::after { content: " \\21C5"; font-size: .7rem; color: #8c959f; }
+th[data-key]::after { content: " \\21C5"; font-size: .7rem; color: var(--fg-subtle); }
 th[data-key].sorted-asc::after { content: " \\2191"; }
 th[data-key].sorted-desc::after { content: " \\2193"; }
 .trend-block { margin: 1rem 0; }
-.trend-svg { display: block; background: #fff; border: 1px solid #d0d7de;
+.trend-svg { display: block; background: var(--surface-strong); border: 1px solid var(--border);
              border-radius: .4rem; padding: .3rem; }
+.trend-line { stroke: var(--accent); }
+.trend-dot { fill: var(--accent); }
 .issue-pager { display: flex; gap: .6rem; align-items: center; margin: .6rem 0; }
-.issue-pager button { background: #f6f8fa; color: #0969da; border: 1px solid #d0d7de;
-                      border-radius: .3rem; padding: .2rem .7rem; cursor: pointer; }
+.issue-pager button { background: var(--surface); color: var(--accent);
+                      border: 1px solid var(--border); border-radius: .3rem;
+                      padding: .2rem .7rem; cursor: pointer; }
 .workbench-link { margin-left: .6rem; font-size: .8rem; }
 html { scroll-behavior: smooth; }
 h2 { scroll-margin-top: 3.2rem; }
 .report-nav { position: sticky; top: 0; z-index: 10; display: flex; gap: .9rem;
-              flex-wrap: wrap; align-items: center; background: rgba(255,255,255,.95);
-              border-bottom: 1px solid #d0d7de; padding: .45rem .2rem; font-size: .85rem;
+              flex-wrap: wrap; align-items: center; background: var(--surface-nav);
+              border-bottom: 1px solid var(--border); padding: .45rem .2rem; font-size: .85rem;
               margin-top: .6rem; }
-.report-nav a { color: #0969da; text-decoration: none; }
+.report-nav a { color: var(--accent); text-decoration: none; }
 .report-nav a.active { font-weight: 600; text-decoration: underline; }
 .score-bar section { cursor: pointer; }
 .score-bar section:hover { filter: brightness(1.08); }
-.score-bar section:focus-visible { outline: 2px solid #0969da; outline-offset: 1px; }
+.score-bar section:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .finding-link { color: inherit; text-decoration: none; }
 .finding-link:hover { text-decoration: underline; }
-tr.issue-row.highlight td { background: #fff8c5; }
-.issue-controls button { background: #f6f8fa; color: #0969da; border: 1px solid #d0d7de;
-                         border-radius: .3rem; padding: .2rem .55rem; font-size: .8rem;
-                         cursor: pointer; }
+tr.issue-row.highlight td { background: var(--highlight); }
+.issue-controls button { background: var(--surface); color: var(--accent);
+                         border: 1px solid var(--border); border-radius: .3rem;
+                         padding: .2rem .55rem; font-size: .8rem; cursor: pointer; }
 #back-to-top { position: fixed; right: 1.2rem; bottom: 1.2rem; display: none;
-               background: #0969da; color: #fff; border: 0; border-radius: .3rem;
+               background: var(--accent); color: var(--on-accent); border: 0; border-radius: .3rem;
                padding: .45rem .7rem; font-size: .8rem; cursor: pointer; z-index: 20; }
 #back-to-top.show { display: block; }
 .profiles-bar-track { display: inline-block; width: 64px; height: .6rem;
-                      background: #f6f8fa; border: 1px solid #d0d7de;
+                      background: var(--surface); border: 1px solid var(--border);
                       border-radius: .3rem; vertical-align: middle; overflow: hidden; }
-.profiles-bar { display: block; height: 100%; background: #cf222e; }
-.chip { display: inline-block; background: #f6f8fa; border: 1px solid #d0d7de;
+.profiles-bar { display: block; height: 100%; background: var(--critical); }
+.chip { display: inline-block; background: var(--surface); border: 1px solid var(--border);
         border-radius: .8rem; padding: .05rem .45rem; font-size: .78rem;
         margin-right: .3rem; }
-.badge-semantic { color: #8250df; font-weight: 600; }
-.badge-pii { color: #cf222e; font-weight: 600; }
+.badge-semantic { color: var(--semantic); font-weight: 600; }
+.badge-pii { color: var(--critical); font-weight: 600; }
 """
 
 _BAR_COLORS = [

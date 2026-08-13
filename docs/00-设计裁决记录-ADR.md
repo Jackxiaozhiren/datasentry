@@ -1743,3 +1743,29 @@
   （`issue_rows` 挂 suggestions、`detailRow` 渲染建议块）；测试新增
   18 例；CHANGELOG [Unreleased]；DEVELOPMENT.md；docs/V6_DEV_PROMPT.md
   （修复建议预览从候选转落地）。
+
+## ADR-063：深色模式（V6，Step 63）
+
+- **状态**：已确认（Step 63, V6）
+- **背景**：报告为自包含单文件，CSS 全量硬编码亮色 hex，系统深色模式下
+  白底页面刺眼；V6 候选清单点名「深色模式（prefers-color-scheme）」。
+- **方案**：CSS 自定义属性变量化 + 媒体块，数据层零改动：
+  1. **变量化**：`:root` 定义 15 个语义变量（--fg/--fg-muted/--fg-subtle/
+     --accent/--border/--surface/--surface-strong/--surface-nav/--on-accent/
+     --critical/--high/--medium/--ok/--highlight/--semantic），全部 CSS 规则
+     改引用 var()；`color-scheme` 同步切换（深色下浏览器画布/表单控件
+     原生适配）。
+  2. **深色块**：`@media (prefers-color-scheme: dark)` 覆盖全部变量
+     （GitHub-dark 系配色：fg #e6edf3 / surface #21262d / accent #58a6ff…）。
+  3. **打印块**：`@media print` 强制亮色变量——防深色页打印出白字黑纸
+     经典回归。
+  4. **趋势 SVG**：`render_trend_svg` 硬编码 `#0969da` 改走
+     `.trend-line`/`.trend-dot` 类（`var(--accent)`），随主题切换。
+  5. **评分条六色段**：中间饱和色（#0969da/#1a7f37/#bf8700/#8250df/
+     #cf222e/#57606a）双主题可读，保持硬编码（记录在案）。
+- **强不变量**：测试断言 `_CSS` 中任何 hex 色值只允许出现在变量定义行
+  （`--` 开头）——后续新增硬编码颜色即测试红。
+- **影响**：html.py（_CSS 全量重构 + Step 63 文档头）；interactive.py
+  （render_trend_svg 类化）；测试新增 8 例（变量定义/不变量/暗色覆盖/
+  打印块/SVG 类化/单 style 标签）；CHANGELOG [Unreleased]；
+  DEVELOPMENT.md；docs/V6_DEV_PROMPT.md（深色模式从候选转落地）。
