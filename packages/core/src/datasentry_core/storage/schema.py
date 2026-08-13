@@ -13,7 +13,7 @@ from __future__ import annotations
 import sqlite3
 
 #: 当前 schema 版本（PRAGMA user_version）
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 _SCHEMA_DDL = """
 PRAGMA journal_mode = WAL;
@@ -310,6 +310,7 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
     retry_attempts INTEGER NOT NULL DEFAULT 0,
     webhook_url    TEXT,
     gate_quality_min REAL,
+    export_report  INTEGER NOT NULL DEFAULT 0,
     status         TEXT NOT NULL DEFAULT 'idle'
                    CHECK (status IN ('idle','queued','running','dead')),
     next_run_at    TEXT NOT NULL,
@@ -393,5 +394,10 @@ def migrate(conn: sqlite3.Connection) -> None:
     if version < 6:
         _ensure_column(conn, "job_runs", "file_hash", "file_hash TEXT")
         _ensure_column(conn, "job_runs", "skipped", "skipped INTEGER NOT NULL DEFAULT 0")
+    # v6 → v7：调度报告推送（Step 70，ADR-070）：scheduled_jobs.export_report
+    if version < 7:
+        _ensure_column(
+            conn, "scheduled_jobs", "export_report", "export_report INTEGER NOT NULL DEFAULT 0"
+        )
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()

@@ -105,21 +105,24 @@ scan/list_issues/quality_score/drift×2/detectors/contract/jobs×3）。
 - **落点**：
   - `scheduler/models.py`：`ScheduledJob` 增 `export_report: bool =
     False`（表列 `export_report` INTEGER DEFAULT 0，store 迁移
-    `ALTER TABLE ... ADD COLUMN` 幂等）
-  - `scheduler/core.py`：`LocalScanExecutor` 扫描完成后若
-    `export_report` 则调 `client.export_report(run_id)` 导出 HTML
-    到 reports 目录（复用 `_report_output_path` 语义），失败仅记录
-    日志不影响调度（与 webhook 尽力而为一致）
+    `ALTER TABLE ... ADD COLUMN` 幂等）；`JobCommand`/`JobCreate`/
+    `JobResult` 同步携带（JobResult 增 `report_path`/`report_size`）
+  - `scheduler/core.py`：`LocalScanExecutor` 扫描完成后（client 关闭前）
+    若 `command.export_report` 则调 `client.export_report(run_id)` 导出
+    HTML 到 reports 目录（`<project>/.datasentry/reports/<run_id>.html`，
+    复用 `_report_output_path` 语义），失败仅记录日志不影响调度（与
+    webhook 尽力而为一致）
   - `scheduler/core.py` `_notify`：payload 增 `report_path`（相对
     project 的路径，如 `.datasentry/reports/<run_id>.html`，不存在则
     省略）与 `report_size`（字节）；错误路径不携带
-  - `cli.py`：`job create` 增加 `--export-report` 旗标（默认为
-    `export_report: False`），`job list` 视图含该字段（models.view）
-- **测试**：test_api_jobs.py 1 例（job create --export-report 落库
-  字段）；test_scheduler 相关 2 例（export 成功带 report_path、导出
-  失败不影响 run 状态）；webhook payload 断言 1 例
-- **影响**：models.py + store.py + core.py + cli.py + 测试 +
-  ADR-070 + CHANGELOG + DEVELOPMENT.md
+  - `api.py`：`JobCreate.export_report` 经 `POST /jobs` 透传（本仓库
+    job 面为 API-only，无 CLI job 命令，故落 api 而非 cli）
+- **测试**：test_api_jobs.py 1 例（create export_report 落库字段 +
+  默认 False）；test_scheduler TestReportPush 3 例（export 成功写
+  HTML + webhook 带 report_path/size、导出失败不影响 run 状态、
+  未开 export_report 无 report 键）
+- **影响**：models.py + store.py + core.py + api.py + schema.py +
+  测试 + ADR-070 + CHANGELOG + DEVELOPMENT.md
 
 ## 三、落地状态
 

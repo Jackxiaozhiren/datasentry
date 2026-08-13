@@ -17,6 +17,7 @@ import pytest
 
 from datasentry.scheduler.core import (
     InvalidCronError,
+    LocalScanExecutor,
     Scheduler,
     WebhookNotifier,
     file_sha256,
@@ -1018,3 +1019,112 @@ class TestCloudChangeAware:
         assert registry.last_handle.closed is True  # 指纹句柄用完即关
         runs = store.list_runs("job_s3d")
         assert runs[0].skipped is False
+
+
+class TestReportPush:
+    """Step 70（ADR-070）：export_report 任务扫描后导出 HTML 报告并随 webhook 推送。"""
+
+    def _spy_webhook(self) -> tuple[httpx.Client, list[dict[str, Any]]]:
+        payloads: list[dict[str, Any]] = []
+
+        def transport(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200)
+
+        client = httpx.Client(transport=httpx.MockTransport(transport))
+        original_post = client.post
+
+        def spy_post(url: str, json: Any | None = None, **kwargs: Any) -> Any:
+            payloads.append(json or {})
+            return original_post(url, json=json, **kwargs)
+
+        client.post = spy_post  # type: ignore[method-assign]
+        return client, payloads
+
+    def _client_factory(self) -> Any:
+        from datasentry import DataSentry
+
+        return lambda project: DataSentry(project=project)
+
+    def test_export_report_writes_html_and_webhook(self, tmp_path: Path) -> None:
+        data = tmp_path / "data.csv"
+        data.write_text("a,b\n1,2\n", encoding="utf-8")
+        client, payloads = self._spy_webhook()
+        store = SchedulerStore(tmp_path / "sched.db")
+        job = _job(
+            job_id="job_rpt",
+            webhook_url="https://hook/x",
+            next_at=T0 - timedelta(minutes=1),
+        )
+        job.project = str(tmp_path)
+        job.command = JobCommand(project=str(tmp_path), path=str(data), export_report=True)
+        store.create_job(job)
+        sched = Scheduler(
+            store=store,
+            executor=LocalScanExecutor(client_factory=self._client_factory()),
+            notifier=WebhookNotifier(lambda: client),
+            clock=_Clock(T0),
+        )
+        sched.tick()
+        run = store.list_runs("job_rpt")[0]
+        assert run.status == RunStatus.COMPLETED
+        assert run.scan_run_id is not None
+        report = tmp_path / ".datasentry" / "reports" / f"{run.scan_run_id}.html"
+        assert report.is_file()
+        assert report.read_text(encoding="utf-8").startswith("<!DOCTYPE html>")
+        body = payloads[0]
+        assert body["report_path"] == f".datasentry/reports/{run.scan_run_id}.html"
+        assert body["report_size"] == report.stat().st_size
+
+    def test_export_failure_keeps_run_completed(self, tmp_path: Path) -> None:
+        data = tmp_path / "data.csv"
+        data.write_text("a,b\n1,2\n", encoding="utf-8")
+        client, payloads = self._spy_webhook()
+
+        class _BrokenExporter:
+            def __init__(self, project: str) -> None:
+                from datasentry import DataSentry
+
+                self._inner = DataSentry(project=project)
+
+            def scan_file(self, *a: Any, **kw: Any) -> Any:
+                return self._inner.scan_file(*a, **kw)
+
+            def close(self) -> None:
+                self._inner.close()
+
+            def export_report(self, _run_id: str) -> Any:
+                raise RuntimeError("export boom")
+
+        store = SchedulerStore(tmp_path / "sched.db")
+        job = _job(
+            job_id="job_rptf",
+            webhook_url="https://hook/x",
+            next_at=T0 - timedelta(minutes=1),
+        )
+        job.project = str(tmp_path)
+        job.command = JobCommand(project=str(tmp_path), path=str(data), export_report=True)
+        store.create_job(job)
+        sched = Scheduler(
+            store=store,
+            executor=LocalScanExecutor(client_factory=lambda _p: _BrokenExporter(_p)),
+            notifier=WebhookNotifier(lambda: client),
+            clock=_Clock(T0),
+        )
+        sched.tick()
+        run = store.list_runs("job_rptf")[0]
+        assert run.status == RunStatus.COMPLETED  # 导出失败不影响 run 状态
+        assert not list((tmp_path / ".datasentry" / "reports").glob("*.html"))
+        body = payloads[0]
+        assert "report_path" not in body
+        assert "report_size" not in body
+
+    def test_no_report_keys_without_export_flag(self, tmp_path: Path) -> None:
+        client, payloads = self._spy_webhook()
+        store = SchedulerStore(tmp_path / "sched.db")
+        store.create_job(_job(job_id="job_plain", webhook_url="https://hook/x"))
+        sched = Scheduler(
+            store=store, executor=_FakeExecutor(), notifier=WebhookNotifier(lambda: client)
+        )
+        sched.tick()
+        assert "report_path" not in payloads[0]
+        assert "report_size" not in payloads[0]

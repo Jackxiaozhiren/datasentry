@@ -50,6 +50,27 @@ class TestJobsApi:
         assert body["next_run_at"]
         assert body["command"]["path"] == str(csv)
 
+    def test_create_job_export_report_flag(self, client: TestClient, tmp_path: Path) -> None:
+        csv = _sample_csv(tmp_path)
+        resp = client.post(
+            "/jobs",
+            json={
+                "name": "nightly reports",
+                "path": str(csv),
+                "cron": "0 9 * * *",
+                "export_report": True,
+            },
+        )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["export_report"] is True
+        assert body["command"]["export_report"] is True
+        default = client.post(
+            "/jobs",
+            json={"name": "plain", "path": str(csv), "cron": "0 9 * * *"},
+        ).json()
+        assert default["export_report"] is False
+
     def test_create_job_relative_path_resolves(self, client: TestClient, tmp_path: Path) -> None:
         _sample_csv(tmp_path)
         resp = client.post(

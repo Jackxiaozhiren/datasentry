@@ -44,6 +44,7 @@ class JobCommand(BaseModel):
     path: str
     dataset_id: str | None = None
     table_name: str | None = None
+    export_report: bool = False
 
     def to_storage(self) -> str:
         return self.model_dump_json()
@@ -63,6 +64,8 @@ class JobResult(BaseModel):
     gate: GateResult | None = None
     file_hash: str | None = None
     skipped: bool = False
+    report_path: str | None = None
+    report_size: int | None = None
 
 
 class JobCreate(BaseModel):
@@ -77,6 +80,7 @@ class JobCreate(BaseModel):
     retry_attempts: int = Field(default=0, ge=0, le=10)
     webhook_url: str | None = Field(default=None, max_length=500)
     gate_quality_min: float | None = Field(default=None, ge=0.0, le=100.0)
+    export_report: bool = False
 
 
 class JobUpdate(BaseModel):
@@ -110,6 +114,7 @@ class ScheduledJob(BaseModel):
     retry_attempts: int = 0
     webhook_url: str | None = None
     gate_quality_min: float | None = None
+    export_report: bool = False
     status: JobStatus = JobStatus.IDLE
     next_run_at: datetime
     last_run_at: datetime | None = None
@@ -129,6 +134,7 @@ class ScheduledJob(BaseModel):
             "retry_attempts": self.retry_attempts,
             "webhook_url": self.webhook_url,
             "gate_quality_min": self.gate_quality_min,
+            "export_report": self.export_report,
             "status": self.status.value,
             "next_run_at": iso(self.next_run_at),
             "last_run_at": iso(self.last_run_at) if self.last_run_at else None,

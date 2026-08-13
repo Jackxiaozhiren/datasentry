@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import threading
 from collections.abc import Callable
 from datetime import datetime
@@ -206,7 +207,11 @@ class ScanExecutor(Protocol):
 
 
 class LocalScanExecutor:
-    """本地执行器：新建 DataSentry(project=job.project) 执行 scan_file。"""
+    """本地执行器：新建 DataSentry(project=job.project) 执行 scan_file。
+
+    export_report（ADR-070）：扫描成功后导出 HTML 报告到 reports 目录，
+    失败仅记录日志不影响调度（与 webhook 尽力而为一致）。
+    """
 
     def __init__(self, client_factory: Callable[[str], Any] | None = None) -> None:
         self._client_factory = client_factory
@@ -224,6 +229,7 @@ class LocalScanExecutor:
                 dataset_id=command.dataset_id,
                 table_name=command.table_name,
             )
+            report_path, report_size = self._export_report(client, scan_run.id, command)
         finally:
             client.close()
         by_severity: dict[str, int] = {}
@@ -251,7 +257,29 @@ class LocalScanExecutor:
             quality_score=score,
             issues_by_severity=by_severity,
             file_hash=source_hash,
+            report_path=report_path,
+            report_size=report_size,
         )
+
+    def _export_report(
+        self, client: Any, scan_run_id: str, command: JobCommand
+    ) -> tuple[str | None, int | None]:
+        """扫描后导出 HTML 报告（仅 export_report 任务）；失败仅记录日志。"""
+        if not command.export_report:
+            return None, None
+        try:
+            from datasentry_core.reporting.html import render_html
+
+            report = client.export_report(scan_run_id)
+            content = render_html(report)
+            out = client.reports_dir / f"{scan_run_id}.html"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(content, encoding="utf-8")
+            rel = os.path.relpath(str(out), command.project)
+            return rel, len(content.encode("utf-8"))
+        except Exception as exc:
+            logger.warning("report export failed for %s: %s", scan_run_id, exc)
+            return None, None
 
 
 class WebhookNotifier:
@@ -404,17 +432,19 @@ class Scheduler:
     def _notify(self, job: ScheduledJob, run_id: str, payload: dict[str, object]) -> None:
         if not job.webhook_url:
             return
-        self._notifier.notify(
-            job.webhook_url,
-            {
-                "job_id": job.job_id,
-                "run_id": run_id,
-                "name": job.name,
-                "status": "completed" if payload.get("error") is None else "failed",
-                "at": iso(self._clock()),
-                **payload,
-            },
-        )
+        body: dict[str, object] = {
+            "job_id": job.job_id,
+            "run_id": run_id,
+            "name": job.name,
+            "status": "completed" if payload.get("error") is None else "failed",
+            "at": iso(self._clock()),
+            **payload,
+        }
+        if body.get("report_path") is None:
+            body.pop("report_path", None)
+        if body.get("report_size") is None:
+            body.pop("report_size", None)
+        self._notifier.notify(job.webhook_url, body)
         self.store.save_webhook_at(run_id, self._clock())
 
 

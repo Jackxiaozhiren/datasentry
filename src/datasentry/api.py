@@ -157,6 +157,7 @@ def _job_command_from(req: JobCreate, workspace: str) -> JobCommand:
         path=str(path),
         dataset_id=req.dataset_id,
         table_name=req.table_name,
+        export_report=req.export_report,
     )
 
 
@@ -508,6 +509,7 @@ def create_app(project: str | Path | None = None) -> FastAPI:
             retry_attempts=req.retry_attempts,
             webhook_url=req.webhook_url,
             gate_quality_min=req.gate_quality_min,
+            export_report=req.export_report,
             next_run_at=next_run(req.cron, now),
             created_at=now,
             updated_at=now,
