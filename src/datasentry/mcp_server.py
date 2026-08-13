@@ -11,6 +11,9 @@ SDK（与 CLI/REST 同源）。
     quality_score        最近质量总分（六维）
     drift_compare        两历史扫描漂移比较
     drift_latest         数据集最近两次扫描漂移
+    trends_list          跨扫描质量趋势（每数据集）
+    profiles_get         扫描期画像 sidecar 原样 JSON
+    comparison_build     同数据集历史 run 对比（Δ）
     detectors_list       检测器注册表
     contract_validate    契约文件校验
     jobs_list            列出调度任务（Step 51/52）
@@ -190,6 +193,71 @@ class McpServer:
         )
         def drift_latest(dataset_id: str) -> dict[str, Any]:
             return _json_safe(client.drift_latest(dataset_id).model_dump())
+
+        @self._tool(
+            "trends_list",
+            "Cross-scan quality trends per dataset (V7 data surface, ADR-065): "
+            "score/issues series with latest score, delta and direction. "
+            "Optionally filter to one dataset.",
+            {
+                "dataset_id": {"type": "string"},
+            },
+            [],
+        )
+        def trends_list(dataset_id: str | None = None) -> dict[str, Any]:
+            from datasentry.trends import build_trends
+
+            trends = build_trends(client.list_scan_runs())
+            if dataset_id is not None:
+                trends = [t for t in trends if t.dataset_id == dataset_id]
+            return _json_safe(
+                {
+                    "trends": [
+                        {
+                            **t.to_report_dict(),
+                            "delta": t.delta,
+                            "direction": t.direction,
+                            "latest_score": t.latest_score,
+                            "latest_issues": t.latest_issues,
+                        }
+                        for t in trends
+                    ],
+                    "count": len(trends),
+                }
+            )
+
+        @self._tool(
+            "profiles_get",
+            "Scan-time column profile sidecar of a scan run (V6, ADR-061) as "
+            "raw JSON. Returns ok:false with an error when no profile exists.",
+            {
+                "scan_run_id": {"type": "string"},
+            },
+            ["scan_run_id"],
+        )
+        def profiles_get(scan_run_id: str) -> dict[str, Any]:
+            profile = client.load_profile(scan_run_id)
+            if profile is None:
+                return {"ok": False, "error": f"profile not found: {scan_run_id}"}
+            return _json_safe({"ok": True, "profile": profile})
+
+        @self._tool(
+            "comparison_build",
+            "Same-dataset historical run comparison (V6, ADR-064): per-run "
+            "overall/dimension scores, issue counts and delta vs previous run. "
+            "Use the current run id as current_run_id. Returns ok:true with "
+            "comparison null when fewer than two runs exist.",
+            {
+                "dataset_id": {"type": "string"},
+                "current_run_id": {"type": "string"},
+            },
+            ["dataset_id", "current_run_id"],
+        )
+        def comparison_build(dataset_id: str, current_run_id: str) -> dict[str, Any]:
+            from datasentry.trends import build_comparison
+
+            comparison = build_comparison(client.list_scan_runs(), dataset_id, current_run_id)
+            return _json_safe({"ok": True, "comparison": comparison})
 
         @self._tool(
             "detectors_list",

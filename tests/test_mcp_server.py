@@ -94,6 +94,9 @@ class TestTools:
                 "jobs_list",
                 "job_create",
                 "job_trigger",
+                "trends_list",
+                "profiles_get",
+                "comparison_build",
             } == names
             for tool in tools:
                 assert tool["inputSchema"]["type"] == "object"
@@ -164,6 +167,137 @@ class TestTools:
                 {"name": "scan_file", "arguments": {"path": str(tmp_path / "nope.csv")}},
             )
             assert response["error"]["code"] == -32603
+        finally:
+            server.close()
+
+
+class TestDataSurfaceTools:
+    def test_trends_list_empty(self, tmp_path: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            response = _call(server, 11, "tools/call", {"name": "trends_list", "arguments": {}})
+            payload = json.loads(response["result"]["content"][0]["text"])
+            assert payload == {"trends": [], "count": 0}
+        finally:
+            server.close()
+
+    def test_trends_list_and_filter(self, tmp_path: Path, sample_csv: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            _call(
+                server,
+                12,
+                "tools/call",
+                {"name": "scan_file", "arguments": {"path": str(sample_csv)}},
+            )
+            response = _call(server, 13, "tools/call", {"name": "trends_list", "arguments": {}})
+            payload = json.loads(response["result"]["content"][0]["text"])
+            assert payload["count"] == 1
+            trend = payload["trends"][0]
+            assert trend["dataset_id"] == "orders"
+            assert trend["latest_score"] is not None
+            assert trend.get("points")
+            assert trend["points"][0]["run_id"].startswith("scan_")
+            filtered = json.loads(
+                _call(
+                    server,
+                    14,
+                    "tools/call",
+                    {"name": "trends_list", "arguments": {"dataset_id": "nope"}},
+                )["result"]["content"][0]["text"]
+            )
+            assert filtered == {"trends": [], "count": 0}
+        finally:
+            server.close()
+
+    def test_profiles_get_present_and_missing(self, tmp_path: Path, sample_csv: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            scan = json.loads(
+                _call(
+                    server,
+                    15,
+                    "tools/call",
+                    {"name": "scan_file", "arguments": {"path": str(sample_csv)}},
+                )["result"]["content"][0]["text"]
+            )
+            run_id = scan["scan_run_id"]
+            response = _call(
+                server,
+                16,
+                "tools/call",
+                {"name": "profiles_get", "arguments": {"scan_run_id": run_id}},
+            )
+            payload = json.loads(response["result"]["content"][0]["text"])
+            assert payload["ok"] is True
+            assert "column_profiles" in payload["profile"]
+            missing = json.loads(
+                _call(
+                    server,
+                    17,
+                    "tools/call",
+                    {"name": "profiles_get", "arguments": {"scan_run_id": "run_nope"}},
+                )["result"]["content"][0]["text"]
+            )
+            assert missing["ok"] is False
+            assert "not found" in missing["error"]
+        finally:
+            server.close()
+
+    def test_comparison_build(self, tmp_path: Path, sample_csv: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            first = json.loads(
+                _call(
+                    server,
+                    18,
+                    "tools/call",
+                    {"name": "scan_file", "arguments": {"path": str(sample_csv)}},
+                )["result"]["content"][0]["text"]
+            )
+            single = json.loads(
+                _call(
+                    server,
+                    19,
+                    "tools/call",
+                    {
+                        "name": "comparison_build",
+                        "arguments": {
+                            "dataset_id": "orders",
+                            "current_run_id": first["scan_run_id"],
+                        },
+                    },
+                )["result"]["content"][0]["text"]
+            )
+            assert single == {"ok": True, "comparison": None}
+
+            second = json.loads(
+                _call(
+                    server,
+                    20,
+                    "tools/call",
+                    {"name": "scan_file", "arguments": {"path": str(sample_csv)}},
+                )["result"]["content"][0]["text"]
+            )
+            multi = json.loads(
+                _call(
+                    server,
+                    21,
+                    "tools/call",
+                    {
+                        "name": "comparison_build",
+                        "arguments": {
+                            "dataset_id": "orders",
+                            "current_run_id": second["scan_run_id"],
+                        },
+                    },
+                )["result"]["content"][0]["text"]
+            )
+            assert multi["ok"] is True
+            assert multi["comparison"] is not None
+            assert len(multi["comparison"]) == 2
+            assert multi["comparison"][-1]["current"] is True
+            assert multi["comparison"][1]["delta"] is not None
         finally:
             server.close()
 
