@@ -44,6 +44,19 @@ class DetectionContext:
         self.sample_rows = sample_rows
         self.references: list[TableReference] = references or []
 
+    def with_handle(self, handle: DataHandle) -> DetectionContext:
+        """返回换句柄的新上下文（Step 71：抽样支撑检测器注入抽样句柄）。"""
+        return DetectionContext(
+            dataset_id=self.dataset_id,
+            table_name=self.table_name,
+            columns=self.columns,
+            handle=handle,
+            config=self.config,
+            profile=self.profile,
+            sample_rows=self.sample_rows,
+            references=self.references,
+        )
+
 
 @runtime_checkable
 class Detector(Protocol):

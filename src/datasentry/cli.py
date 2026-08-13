@@ -23,7 +23,7 @@ from datasentry_core.llm.provider import LLMError
 from datasentry_core.models.contract import Contract, QualityGate
 from datasentry_core.models.enums import Severity
 from datasentry_core.models.issue import Issue
-from datasentry_core.models.scan import ScanConfig
+from datasentry_core.models.scan import SamplingConfig, ScanConfig
 from datasentry_core.scoring.gate import GateResult
 
 EXIT_OK = 0
@@ -175,6 +175,13 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     """
     client = DataSentry(args.project)
     config = ScanConfig(detectors=args.detector or None, seed=args.seed)
+    if args.sampling_size is not None or args.sampling_ratio is not None:
+        config.sampling = SamplingConfig(
+            method=args.sampling_method,
+            sample_size=args.sampling_size,
+            ratio=args.sampling_ratio,
+            seed=args.sampling_seed,
+        )
     contract = None
     if args.contract:
         contract = _load_contract(args.contract, args.format)
@@ -997,6 +1004,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_scan.add_argument(
         "--detector", action="append", default=None, help="detector whitelist (repeatable)"
+    )
+    p_scan.add_argument(
+        "--sampling-size",
+        type=int,
+        default=None,
+        help="sample N rows for sampling-capable detectors (reservoir, "
+        "Step 71/ADR-071; requires --sampling-size or --sampling-ratio to enable)",
+    )
+    p_scan.add_argument(
+        "--sampling-ratio",
+        type=float,
+        default=None,
+        help="sample ratio in (0, 1] of total rows (mutually exclusive with "
+        "--sampling-size; Step 71/ADR-071)",
+    )
+    p_scan.add_argument(
+        "--sampling-method",
+        type=str,
+        default="reservoir",
+        choices=["random", "reservoir", "none"],
+        help="sampling method (default reservoir; Step 71/ADR-071)",
+    )
+    p_scan.add_argument(
+        "--sampling-seed",
+        type=int,
+        default=42,
+        help="sampling reproducibility seed (default 42; Step 71/ADR-071)",
     )
     p_scan.add_argument(
         "--fail-on",

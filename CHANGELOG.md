@@ -6,7 +6,21 @@
 
 ## [Unreleased]
 
-（V8 已发布 v0.10.0；下一阶段候选见 docs/V8_DEV_PROMPT.md「四、候选后续」）
+（V9 开发中：抽样扫描 Step 71 已落地，Step 72/73 进行中；收尾统一
+升版 v0.11.0）
+
+### 新增（Step 71，抽样扫描，ADR-071）
+
+- **`--sampling-size N` / `--sampling-ratio R`**：显式开启抽样扫描——
+  抽样支撑检测器经 `SampledDataHandle` 查询 `USING SAMPLE reservoir(N
+  ROWS) REPEATABLE(seed)`（可复现，seed 默认 42）；非抽样支撑检测器
+  保持全量；不传参数时行为与 v0.10.0 完全一致
+- **capability 调度**：`ScanRunner` 按 supports_sampling 分发，抽样
+  检测器 `DetectorRun.sampling` 落 `SamplingInfo`（method/sample_size/
+  full_size/generalizable）；融合与评分仍用全量行数
+- **抽样即标注**：HTML/Markdown 报告 reproducibility 节与 UI 扫描
+  详情页标注抽样参数；JSON 报告经 `scan.config.sampling` 携带
+- **REST**：`POST /scans` 请求体支持 `sampling` 字段（同语义透传）
 
 ## [0.10.0] - 2026-08-13
 

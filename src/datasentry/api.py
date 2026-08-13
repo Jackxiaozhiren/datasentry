@@ -50,7 +50,7 @@ from datasentry.scheduler.models import (
 )
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
-from datasentry_core.models.scan import DetectorRun, ScanConfig, ScanRun
+from datasentry_core.models.scan import DetectorRun, SamplingConfig, ScanConfig, ScanRun
 from datasentry_core.reporting.i18n import t as _t
 
 
@@ -63,6 +63,7 @@ class ScanRequest(BaseModel):
     detectors: list[str] | None = None
     seed: int = 42
     tags: dict[str, str] = Field(default_factory=dict)
+    sampling: SamplingConfig | None = None
 
 
 class ScanResponse(BaseModel):
@@ -103,6 +104,7 @@ def _config_from(req: ScanRequest) -> ScanConfig:
         detectors=req.detectors,
         seed=req.seed,
         scan_tags=req.tags,
+        sampling=req.sampling or SamplingConfig(method="none"),
     )
 
 

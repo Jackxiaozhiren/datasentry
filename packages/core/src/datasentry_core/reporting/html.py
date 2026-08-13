@@ -587,12 +587,23 @@ def _methodology(*, lang: str = "en") -> str:
 def _reproducibility(report: Report, *, lang: str = "en") -> str:
     scan = report["scan"]
     repro = scan["reproducibility"]
+    sampling = scan.get("config", {}).get("sampling") or {}
+    sampled = sampling.get("method", "none") != "none" and (
+        sampling.get("sample_size") is not None or sampling.get("ratio") is not None
+    )
+    sampling_line = ""
+    if sampled:
+        sampling_line = (
+            f"<li>sampling: <code>{escape(str(sampling))}</code>"
+            ' <span class="badge">sampled</span></li>'
+        )
     return (
         f'<h2 id="reproducibility">{escape(t(lang, "section.reproducibility"))}</h2><ul>'
         f"<li>datasentry_version: <code>{escape(repro['datasentry_version'])}</code></li>"
         f"<li>detector_versions: <code>{escape(repr(repro['detector_versions']))}</code></li>"
         f"<li>seed: <code>{repro['seed']}</code></li>"
         f"<li>scanned_at: <code>{escape(repro['scanned_at'])}</code></li>"
+        f"{sampling_line}"
         "</ul>"
     )
 

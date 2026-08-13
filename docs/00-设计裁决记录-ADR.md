@@ -1933,3 +1933,42 @@
   webhook 带 report_path/size、导出失败不影响 run 状态、未开
   export_report 无 report 键）；ADR-070 + CHANGELOG [Unreleased] +
   DEVELOPMENT.md + V8_DEV_PROMPT。
+
+## ADR-071：抽样扫描（V9，Step 71）
+
+- **状态**：已确认（Step 71, V9）
+- **背景**：`SamplingConfig` 定义完整但扫描管线零消费（全量扫描无条件）；
+  `anomaly_ml` 是全列物化点；W10 内存峰值超标。`read_sample`（reservoir
+  REPEATABLE seed 可复现）与 capability 声明（supports_sampling）均
+  已就绪未接线。
+- **方案**：
+  1. **显式触发**：`--sampling-size N` / `--sampling-ratio R` 任意给定
+    即开启抽样（method 默认 reservoir，可 `--sampling-method` 覆盖）；
+     不传时行为与 v0.10.0 完全一致（默认全量，回归面隔离）。REST
+     `POST /scans` 请求体 `sampling` 字段同语义透传。
+  2. **sampled 视图（SQL 重写）**：新建 `connectors/sampling.py`
+     `SampledDataHandle`——与底层句柄共享 executor 与视图，把检测器
+     SQL 顶层 `FROM data` 重写为 `FROM (SELECT * FROM data USING SAMPLE
+     reservoir({n} ROWS) REPEATABLE ({seed}))` 子查询（仓库内 50 处
+     SQL 均为该单形态，重写完备性有守卫：残留裸 `FROM data` 拒绝）。
+     零连接器改动、零检测器改动；非抽样支撑检测器保持全量句柄。
+  3. **capability 调度**：`ScanRunner.run()` 按
+     `metadata().capabilities.supports_sampling` 分发——抽样支撑检测
+     器注入 `context.with_handle(sampled_handle)`，`DetectorRun.sampling`
+     填 `SamplingInfo`（method/sample_size/full_size/generalizable）；
+     融合/评分仍用全量行数（抽样只影响检测器输入数据面）。
+  4. **seed 统一**：抽样 seed 取 `SamplingConfig.seed`（默认 42），
+     REPEATABLE 保证同参数两次扫描结果一致；`ScanConfig.seed` 保持
+     检测器内部随机（anomaly_ml）。
+  5. **抽样即标注**：HTML/Markdown reproducibility 节 + UI 扫描详情
+     页标注抽样参数（badge）；JSON 报告经 `scan.config.sampling`
+     自动携带；实际抽样判定（method != none 且 size/ratio 给定）在
+     runner 与渲染侧一致。
+- **边界**：不做大文件自动触发（显式优先）；MCP scan 透传 sampling
+  不在 V9；`count_rows` 去重/anomaly_ml SQL 侧抽样/内存打磨归
+  Step 72/73。
+- **影响**：connectors/sampling.py（新）+ detectors/base.py
+  （with_handle）+ detectors/runner.py + cli.py + api.py + ui.py +
+  reporting/html.py + reporting/markdown.py；测试新增 14 例
+  （test_sampling_scan.py）；ADR-071 + CHANGELOG + DEVELOPMENT +
+  V9_DEV_PROMPT。

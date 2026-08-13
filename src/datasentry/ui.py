@@ -18,7 +18,7 @@ from html import escape
 from datasentry.trends import DatasetTrend, ScanPoint
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
-from datasentry_core.models.scan import ScanRun
+from datasentry_core.models.scan import ScanConfig, ScanRun
 from datasentry_core.reporting import mask_text_pii
 from datasentry_core.reporting.i18n import t
 
@@ -238,6 +238,14 @@ def render_trends(trends: list[DatasetTrend], *, lang: str = "en") -> str:
     return _page(t(lang, "ui.trends_title"), "\n".join(sections), lang=lang)
 
 
+def _sampling_enabled(config: ScanConfig) -> bool:
+    """实际抽样判定（与 runner._resolve_sample_size 一致，Step 71/ADR-071）。"""
+    sampling = config.sampling
+    return sampling.method != "none" and (
+        sampling.sample_size is not None or sampling.ratio is not None
+    )
+
+
 def _issue_rows(issues: list[Issue], run_id: str, *, lang: str = "en") -> str:
     if not issues:
         return f'<p class="meta">{escape(t(lang, "ui.no_issues"))}</p>'
@@ -280,7 +288,14 @@ def render_scan_detail(
         '<p class="meta">'
         f"{escape(scan.id)} · {escape(scan.dataset_id)} · "
         f"{scan.fingerprint.row_count} rows × {scan.fingerprint.column_count} cols · "
-        f"{escape(scan.status)}</p>",
+        f"{escape(scan.status)}"
+        + (
+            ' · <span class="badge">sampled '
+            f"{escape(str(scan.config.sampling.model_dump(mode='json')))}</span>"
+            if _sampling_enabled(scan.config)
+            else ""
+        )
+        + "</p>",
         '<div class="score-ring">' + overall + "</div>",
         '<p class="meta">' + " &middot; ".join(dims) + "</p>",
         f"<h2>{escape(t(lang, 'ui.issues_title'))}</h2>",

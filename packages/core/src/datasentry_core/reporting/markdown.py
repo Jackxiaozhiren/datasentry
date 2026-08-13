@@ -74,10 +74,18 @@ def render_markdown(report: Report, *, lang: str = "en") -> str:
             )
     lines += ["", f"## {t(lang, 'md.reproducibility')}", ""]
     repro = scan["reproducibility"]
+    sampling = scan.get("config", {}).get("sampling") or {}
+    sampled = sampling.get("method", "none") != "none" and (
+        sampling.get("sample_size") is not None or sampling.get("ratio") is not None
+    )
+    sampling_line = ""
+    if sampled:
+        sampling_line = f"- sampling: `{sampling}`\n"
     lines.append(
         f"- datasentry_version: `{repro['datasentry_version']}`\n"
         f"- detector_versions: `{repro['detector_versions']}`\n"
         f"- seed: `{repro['seed']}`\n"
+        f"{sampling_line}"
         f"- scanned_at: `{repro['scanned_at']}`"
     )
     return "\n".join(lines) + "\n"

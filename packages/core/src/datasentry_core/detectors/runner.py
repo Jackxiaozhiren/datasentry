@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from datasentry_core import __version__
+from datasentry_core.connectors.sampling import SampledDataHandle
 from datasentry_core.detectors.base import (
     DetectionContext,
     Detector,
@@ -24,6 +25,7 @@ from datasentry_core.engine.fusion import EvidenceFusionEngine
 from datasentry_core.models.detector import IssueCandidate
 from datasentry_core.models.enums import EvidenceType, Severity
 from datasentry_core.models.issue import Issue
+from datasentry_core.models.profile import SamplingInfo
 from datasentry_core.models.rules import Rule
 from datasentry_core.models.scan import DetectorRun, ReproducibilityInfo, ScanConfig, ScanRun
 from datasentry_core.rules.engine import run_preflight
@@ -35,6 +37,18 @@ def _count_by_severity(issues: list[Issue]) -> dict[Severity, int]:
     """各严重度 Issue 计数（ScanRun.issues_count，18.2）。"""
     counts = Counter(issue.severity for issue in issues)
     return {severity: counts.get(severity, 0) for severity in Severity}
+
+
+def _resolve_sample_size(config: ScanConfig, full_rows: int) -> int | None:
+    """有效抽样大小：method != none 且 (sample_size 或 ratio) 给定，否则不抽样。"""
+    sampling = config.sampling
+    if sampling.method == "none":
+        return None
+    if sampling.sample_size is not None:
+        return sampling.sample_size
+    if sampling.ratio is not None:
+        return max(1, int(full_rows * sampling.ratio))
+    return None
 
 
 class ScanRunner:
@@ -53,18 +67,40 @@ class ScanRunner:
         scan_run_id: str,
     ) -> tuple[list[DetectorRun], list[Issue]]:
         detectors = filter_by_config(self._registry.list_active(), config.detectors)
+        full_count = context.handle.count_rows()
+        sample_size = _resolve_sample_size(config, full_count)
+        sampled_handle: SampledDataHandle | None = None
         runs: list[DetectorRun] = []
         candidates: list[IssueCandidate] = []
         for detector in detectors:
-            run = self._run_detector(detector, context, scan_run_id)
+            det_context = context
+            sampling_info: SamplingInfo | None = None
+            if sample_size is not None and detector.metadata().capabilities.supports_sampling:
+                if sampled_handle is None:
+                    sampled_handle = SampledDataHandle(
+                        context.handle,
+                        sample_size,
+                        seed=config.sampling.seed,
+                        method=config.sampling.method,
+                    )
+                det_context = context.with_handle(sampled_handle)
+                sampling_info = SamplingInfo(
+                    sampled=True,
+                    method=config.sampling.method,
+                    sample_size=min(sample_size, full_count),
+                    full_size=full_count,
+                    generalizable=config.sampling.generalizable,
+                )
+            run = self._run_detector(detector, det_context, scan_run_id)
+            run.sampling = sampling_info
             runs.append(run)
             if run.status == "completed":
-                candidates.extend(detector.detect(context))
+                candidates.extend(detector.detect(det_context))
         if config.custom_rules:
             runs.append(
                 self._run_contract_rules(context, config.custom_rules, candidates, scan_run_id)
             )
-        fused = self._fusion.fuse(candidates, scan_run_id, row_count=context.handle.count_rows())
+        fused = self._fusion.fuse(candidates, scan_run_id, row_count=full_count)
         issues = [self._scoring.apply(issue) for issue in fused]
         return runs, issues
 
