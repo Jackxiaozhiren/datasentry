@@ -187,6 +187,39 @@ class TestHtml:
             assert f'id="{section}"' in html
 
 
+class TestNavAndLinkage:
+    def test_sticky_nav_lists_all_sections(self) -> None:
+        html = render_html(_report())
+        assert '<nav class="report-nav" id="report-nav"' in html
+        for section in HTML_SECTIONS:
+            assert f'href="#{section}"' in html
+
+    def test_score_bar_dimensions_clickable(self) -> None:
+        html = render_html(_report())
+        for dim in ("validity", "uniqueness"):
+            assert f'data-dim-link="{dim}"' in html
+        assert 'role="button"' in html and 'tabindex="0"' in html
+        assert 'class="score-dim"' in html
+
+    def test_critical_findings_link_to_issue_rows(self) -> None:
+        html = render_html(_report())
+        findings = critical_findings(_report())
+        assert findings
+        for issue in findings:
+            assert (
+                f'class="finding-link" href="#issue_breakdown" '
+                f'data-issue-id="{issue["id"]}"' in html
+            )
+
+    def test_linkage_script_and_back_to_top(self) -> None:
+        html = render_html(_report())
+        assert 'id="back-to-top"' in html
+        assert 'closest("[data-dim-link]")' in html
+        assert 'closest(".finding-link")' in html
+        assert 'byId("report-nav")' in html
+        assert "issues._render" in html
+
+
 class TestPiiMasking:
     def test_mask_text_pii_basic(self) -> None:
         from datasentry_core.reporting import mask_text_pii

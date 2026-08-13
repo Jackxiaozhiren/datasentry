@@ -8,6 +8,7 @@ import pytest
 
 from datasentry_core.reporting.interactive import (
     filter_issues,
+    find_issue_by_id,
     issue_rows,
     json_script,
     paginate,
@@ -223,6 +224,18 @@ class TestPaginate:
         assert len(page) == 3 and total_pages == 1 and total == 3
 
 
+class TestFindIssueById:
+    def test_found(self) -> None:
+        assert find_issue_by_id(_rows(), "b")["title"] == "Outlier in amount"
+
+    def test_not_found_returns_none(self) -> None:
+        assert find_issue_by_id(_rows(), "zzz") is None
+
+    def test_first_match_wins_with_duplicate_ids(self) -> None:
+        rows = [*_rows(), _row("b", title="duplicate id")]
+        assert find_issue_by_id(rows, "b")["affected"] == 5
+
+
 class TestJsonScript:
     def test_script_close_injection_escaped(self) -> None:
         payload = {"title": "</script><script>alert(1)</script>"}
@@ -305,6 +318,20 @@ class TestInteractiveTable:
         html = render_interactive_issue_table(report)
         assert 'id="issue-table"' in html
         assert '"issues":[]' in html
+
+    def test_rows_carry_issue_id_marker(self) -> None:
+        html = render_interactive_issue_table(_report())
+        assert 'tr.setAttribute("data-issue-id", r.id)' in html
+
+    def test_expand_collapse_all_buttons_wired(self) -> None:
+        html = render_interactive_issue_table(_report())
+        assert 'id="btn-expand-all"' in html and 'id="btn-collapse-all"' in html
+        assert 'getElementById("btn-expand-all")' in html
+        assert 'getElementById("btn-collapse-all")' in html
+
+    def test_render_export_for_linkage_script(self) -> None:
+        html = render_interactive_issue_table(_report())
+        assert 'getElementById("issues")._render = render' in html
 
 
 class TestPiiAndInjection:

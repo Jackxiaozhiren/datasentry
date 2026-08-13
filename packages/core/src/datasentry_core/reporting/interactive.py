@@ -1,9 +1,12 @@
 """HTML 报告交互层（Step 49，V2-B：severity/维度筛选、列排序、详情折叠、分页、迷你趋势图）。
 
+Step 60（V6，ADR-060）：行级 `data-issue-id` 定位锚、全部展开/收起、联动出口
+`#issues._render`（供 html.py 的内联联动脚本聚焦问题行 / 应用维度筛选）。
+
 设计（ADR-049）：
 - 交互逻辑在浏览器端：原生 JS 零依赖，全部内联（无外链、离线可用）；
-- 同名 Python 纯函数（filter/sort/paginate）提供可测语义，与 JS 行为一一对应，
-  作为快照与单测的断言参照（验收：筛选/排序/分页均有测试覆盖）；
+- 同名 Python 纯函数（filter/sort/paginate/find_issue_by_id）提供可测语义，
+  与 JS 行为一一对应，作为快照与单测的断言参照（验收：筛选/排序/分页均有测试覆盖）；
 - 动态数据经 `json_script` 内嵌（`<`/`>`/`&` → `\\uXXXX`），杜绝 `</script>` 注入；
   JS 只以 `textContent` 写单元格，服务端数据已 PII 掩码（Step 48），双保险；
 - 报告仍是审计产物：元数据/证据链保留，JS 仅视图增强；
@@ -126,6 +129,7 @@ _INTERACTIVE_JS = """(function () {
     page.forEach(function (r) {
       var tr = document.createElement("tr");
       tr.className = "issue-row";
+      tr.setAttribute("data-issue-id", r.id);
       var sevClass = SEV_CLASS[r.severity] || "badge-info";
       tr.appendChild(cell(r.severity, sevClass));
       tr.appendChild(cell(r.priority.toFixed(1)));
@@ -177,6 +181,21 @@ _INTERACTIVE_JS = """(function () {
   document.getElementById("pg-next").addEventListener("click", function () {
     state.page += 1; render();
   });
+  document.getElementById("issues")._render = render;
+  var btnExpand = document.getElementById("btn-expand-all");
+  var btnCollapse = document.getElementById("btn-collapse-all");
+  if (btnExpand) {
+    btnExpand.addEventListener("click", function () {
+      var details = tbody.querySelectorAll(".issue-detail");
+      Array.prototype.forEach.call(details, function (d) { d.classList.remove("collapsed"); });
+    });
+  }
+  if (btnCollapse) {
+    btnCollapse.addEventListener("click", function () {
+      var details = tbody.querySelectorAll(".issue-detail");
+      Array.prototype.forEach.call(details, function (d) { d.classList.add("collapsed"); });
+    });
+  }
   render();
 })();"""
 
@@ -261,6 +280,14 @@ def paginate(
     return rows[start : start + page_size], total_pages, total
 
 
+def find_issue_by_id(rows: list[dict[str, Any]], issue_id: str) -> dict[str, Any] | None:
+    """与 JS 行定位同语义：按视图模型 id 查找（供发现清单等外部联动链接定位）。"""
+    for row in rows:
+        if row["id"] == issue_id:
+            return row
+    return None
+
+
 def json_script(payload: Any) -> str:
     """安全内嵌 JSON：`<`/`>`/`&` → \\uXXXX，杜绝 `</script>` 提前闭合标签。"""
     return (
@@ -334,6 +361,8 @@ def render_interactive_issue_table(
         f"{dimension_options}</select>"
         '<input id="f-search" type="search" '
         'placeholder="search title / columns / detectors" aria-label="search issues">'
+        '<button id="btn-expand-all" type="button">expand all</button>'
+        '<button id="btn-collapse-all" type="button">collapse all</button>'
         '<span id="issue-count" class="meta"></span>'
         "</div>"
         '<table id="issue-table">'
@@ -360,6 +389,7 @@ def render_interactive_issue_table(
 __all__ = [
     "SEVERITY_ORDER",
     "filter_issues",
+    "find_issue_by_id",
     "issue_rows",
     "json_script",
     "paginate",

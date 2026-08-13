@@ -89,7 +89,7 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
 ## 路线图
 
 - **V1 已完成（0.1.0）**：MVP M1–M9 全达成 —— 36+ 检测器 / 融合评分 / 门禁 / 修复闭环 / 报告 / 契约 / API+UI / Docker+CI / M9 Demo / LLM 辅助规则（脱敏+审批） / 插件 API v1 / 发布工程
-- **V2 方向**：云侧调度与协作、报告 HTML 交互增强、加密存储的 PII 还原、插件生态治理
+- **V2 方向**：云侧调度与协作、报告 HTML 交互增强（已落地：Step 49 交互表 / Step 60 联动导航）、加密存储的 PII 还原、插件生态治理
 
 ---
 
@@ -221,7 +221,7 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 
 ## 报告引擎与质量门禁（Step 12，26/22 章 + ADR-014）
 
-- `reporting/`：`build_report()` = 26.2 规范 JSON 报告（报告头 + scan + detector_runs + issues + quality），SDK `export_report()` 与 CLI `report export --as json` 无差异消费；Markdown 表格化摘要（26.1）、HTML 自包含单文件（内嵌 CSS，8 节：Executive Summary/Quality Score 含 27.3 维度条形图与扣分悬停/Issue Breakdown/Critical Findings 等，Drift/规则/修复历史归 V1）
+- `reporting/`：`build_report()` = 26.2 规范 JSON 报告（报告头 + scan + detector_runs + issues + quality），SDK `export_report()` 与 CLI `report export --as json` 无差异消费；Markdown 表格化摘要（26.1）、HTML 自包含单文件（内嵌 CSS，8 节：Executive Summary/Quality Score 含 27.3 维度条形图与扣分悬停/Issue Breakdown/Critical Findings 等，Drift/规则/修复历史归 V1）；Step 49/60（ADR-049/060）交互增强：Issue Breakdown 交互表（severity/维度筛选、排序、搜索、详情折叠、分页）+ expand/collapse all + 评分条钻取（`data-dim-link` 联动维度筛选）/ 发现定位（`.finding-link[data-issue-id]` 聚焦高亮）/ 粘性导航 scrollspy + 回到顶部 —— 原生 JS 内联零依赖、事件委托、`#issues._render` 联动契约、无 JS 降级锚点跳转
 - 报告默认落点 `<workspace>/.datasentry/reports/<run_id>.<ext>`（ADR-010），`--output` 可覆盖；HTML 全字段转义（XSS 安全）
 - `scoring/gate.py`：`QualityGateEvaluator`（22 章场景 C）——`fail_on` 精确严重度集合、`maximum_failed_rows_ratio`（受影响行比例上限，max over issues）、`maximum_issues` 按严重度上限；`require_repair_validation` MVP 不支持时显式失败
 - CLI：`scan --fail-on SEV [--max-failure-ratio R]` 激活门禁，失败退出码 1；`report export RUN_ID --as json|markdown|html|junit|sarif [--output PATH]`（Step 36：JUnit 每 issue 一个 failure testcase、SARIF 2.1.0 rules+results，CI 集成格式）

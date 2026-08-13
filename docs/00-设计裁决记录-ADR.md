@@ -1644,3 +1644,35 @@
   lookup_secret（错误文案同步）；cli.py 新增 secrets 子命令族；
   测试 19 例单测 + 连接器回落 4 例 + CLI 7 例；README 凭据一节；
   DEVELOPMENT.md 章节。
+
+## ADR-060：报告内部联动与导航增强（V6，Step 60）
+
+- **状态**：已确认（Step 60, V6）
+- **背景**：Step 49（ADR-049）的交互表已覆盖筛选/排序/搜索/分页/折叠，但跨区块
+  联动为零——评分条维度只能悬停看扣分构成、Critical Findings 与问题表无关联、
+  章节导航仅 footer 锚点、表格缺全局展开/收起。大报告里「评分 → 扣分明细 →
+  定位问题」需要多次手动操作。
+- **决策**：
+  1. **联动契约（原生 JS 内联零依赖，事件委托）**：评分条维度段带
+     `data-dim-link`（role=button + tabindex=0，Enter/空格等效）→ 设置维度
+     筛选并滚动定位；Critical Findings 条目包 `.finding-link[data-issue-id]`
+     锚点 → 聚焦定位（清空筛选 → 重绘 → 展开详情 → 高亮 4s → 居中滚动）；
+     交互表导出 `#issues._render` 供联动脚本重绘；脚本缺席时静默降级为普通
+     锚点跳转。
+  2. **行级锚点与语义参照**：交互表行带 `data-issue-id`；Python 纯函数
+     `find_issue_by_id` 与 JS 行定位同语义（延续 ADR-049「纯函数 = JS 行为
+     参照」可测模式）。
+  3. **导航**：粘性 `.report-nav`（HTML_SECTIONS 7 节目录）+ scrollspy 高亮
+     当前章节 + `#back-to-top`（滚动 >600px 出现）；`h2` 设
+     `scroll-margin-top` 防导航遮挡。
+  4. **表格工具**：`expand all` / `collapse all` 按钮（切换 tbody 内
+     `.issue-detail` 的 collapsed 类）。
+- **理由**：全部沿用 ADR-049 的零依赖内联与可测参照模式，不引入新依赖；
+  事件委托保证脚本顺序无关（联动脚本在 body 尾、表脚本在表格节内）；降级
+  路径保证无 JS 环境锚点跳转仍可用；联动语义均为声明式 data 属性 + 纯函数，
+  渲染测试可直接断言。
+- **影响**：html.py（`_LINKAGE_JS`/`_report_nav`/`_back_to_top`/评分条
+  `data-dim-link`/findings 链接/CSS）；interactive.py（行级 `data-issue-id`、
+  expand/collapse、`#issues._render` 导出、`find_issue_by_id`）；测试新增
+  10 例（纯函数 3 + 表标记 3 + 导航/联动 4）；CHANGELOG [Unreleased]；
+  DEVELOPMENT.md reporting 段与 V2 方向标注；docs/V6_DEV_PROMPT.md。

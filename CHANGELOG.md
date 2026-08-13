@@ -4,6 +4,25 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+V6 报告交互增强进行中（目标版本待定，阶段收尾统一升版）。
+
+### 新增（Step 60，报告内部联动与导航，ADR-060）
+
+- **评分条钻取**：Quality Score 维度条可点击/键盘触发（`data-dim-link`，
+  role=button + Enter/空格等效）→ 自动应用维度筛选并滚动定位到 Issue
+  Breakdown；扣分构成悬停提示保持不变
+- **发现定位**：Critical Findings 条目点击 → 清空筛选、展开详情行、高亮
+  4 秒并居中滚动到对应问题行（`data-issue-id` 行级锚点）
+- **导航**：粘性章节导航（scrollspy 高亮当前章节）+ 回到顶部按钮（滚动
+  超 600px 出现）；`h2` 设 scroll-margin-top 防导航遮挡
+- **表格工具**：Issue Breakdown 新增 expand all / collapse all 一键
+  展开/收起全部详情行
+- 实现延续 Step 49（ADR-049）风格：原生 JS 内联零依赖、事件委托
+  （脚本顺序无关）、无 JS 时降级为锚点跳转；新增 Python 纯函数
+  `find_issue_by_id` 作为 JS 行定位的语义参照
+
 ## [0.7.0] - 2026-08-12
 
 V5 多数据源：MySQL 数据源连接器 + 云存储文件源连接器 + 分层增量指纹 +
