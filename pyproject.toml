@@ -93,6 +93,8 @@ ignore = ["RUF002", "RUF003"]
 "examples/demo/*" = ["RUF001"]
 # UI 模板含 × 排版字符（行×列），属有意为之
 "src/datasentry/ui.py" = ["RUF001"]
+# i18n 翻译字典含中文全角标点，属有意为之（ADR-069）
+"packages/core/src/datasentry_core/reporting/i18n.py" = ["RUF001"]
 
 [tool.mypy]
 python_version = "3.12"

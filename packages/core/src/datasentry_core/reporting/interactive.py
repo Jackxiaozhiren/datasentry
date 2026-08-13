@@ -21,6 +21,7 @@ from html import escape
 from typing import Any
 
 from datasentry_core.reporting import Report, mask_text_pii
+from datasentry_core.reporting.i18n import t
 from datasentry_core.reporting.suggestions import suggest_repairs
 
 SEVERITY_ORDER = ("critical", "high", "medium", "low", "info")
@@ -36,6 +37,8 @@ _INTERACTIVE_JS = """(function () {
   var pageSize = data.pageSize || 25;
   var runId = data.runId || "";
   var baseUrl = data.serverBaseUrl || null;
+  var L = data.labels || {};
+  function l(key, fallback) { return L[key] !== undefined ? L[key] : fallback; }
   var SEV = {critical: 0, high: 1, medium: 2, low: 3, info: 4};
   var SEV_CLASS = {
     critical: "badge-critical", high: "badge-high", medium: "badge-medium",
@@ -89,21 +92,28 @@ _INTERACTIVE_JS = """(function () {
     var td = document.createElement("td");
     td.colSpan = 6;
     var lines = [];
-    lines.push(r.description ? "Description: " + r.description : "No description.");
-    lines.push("Confidence: " + r.confidence.toFixed(2) +
-               " - false-positive risk: " + (r.falsePositiveRisk || "n/a"));
-    lines.push("Affected rows: " + r.affected + " (" + (r.affectedRatio * 100).toFixed(2) + "%)");
+    lines.push((r.description
+                   ? l("detail.description", "Description: ")
+                   : l("detail.no_description", "No description.")) + (r.description || ""));
+    lines.push(l("detail.confidence", "Confidence: ") + r.confidence.toFixed(2) +
+               " - " + l("detail.false_positive_risk", "false-positive risk: ") +
+               (r.falsePositiveRisk || "n/a"));
+    lines.push(l("detail.affected_rows", "Affected rows: ") + r.affected +
+               " (" + (r.affectedRatio * 100).toFixed(2) + "%)");
     var ids = r.affectedRowIds || [];
-    if (ids.length) { lines.push("Row ids (first 10): " + ids.slice(0, 10).join(", ")); }
+    if (ids.length) {
+      lines.push(l("detail.row_ids", "Row ids (first 10): ") +
+                 ids.slice(0, 10).join(", "));
+    }
     var sugs = r.suggestions || [];
     if (sugs.length) {
-      lines.push("Repair suggestions:");
+      lines.push(l("detail.suggestions", "Repair suggestions:"));
       sugs.forEach(function (s) {
         lines.push("  - [" + s.operation + "] " + s.label +
                    " (risk: " + (s.risk || "n/a") + "): " + s.rationale);
       });
     } else {
-      lines.push("No built-in repair suggestion for this issue type.");
+      lines.push(l("detail.no_suggestion", "No built-in repair suggestion for this issue type."));
     }
     td.textContent = lines.join("\\n");
     td.style.whiteSpace = "pre-line";
@@ -117,9 +127,9 @@ _INTERACTIVE_JS = """(function () {
     state.page = Math.max(1, Math.min(state.page, totalPages));
     var start = (state.page - 1) * pageSize;
     var page = rows.slice(start, start + pageSize);
-    countEl.textContent = rows.length + " issue(s)";
+    countEl.textContent = rows.length + " " + l("table.issue_count_suffix", "issue(s)");
     pgInfo.textContent = (rows.length ? (start + 1) + "-" + (start + page.length) : "0")
-      + " / " + rows.length + " - page " + state.page + "/" + totalPages;
+      + " / " + rows.length + " - " + l("table.page", "page") + " " + state.page + "/" + totalPages;
     headers.forEach(function (th) {
       th.classList.remove("sorted-asc", "sorted-desc");
       if (th.getAttribute("data-key") === state.key) {
@@ -132,7 +142,7 @@ _INTERACTIVE_JS = """(function () {
       var emptyTd = document.createElement("td");
       emptyTd.colSpan = 6;
       emptyTd.className = "meta";
-      emptyTd.textContent = "no issues";
+      emptyTd.textContent = l("table.no_issues", "no issues");
       empty.appendChild(emptyTd);
       tbody.appendChild(empty);
       return;
@@ -149,7 +159,7 @@ _INTERACTIVE_JS = """(function () {
         var a = document.createElement("a");
         a.href = baseUrl + "/ui/scans/" + encodeURIComponent(runId) +
                  "/issues/" + encodeURIComponent(r.id);
-        a.textContent = "workbench";
+        a.textContent = l("table.workbench", "workbench");
         a.className = "workbench-link";
         titleTd.appendChild(a);
       }
@@ -310,7 +320,13 @@ def json_script(payload: Any) -> str:
     )
 
 
-def render_trend_svg(trend: dict[str, Any], *, width: int = 260, height: int = 60) -> str:
+def render_trend_svg(
+    trend: dict[str, Any],
+    *,
+    width: int = 260,
+    height: int = 60,
+    lang: str = "en",
+) -> str:
     """单个数据集趋势 → 迷你 SVG 折线图（trends.py 序列化结构，离线内联）。"""
     points = trend.get("points") or []
     dataset = escape(str(trend.get("dataset_id") or "dataset"))
@@ -333,13 +349,38 @@ def render_trend_svg(trend: dict[str, Any], *, width: int = 260, height: int = 6
         )
     return (
         '<div class="trend-block">'
-        f'<p class="meta"><strong>{dataset}</strong> &mdash; {len(points)} completed scans</p>'
+        f'<p class="meta"><strong>{dataset}</strong> &mdash; {len(points)} '
+        f"{escape(t(lang, 'trend.completed_scans'))}</p>"
         f'<svg class="trend-svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}" '
-        f'role="img" aria-label="{dataset} quality trend">'
+        f'role="img" aria-label="{dataset} {escape(t(lang, "trend.aria"))}">'
         f'<polyline points="{" ".join(coords)}" fill="none" class="trend-line" stroke-width="1.6"/>'
         + "".join(dots)
         + "</svg></div>"
     )
+
+
+def _issue_labels(lang: str) -> dict[str, str]:
+    """交互表的框架文案（服务端静态部分 + JS 动态部分，ADR-069 本地化）。"""
+    return {
+        "table.severity": t(lang, "table.severity"),
+        "table.priority": t(lang, "table.priority"),
+        "table.title": t(lang, "table.title"),
+        "table.columns": t(lang, "table.columns"),
+        "table.detectors": t(lang, "table.detectors"),
+        "table.affected": t(lang, "table.affected"),
+        "table.issue_count_suffix": t(lang, "table.issue_count_suffix"),
+        "table.page": t(lang, "table.page"),
+        "table.no_issues": t(lang, "table.no_issues"),
+        "table.workbench": t(lang, "table.workbench"),
+        "detail.description": t(lang, "detail.description"),
+        "detail.no_description": t(lang, "detail.no_description"),
+        "detail.confidence": t(lang, "detail.confidence"),
+        "detail.false_positive_risk": t(lang, "detail.false_positive_risk"),
+        "detail.affected_rows": t(lang, "detail.affected_rows"),
+        "detail.row_ids": t(lang, "detail.row_ids"),
+        "detail.suggestions": t(lang, "detail.suggestions"),
+        "detail.no_suggestion": t(lang, "detail.no_suggestion"),
+    }
 
 
 def render_interactive_issue_table(
@@ -347,6 +388,7 @@ def render_interactive_issue_table(
     *,
     page_size: int = 25,
     server_base_url: str | None = None,
+    lang: str = "en",
 ) -> str:
     """Issue Breakdown 交互容器：控制条 + 可排序表格 + 分页 + 内联数据 JSON + 原生 JS。"""
     rows = issue_rows(report)
@@ -356,40 +398,43 @@ def render_interactive_issue_table(
         "pageSize": page_size,
         "runId": report["scan_run_id"],
         "serverBaseUrl": server_base_url,
+        "labels": _issue_labels(lang),
     }
     severity_options = "".join(f'<option value="{s}">{s}</option>' for s in SEVERITY_ORDER)
     dimension_options = "".join(
         f'<option value="{escape(d)}">{escape(d)}</option>' for d in dimensions
     )
     return (
-        '<h2 id="issue_breakdown">Issue Breakdown</h2>'
+        f'<h2 id="issue_breakdown">{escape(t(lang, "section.issue_breakdown"))}</h2>'
         '<div id="issues">'
         '<div class="issue-controls">'
-        '<select id="f-severity" aria-label="filter by severity">'
-        '<option value="all">all severities</option>'
+        f'<select id="f-severity" aria-label="{escape(t(lang, "filter.severity_aria"))}">'
+        f'<option value="all">{escape(t(lang, "filter.all_severities"))}</option>'
         f"{severity_options}</select>"
-        '<select id="f-dimension" aria-label="filter by dimension">'
-        '<option value="all">all dimensions</option>'
+        f'<select id="f-dimension" aria-label="{escape(t(lang, "filter.dimension_aria"))}">'
+        f'<option value="all">{escape(t(lang, "filter.all_dimensions"))}</option>'
         f"{dimension_options}</select>"
-        '<input id="f-search" type="search" '
-        'placeholder="search title / columns / detectors" aria-label="search issues">'
-        '<button id="btn-expand-all" type="button">expand all</button>'
-        '<button id="btn-collapse-all" type="button">collapse all</button>'
+        f'<input id="f-search" type="search" '
+        f'placeholder="{escape(t(lang, "filter.search_placeholder"))}" '
+        f'aria-label="{escape(t(lang, "filter.search_aria"))}">'
+        f'<button id="btn-expand-all" type="button">{escape(t(lang, "filter.expand_all"))}</button>'
+        f'<button id="btn-collapse-all" type="button">'
+        f"{escape(t(lang, 'filter.collapse_all'))}</button>"
         '<span id="issue-count" class="meta"></span>'
         "</div>"
         '<table id="issue-table">'
         "<thead><tr>"
-        '<th data-key="severity">Severity</th>'
-        '<th data-key="priority">Priority</th>'
-        '<th data-key="title">Title</th>'
-        "<th>Columns</th><th>Detectors</th>"
-        '<th data-key="affected">Affected</th>'
+        f'<th data-key="severity">{escape(t(lang, "table.severity"))}</th>'
+        f'<th data-key="priority">{escape(t(lang, "table.priority"))}</th>'
+        f'<th data-key="title">{escape(t(lang, "table.title"))}</th>'
+        f"<th>{escape(t(lang, 'table.columns'))}</th><th>{escape(t(lang, 'table.detectors'))}</th>"
+        f'<th data-key="affected">{escape(t(lang, "table.affected"))}</th>'
         "</tr></thead>"
         '<tbody id="issue-tbody"></tbody>'
         "</table>"
         '<div class="issue-pager">'
-        '<button id="pg-prev" type="button">&larr; prev</button>'
-        '<button id="pg-next" type="button">next &rarr;</button>'
+        f'<button id="pg-prev" type="button">&larr; {escape(t(lang, "pager.prev"))}</button>'
+        f'<button id="pg-next" type="button">{escape(t(lang, "pager.next"))} &rarr;</button>'
         '<span id="pg-info" class="meta"></span>'
         "</div>"
         "</div>"

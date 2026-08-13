@@ -51,6 +51,7 @@ from datasentry.scheduler.models import (
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
 from datasentry_core.models.scan import DetectorRun, ScanConfig, ScanRun
+from datasentry_core.reporting.i18n import t as _t
 
 
 class ScanRequest(BaseModel):
@@ -250,7 +251,11 @@ def create_app(project: str | Path | None = None) -> FastAPI:
         return score.model_dump()
 
     @app.get("/scans/{run_id}/report.html", response_class=HTMLResponse, tags=["ui"])
-    def ui_report_html(run_id: str, request: Request) -> HTMLResponse:
+    def ui_report_html(
+        run_id: str,
+        request: Request,
+        lang: str = Query(default="en"),
+    ) -> HTMLResponse:
         """交互式 HTML 报告（Step 49，V2-B）：server 模式注入工作台联动与趋势数据。"""
         from datasentry.trends import build_comparison, build_trends
         from datasentry_core.reporting.html import render_html
@@ -271,6 +276,7 @@ def create_app(project: str | Path | None = None) -> FastAPI:
                 server_base_url=base,
                 profiles=profiles,
                 comparison=comparison,
+                lang=lang,
             )
         )
 
@@ -368,36 +374,45 @@ def create_app(project: str | Path | None = None) -> FastAPI:
 
     @app.get("/ui", response_class=HTMLResponse, tags=["ui"])
     @app.get("/ui/", response_class=HTMLResponse, tags=["ui"])
-    def ui_home() -> HTMLResponse:
-        return HTMLResponse(ui.render_home(client.list_scan_runs()))
+    def ui_home(lang: str = Query(default="en")) -> HTMLResponse:
+        return HTMLResponse(ui.render_home(client.list_scan_runs(), lang=lang))
 
     @app.post("/ui/scans", response_class=HTMLResponse, tags=["ui"])
     def ui_create_scan(path: str = Form()) -> Response:
         try:
             scan, _runs, _issues = client.scan_file(path)
         except Exception as exc:
-            return HTMLResponse(ui.render_error("Scan failed", str(exc)), status_code=404)
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.scan_failed"), str(exc)), status_code=404
+            )
         return RedirectResponse(url=f"/ui/scans/{scan.id}", status_code=303)
 
     @app.get("/ui/scans", response_class=HTMLResponse, tags=["ui"])
-    def ui_scans_list() -> HTMLResponse:
-        return HTMLResponse(ui.render_home(client.list_scan_runs()))
+    def ui_scans_list(lang: str = Query(default="en")) -> HTMLResponse:
+        return HTMLResponse(ui.render_home(client.list_scan_runs(), lang=lang))
 
     @app.get("/ui/trends", response_class=HTMLResponse, tags=["ui"])
-    def ui_trends() -> HTMLResponse:
+    def ui_trends(lang: str = Query(default="en")) -> HTMLResponse:
         from datasentry.trends import build_trends
 
-        return HTMLResponse(ui.render_trends(build_trends(client.list_scan_runs())))
+        return HTMLResponse(ui.render_trends(build_trends(client.list_scan_runs()), lang=lang))
 
     @app.get("/ui/scans/{run_id}", response_class=HTMLResponse, tags=["ui"])
-    def ui_scan_detail(run_id: str, severity: str | None = Query(default=None)) -> HTMLResponse:
+    def ui_scan_detail(
+        run_id: str,
+        severity: str | None = Query(default=None),
+        lang: str = Query(default="en"),
+    ) -> HTMLResponse:
         scan = client.get_scan(run_id)
         if scan is None:
             return HTMLResponse(
-                ui.render_error("Scan not found", f"scan run: {run_id}"), status_code=404
+                ui.render_error(_t("en", "ui.scan_not_found"), f"scan run: {run_id}", lang=lang),
+                status_code=404,
             )
         issues = client.list_issues(scan_run_id=run_id, severity_at_least=severity)
-        return HTMLResponse(ui.render_scan_detail(scan, issues, severity_filter=severity))
+        return HTMLResponse(
+            ui.render_scan_detail(scan, issues, severity_filter=severity, lang=lang)
+        )
 
     @app.get(
         "/ui/scans/{run_id}/issues/{issue_id}",
@@ -407,7 +422,9 @@ def create_app(project: str | Path | None = None) -> FastAPI:
     def ui_workbench(run_id: str, issue_id: str) -> HTMLResponse:
         issue = _get_issue(client, issue_id)
         if issue is None:
-            return HTMLResponse(ui.render_error("Issue not found", issue_id), status_code=404)
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.issue_not_found"), issue_id), status_code=404
+            )
         return HTMLResponse(ui.render_workbench(issue, run_id=run_id))
 
     @app.post(
@@ -423,7 +440,9 @@ def create_app(project: str | Path | None = None) -> FastAPI:
     ) -> HTMLResponse:
         issue = _get_issue(client, issue_id)
         if issue is None:
-            return HTMLResponse(ui.render_error("Issue not found", issue_id), status_code=404)
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.issue_not_found"), issue_id), status_code=404
+            )
         error: str | None = None
         proposal: RepairProposal | None = None
         preview: RepairPreview | None = None
@@ -464,7 +483,9 @@ def create_app(project: str | Path | None = None) -> FastAPI:
         try:
             client.repair_rollback(repair_run_id)
         except Exception as exc:
-            return HTMLResponse(ui.render_error("Rollback failed", str(exc)), status_code=404)
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.rollback_failed"), str(exc)), status_code=404
+            )
         return RedirectResponse(url=f"/ui/scans/{run_id}", status_code=303)
 
     # ---- 计划任务（Step 51，V2-D 云侧调度） --------------------------------

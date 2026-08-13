@@ -134,6 +134,23 @@ class TestApiApp:
         assert "serverBaseUrl" in html  # server 模式注入工作台联动
         assert "<link" not in html and "<script src=" not in html
 
+    def test_report_html_lang_zh(self, tmp_path: Path) -> None:
+        csv = _sample_csv(tmp_path)
+        client = TestClient(create_app(project=tmp_path))
+        run_id = client.post("/scans", json={"path": str(csv)}).json()["run"]["id"]
+        resp = client.get(f"/scans/{run_id}/report.html", params={"lang": "zh"})
+        assert resp.status_code == 200
+        assert "数据质量报告" in resp.text
+
+    def test_report_html_lang_invalid_falls_back_en(self, tmp_path: Path) -> None:
+        csv = _sample_csv(tmp_path)
+        client = TestClient(create_app(project=tmp_path))
+        run_id = client.post("/scans", json={"path": str(csv)}).json()["run"]["id"]
+        resp = client.get(f"/scans/{run_id}/report.html", params={"lang": "fr"})
+        assert resp.status_code == 200  # 未知语言回退 en
+        assert "DataSentry Data Quality Report" in resp.text
+        assert "数据质量报告" not in resp.text
+
 
 class TestRepairApi:
     def test_repair_propose_apply_rollback(self, tmp_path: Path) -> None:

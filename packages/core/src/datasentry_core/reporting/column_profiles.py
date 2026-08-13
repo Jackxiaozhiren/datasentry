@@ -12,9 +12,11 @@ JS 行为语义参照（可测）；交互逻辑原生 JS 零依赖内联；动�
 
 from __future__ import annotations
 
+from html import escape
 from typing import Any
 
 from datasentry_core.reporting import mask_text_pii
+from datasentry_core.reporting.i18n import t
 from datasentry_core.reporting.interactive import json_script
 
 SORTABLE_KEYS = frozenset({"name", "null", "unique", "distinct", "mean", "median", "std"})
@@ -23,6 +25,8 @@ _PROFILES_JS = """(function () {
   "use strict";
   var data = JSON.parse(document.getElementById("profiles-data").textContent);
   var columns = data.columns || [];
+  var L = data.labels || {};
+  function l(key, fallback) { return L[key] !== undefined ? L[key] : fallback; }
   var state = {key: "null", reverse: true};
   var tbody = document.getElementById("profiles-tbody");
   var headers = Array.prototype.slice.call(
@@ -60,8 +64,10 @@ _PROFILES_JS = """(function () {
       var typeTd = cell(c.physicalType || "-", "meta");
       nameTd.appendChild(typeTd);
       tr.appendChild(nameTd);
-      tr.appendChild(cell(c.semanticType || "unknown", "badge-semantic"));
-      tr.appendChild(cell(c.containsPii ? "pii" : "no", c.containsPii ? "badge-pii" : "meta"));
+      tr.appendChild(cell(c.semanticType || l("profiles.semantic_unknown", "unknown"),
+                          "badge-semantic"));
+      tr.appendChild(cell(c.containsPii ? l("profiles.pii_yes", "pii") : l("profiles.pii_no", "no"),
+                          c.containsPii ? "badge-pii" : "meta"));
       var nullTd = document.createElement("td");
       var track = document.createElement("span");
       track.className = "profiles-bar-track";
@@ -155,25 +161,32 @@ def sort_profiles(
     return sorted(rows, key=lambda r: r[key], reverse=reverse)
 
 
-def render_column_profiles(data: dict[str, Any]) -> str:
+def render_column_profiles(data: dict[str, Any], *, lang: str = "en") -> str:
     """Column Profiles 交互容器：可排序表 + 迷你空值条 + 语义/PII 徽标 + top 类别。"""
     rows = profile_rows(data)
-    payload = {"columns": rows}
+    payload = {
+        "columns": rows,
+        "labels": {
+            "profiles.semantic_unknown": t(lang, "profiles.semantic_unknown"),
+            "profiles.pii_yes": t(lang, "profiles.pii_yes"),
+            "profiles.pii_no": t(lang, "profiles.pii_no"),
+        },
+    }
     return (
         '<div id="profiles">'
         '<table id="profiles-table">'
         "<thead><tr>"
-        '<th data-key="name">Column</th>'
-        "<th>Semantic</th><th>PII</th>"
-        '<th data-key="null">Null</th>'
-        '<th data-key="unique">Unique</th>'
-        '<th data-key="distinct">Distinct</th>'
-        "<th>Min</th>"
-        '<th data-key="median">Median</th>'
-        '<th data-key="mean">Mean</th>'
-        "<th>Max</th>"
-        '<th data-key="std">Std</th>'
-        "<th>Top categories</th>"
+        f'<th data-key="name">{escape(t(lang, "profiles.column"))}</th>'
+        f"<th>{escape(t(lang, 'profiles.semantic'))}</th><th>{escape(t(lang, 'profiles.pii'))}</th>"
+        f'<th data-key="null">{escape(t(lang, "profiles.null"))}</th>'
+        f'<th data-key="unique">{escape(t(lang, "profiles.unique"))}</th>'
+        f'<th data-key="distinct">{escape(t(lang, "profiles.distinct"))}</th>'
+        f"<th>{escape(t(lang, 'profiles.min'))}</th>"
+        f'<th data-key="median">{escape(t(lang, "profiles.median"))}</th>'
+        f'<th data-key="mean">{escape(t(lang, "profiles.mean"))}</th>'
+        f"<th>{escape(t(lang, 'profiles.max'))}</th>"
+        f'<th data-key="std">{escape(t(lang, "profiles.std"))}</th>'
+        f"<th>{escape(t(lang, 'profiles.top_categories'))}</th>"
         "</tr></thead>"
         '<tbody id="profiles-tbody"></tbody>'
         "</table>"

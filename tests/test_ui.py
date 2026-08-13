@@ -34,6 +34,14 @@ class TestUiPages:
         assert "No scans yet" in resp.text
         assert "New scan" in resp.text
 
+    def test_home_lang_zh_nav(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        resp = client.get("/ui/", params={"lang": "zh"})
+        assert resp.status_code == 200
+        assert "首页" in resp.text  # zh 导航文案（ADR-069）
+        assert "新扫描" in resp.text
+        assert "工作区概览" in resp.text
+
     def test_home_shows_scans_after_scan(self, tmp_path: Path) -> None:
         client = TestClient(create_app(project=tmp_path))
         run_id = _scan(client, tmp_path)

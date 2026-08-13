@@ -243,7 +243,7 @@ class TestRenderHtmlIntegration:
         assert '<h2 id="column_profiles">Column Profiles</h2>' in html
         assert 'href="#column_profiles"' in html
         assert '<div id="profiles">' in html
-        assert html.index('id="column_profiles"') < html.index("Column Profiles")
+        assert html.index('href="#column_profiles"') < html.index('id="column_profiles"')
 
     def test_without_profiles_no_section(self) -> None:
         html = render_html(_report())

@@ -20,6 +20,7 @@ from datasentry_core.models.issue import Issue
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
 from datasentry_core.models.scan import ScanRun
 from datasentry_core.reporting import mask_text_pii
+from datasentry_core.reporting.i18n import t
 
 _CSS = """
 :root { color-scheme: light; }
@@ -82,30 +83,30 @@ def _severity_badge(severity: str) -> str:
     return f'<span class="badge badge-{escape(severity.lower())}">{escape(severity)}</span>'
 
 
-def _page(title: str, body: str, *, active: str = "") -> str:
+def _page(title: str, body: str, *, active: str = "", lang: str = "en") -> str:
     return "\n".join(
         [
             "<!DOCTYPE html>",
-            '<html lang="en"><head><meta charset="utf-8">',
+            f'<html lang="{t(lang, "html.lang")}"><head><meta charset="utf-8">',
             f"<title>{escape(title)} · DataSentry</title>",
             f"<style>{_CSS}</style></head><body>",
             "<nav>"
-            '<a href="/ui/">Home</a>'
-            '<a href="/ui/scans">Scans</a>'
-            '<a href="/ui/trends">Trends</a>'
-            '<a href="/api/docs">API docs</a>'
+            f'<a href="/ui/">{escape(t(lang, "ui.nav_home"))}</a>'
+            f'<a href="/ui/scans">{escape(t(lang, "ui.nav_scans"))}</a>'
+            f'<a href="/ui/trends">{escape(t(lang, "ui.nav_trends"))}</a>'
+            f'<a href="/api/docs">{escape(t(lang, "ui.nav_api_docs"))}</a>'
             "</nav>",
             f"<h1>{escape(title)}</h1>",
             body,
-            "<footer>DataSentry AI · local-first data quality copilot</footer>",
+            f"<footer>{escape(t(lang, 'ui.footer'))}</footer>",
             "</body></html>",
         ]
     )
 
 
-def _scan_table(scans: list[ScanRun]) -> str:
+def _scan_table(scans: list[ScanRun], *, lang: str = "en") -> str:
     if not scans:
-        return '<p class="meta">No scans yet — <a href="/ui/scans">create one</a>.</p>'
+        return f'<p class="meta">{escape(t(lang, "ui.no_scans"))}</p>'
     rows = []
     for scan in scans:
         overall = f"{scan.quality_score.overall:.1f}" if scan.quality_score else "—"
@@ -120,31 +121,34 @@ def _scan_table(scans: list[ScanRun]) -> str:
             "</tr>"
         )
     return (
-        "<table><tr><th>Run ID</th><th>Dataset</th><th>Rows × Cols</th>"
-        "<th>Score</th><th>Status</th><th>Started</th></tr>" + "".join(rows) + "</table>"
+        "<table><tr>"
+        f"<th>{escape(t(lang, 'ui.run_id'))}</th><th>{escape(t(lang, 'ui.dataset'))}</th>"
+        f"<th>{escape(t(lang, 'ui.rows_cols'))}</th><th>{escape(t(lang, 'ui.score'))}</th>"
+        f"<th>{escape(t(lang, 'ui.status'))}</th><th>{escape(t(lang, 'ui.started'))}</th>"
+        f"</tr>{''.join(rows)}</table>"
     )
 
 
-def render_home(scans: list[ScanRun]) -> str:
+def render_home(scans: list[ScanRun], *, lang: str = "en") -> str:
     body = [
-        "<h2>Workspace overview</h2>",
-        _scan_table(scans),
-        "<h2>New scan</h2>",
+        f"<h2>{escape(t(lang, 'ui.workspace_overview'))}</h2>",
+        _scan_table(scans, lang=lang),
+        f"<h2>{escape(t(lang, 'ui.new_scan'))}</h2>",
         '<form method="post" action="/ui/scans">'
-        '<label for="path">Data file path (relative to workspace)</label>'
+        f'<label for="path">{escape(t(lang, "ui.data_file_path"))}</label>'
         '<input type="text" id="path" name="path" required placeholder="data/customers.csv">'
-        '<button type="submit">Scan</button>',
+        f'<button type="submit">{escape(t(lang, "ui.scan_button"))}</button>',
         "</form>",
     ]
-    return _page("Home", "\n".join(body))
+    return _page(t(lang, "ui.home_title"), "\n".join(body), lang=lang)
 
 
-def _direction_badge(direction: str) -> str:
+def _direction_badge(direction: str, *, lang: str = "en") -> str:
     if direction == "up":
-        return '<span class="badge badge-ok">up</span>'
+        return f'<span class="badge badge-ok">{escape(t(lang, "ui.direction_up"))}</span>'
     if direction == "down":
-        return '<span class="badge badge-err">down</span>'
-    return '<span class="badge">flat</span>'
+        return f'<span class="badge badge-err">{escape(t(lang, "ui.direction_down"))}</span>'
+    return f'<span class="badge">{escape(t(lang, "ui.direction_flat"))}</span>'
 
 
 def _sparkline(scores: list[float]) -> str:
@@ -185,11 +189,11 @@ def _delta_cell(point: ScanPoint, previous: ScanPoint | None) -> str:
     return '<td class="meta">0.0</td>'
 
 
-def render_trends(trends: list[DatasetTrend]) -> str:
+def render_trends(trends: list[DatasetTrend], *, lang: str = "en") -> str:
     """跨扫描趋势页（Step 45，18.2 V1）。trends 来自 trends.build_trends。"""
     if not trends:
-        body = ['<p class="meta">No trend data yet — run at least one completed scan.</p>']
-        return _page("Trends", "\n".join(body))
+        body = [f'<p class="meta">{escape(t(lang, "ui.no_trend_data"))}</p>']
+        return _page(t(lang, "ui.trends_title"), "\n".join(body), lang=lang)
     sections: list[str] = []
     for trend in trends:
         points = trend.points
@@ -215,24 +219,28 @@ def render_trends(trends: list[DatasetTrend]) -> str:
         sections.append(
             "<section>"
             f"<h2>{escape(trend.dataset_id)} "
-            f"{_direction_badge(trend.direction)} "
-            f'<span class="meta">delta {trend.delta:+.1f}</span></h2>'
-            f'<p class="meta">{len(points)} completed scans · latest score '
-            f"{latest:.1f} · latest issues {trend.latest_issues}</p>"
+            f"{_direction_badge(trend.direction, lang=lang)} "
+            f'<span class="meta">{escape(t(lang, "ui.delta"))} {trend.delta:+.1f}</span></h2>'
+            f'<p class="meta">{len(points)} {escape(t(lang, "ui.completed_scans"))} · '
+            f"{escape(t(lang, 'ui.latest_score'))} "
+            f"{latest:.1f} · {escape(t(lang, 'ui.latest_issues'))} {trend.latest_issues}</p>"
             + _sparkline([p.score for p in points])
             + '<div class="trend-bars">'
             + "".join(bars)
             + "</div>"
-            "<table><tr><th>Run ID</th><th>Finished</th><th>Score</th>"
-            "<th>Δ</th><th>Issues</th></tr>" + "".join(rows) + "</table>"
+            "<table><tr>"
+            f"<th>{escape(t(lang, 'ui.run_id'))}</th><th>{escape(t(lang, 'ui.finished'))}</th>"
+            f"<th>{escape(t(lang, 'ui.score'))}</th>"
+            f"<th>{escape(t(lang, 'ui.delta'))}</th><th>{escape(t(lang, 'ui.issues_title'))}</th>"
+            f"</tr>{''.join(rows)}</table>"
             "</section>"
         )
-    return _page("Trends", "\n".join(sections))
+    return _page(t(lang, "ui.trends_title"), "\n".join(sections), lang=lang)
 
 
-def _issue_rows(issues: list[Issue], run_id: str) -> str:
+def _issue_rows(issues: list[Issue], run_id: str, *, lang: str = "en") -> str:
     if not issues:
-        return '<p class="meta">No issues.</p>'
+        return f'<p class="meta">{escape(t(lang, "ui.no_issues"))}</p>'
     rows = []
     for issue in issues:
         cols = ", ".join(escape(c) for c in issue.columns) or "—"
@@ -240,12 +248,14 @@ def _issue_rows(issues: list[Issue], run_id: str) -> str:
             '<div class="issue-card">'
             f"<h3>{_severity_badge(issue.severity.value)} "
             f"{escape(mask_text_pii(issue.title))}</h3>"
-            f'<p class="meta">priority {issue.priority_score:.1f} · confidence '
-            f"{issue.confidence:.2f} · affected {issue.affected_count} rows · "
-            f"columns: {cols} · detectors: "
+            f'<p class="meta">{escape(t(lang, "ui.priority"))} {issue.priority_score:.1f} · '
+            f"{escape(t(lang, 'ui.confidence'))} "
+            f"{issue.confidence:.2f} · {escape(t(lang, 'ui.affected'))} {issue.affected_count} "
+            f"rows · {escape(t(lang, 'ui.columns'))}: {cols} · "
+            f"{escape(t(lang, 'ui.detectors'))}: "
             f"{', '.join(escape(d) for d in issue.detector_ids)}</p>"
             f'<a href="/ui/scans/{escape(run_id)}/issues/{escape(issue.id)}">'
-            "Repair workbench →</a>"
+            f"{escape(t(lang, 'ui.repair_workbench_link'))}</a>"
             "</div>"
         )
     return "\n".join(rows)
@@ -256,8 +266,11 @@ def render_scan_detail(
     issues: list[Issue],
     *,
     severity_filter: str | None = None,
+    lang: str = "en",
 ) -> str:
-    overall = f"{scan.quality_score.overall:.1f}" if scan.quality_score else "not scored"
+    overall = (
+        f"{scan.quality_score.overall:.1f}" if scan.quality_score else t(lang, "meta.not_scored")
+    )
     dims = []
     if scan.quality_score:
         for name, value in scan.quality_score.dimensions.items():
@@ -270,11 +283,11 @@ def render_scan_detail(
         f"{escape(scan.status)}</p>",
         '<div class="score-ring">' + overall + "</div>",
         '<p class="meta">' + " &middot; ".join(dims) + "</p>",
-        "<h2>Issues</h2>",
+        f"<h2>{escape(t(lang, 'ui.issues_title'))}</h2>",
         '<div class="severity-filters">'
         '<a href="." class="'
         + ("active" if severity_filter is None else "")
-        + '">all</a>'
+        + f'">{escape(t(lang, "ui.filter_all"))}</a>'
         + "".join(
             f'<a href="?severity={level}" class="'
             + ("active" if severity_filter == level else "")
@@ -282,11 +295,12 @@ def render_scan_detail(
             for level in ("critical", "high", "medium", "low", "info")
         )
         + "</div>",
-        _issue_rows(issues, scan.id),
-        '<p class="meta"><a href="/api/reports/">JSON report</a> &middot; '
-        f'<a href="/scans/{escape(scan.id)}/report.html">Interactive HTML report</a></p>',
+        _issue_rows(issues, scan.id, lang=lang),
+        f'<p class="meta"><a href="/api/reports/">{escape(t(lang, "ui.json_report"))}</a> &middot; '
+        f'<a href="/scans/{escape(scan.id)}/report.html">'
+        f"{escape(t(lang, 'ui.interactive_report'))}</a></p>",
     ]
-    return _page(f"Scan {scan.id}", "\n".join(body))
+    return _page(f"Scan {scan.id}", "\n".join(body), lang=lang)
 
 
 def render_workbench(
@@ -298,60 +312,74 @@ def render_workbench(
     preview: RepairPreview | None = None,
     run: RepairRun | None = None,
     error: str | None = None,
+    lang: str = "en",
 ) -> str:
     cols = ", ".join(escape(c) for c in issue.columns) or "—"
     body = [
         f"<p>{_severity_badge(issue.severity.value)} {escape(mask_text_pii(issue.title))}</p>",
-        f'<p class="meta">issue {escape(issue.id)} · priority {issue.priority_score:.1f} · '
-        f"confidence {issue.confidence:.2f} · affected {issue.affected_count} rows · "
-        f"columns: {cols}</p>",
+        f'<p class="meta">issue {escape(issue.id)} · {escape(t(lang, "ui.priority"))} '
+        f"{issue.priority_score:.1f} · {escape(t(lang, 'ui.confidence'))} "
+        f"{issue.confidence:.2f} · {escape(t(lang, 'ui.affected'))} {issue.affected_count} "
+        f"rows · {escape(t(lang, 'ui.columns'))}: {cols}</p>",
     ]
     if error:
         body.append(f'<div class="alert alert-err">{escape(error)}</div>')
     if proposal:
         body.append(
-            "<h2>Proposal</h2>"
+            f"<h2>{escape(t(lang, 'ui.proposal_title'))}</h2>"
             "<table>"
-            f"<tr><th>Operation</th><td>{escape(proposal.operation)}</td></tr>"
-            f"<tr><th>Target columns</th><td>{escape(', '.join(proposal.target_columns))}</td></tr>"
-            f"<tr><th>Parameters</th><td><pre>{escape(repr(proposal.parameters))}</pre></td></tr>"
-            f"<tr><th>Rows affected</th><td>{proposal.estimated_rows_changed}</td></tr>"
-            f"<tr><th>Risk</th><td>{escape(proposal.risk_level.value)}</td></tr>"
+            f"<tr><th>{escape(t(lang, 'ui.operation'))}</th>"
+            f"<td>{escape(proposal.operation)}</td></tr>"
+            f"<tr><th>{escape(t(lang, 'ui.target_columns'))}</th>"
+            f"<td>{escape(', '.join(proposal.target_columns))}</td></tr>"
+            f"<tr><th>{escape(t(lang, 'ui.parameters'))}</th>"
+            f"<td><pre>{escape(repr(proposal.parameters))}</pre></td></tr>"
+            f"<tr><th>{escape(t(lang, 'ui.rows_affected'))}</th>"
+            f"<td>{proposal.estimated_rows_changed}</td></tr>"
+            f"<tr><th>{escape(t(lang, 'ui.risk'))}</th>"
+            f"<td>{escape(proposal.risk_level.value)}</td></tr>"
             "</table>"
         )
         if preview:
             body.append(
-                "<h2>Preview</h2>"
+                f"<h2>{escape(t(lang, 'ui.preview_title'))}</h2>"
                 "<table>"
-                f"<tr><th>Rule failures before</th><td>{preview.rule_failures_before}</td></tr>"
-                f"<tr><th>Rule failures after</th><td>{preview.rule_failures_after}</td></tr>"
-                f"<tr><th>Rows changed ratio</th><td>{preview.rows_changed_ratio:.3f}</td></tr>"
+                f"<tr><th>{escape(t(lang, 'ui.rule_failures_before'))}</th>"
+                f"<td>{preview.rule_failures_before}</td></tr>"
+                f"<tr><th>{escape(t(lang, 'ui.rule_failures_after'))}</th>"
+                f"<td>{preview.rule_failures_after}</td></tr>"
+                f"<tr><th>{escape(t(lang, 'ui.rows_changed_ratio'))}</th>"
+                f"<td>{preview.rows_changed_ratio:.3f}</td></tr>"
                 "</table>"
             )
     if run:
         body.append(
             '<div class="alert alert-ok">'
-            f"Repair applied: <code>{escape(run.id)}</code> · status {escape(run.status)} · "
+            f"{escape(t(lang, 'ui.repair_applied'))} <code>{escape(run.id)}</code> · "
+            f"status {escape(run.status)} · "
             f'<a href="/ui/scans/{escape(run_id)}/repairs/{escape(run.id)}/rollback">'
-            "Rollback</a>"
+            f"{escape(t(lang, 'ui.rollback'))}</a>"
             "</div>"
         )
     body.append(
-        "<h2>Repair workbench</h2>"
+        f"<h2>{escape(t(lang, 'ui.workbench_title'))}</h2>"
         '<form method="post">'
-        '<label for="source_path">Source file path</label>'
+        f'<label for="source_path">{escape(t(lang, "ui.source_file_path"))}</label>'
         f'<input type="text" id="source_path" name="source_path" required '
         f'value="{escape(source_path or "")}">'
-        '<button type="submit" name="action" value="propose">Propose repair</button>'
-        '<button class="secondary" type="submit" name="action" value="apply">'
-        "Apply repair</button>"
+        f'<button type="submit" name="action" value="propose">'
+        f"{escape(t(lang, 'ui.propose_repair'))}</button>"
+        f'<button class="secondary" type="submit" name="action" value="apply">'
+        f"{escape(t(lang, 'ui.apply_repair'))}</button>"
         "</form>"
     )
-    return _page("Repair workbench", "\n".join(body))
+    return _page(t(lang, "ui.workbench_title"), "\n".join(body), lang=lang)
 
 
-def render_error(title: str, message: str) -> str:
+def render_error(title: str, message: str, *, lang: str = "en") -> str:
     return _page(
         title,
-        f'<div class="alert alert-err">{escape(message)}</div><p><a href="/ui/">← Home</a></p>',
+        f'<div class="alert alert-err">{escape(message)}</div>'
+        f'<p><a href="/ui/">{escape(t(lang, "ui.back_home"))}</a></p>',
+        lang=lang,
     )

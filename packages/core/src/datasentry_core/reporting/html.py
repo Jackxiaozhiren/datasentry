@@ -34,6 +34,7 @@ from typing import Any
 
 from datasentry_core.reporting import HTML_SECTIONS, Report, critical_findings, mask_text_pii
 from datasentry_core.reporting.column_profiles import render_column_profiles
+from datasentry_core.reporting.i18n import t
 from datasentry_core.reporting.interactive import render_interactive_issue_table, render_trend_svg
 
 _CSS = """
@@ -275,6 +276,7 @@ def render_html(
     server_base_url: str | None = None,
     profiles: dict[str, Any] | None = None,
     comparison: list[dict[str, Any]] | None = None,
+    lang: str = "en",
 ) -> str:
     """26 章报告 → 自包含 HTML（内嵌 CSS/JS，无外部资源）。
 
@@ -283,41 +285,46 @@ def render_html(
     profiles：`DatasetProfile.model_dump(mode="json")` → Column Profiles 交互节
     （Step 61，ADR-061），缺省不渲染该节；
     comparison：`build_comparison` 输出（Step 64，ADR-064）→ 同数据集历史
-    run 对比表，缺省/空不渲染。
+    run 对比表，缺省/空不渲染；
+    lang：框架文案语言（en/zh，V8，ADR-069），未知语言回退 en；
+    检测器产出的 issue 标题/描述不译。
     """
     parts = [
         "<!DOCTYPE html>",
-        '<html lang="en"><head><meta charset="utf-8">',
-        "<title>DataSentry Data Quality Report</title>",
+        f'<html lang="{t(lang, "html.lang")}"><head><meta charset="utf-8">',
+        f"<title>{escape(t(lang, 'report.title'))}</title>",
         f"<style>{_CSS}</style></head><body>",
-        "<h1>DataSentry Data Quality Report</h1>",
+        f"<h1>{escape(t(lang, 'report.title'))}</h1>",
         _report_nav(
             include_profiles=bool(profiles and profiles.get("column_profiles")),
             include_comparison=bool(comparison),
+            lang=lang,
         ),
         _meta(report),
-        _executive_summary(report),
-        _quality_score(report),
+        _executive_summary(report, lang=lang),
+        _quality_score(report, lang=lang),
     ]
     if trends:
-        parts.append(_trends_section(trends))
+        parts.append(_trends_section(trends, lang=lang))
     parts.extend(
         [
-            _issue_breakdown(report, page_size=page_size, server_base_url=server_base_url),
-            _critical_findings(report),
-            _dataset_overview(report),
+            _issue_breakdown(
+                report, page_size=page_size, server_base_url=server_base_url, lang=lang
+            ),
+            _critical_findings(report, lang=lang),
+            _dataset_overview(report, lang=lang),
         ]
     )
     if profiles and profiles.get("column_profiles"):
-        parts.append(_column_profiles(profiles))
+        parts.append(_column_profiles(profiles, lang=lang))
     if comparison:
-        parts.append(_comparison_section(comparison))
+        parts.append(_comparison_section(comparison, lang=lang))
     parts.extend(
         [
-            _methodology(report),
-            _reproducibility(report),
-            _footer(report),
-            _back_to_top(),
+            _methodology(lang=lang),
+            _reproducibility(report, lang=lang),
+            _footer(report, lang=lang),
+            _back_to_top(lang=lang),
             f"<script>{_LINKAGE_JS}</script>",
             "</body></html>",
         ]
@@ -325,25 +332,35 @@ def render_html(
     return "\n".join(parts)
 
 
-def _column_profiles(profiles: dict[str, Any]) -> str:
-    return '<h2 id="column_profiles">Column Profiles</h2>' + render_column_profiles(profiles)
+def _column_profiles(profiles: dict[str, Any], *, lang: str = "en") -> str:
+    heading = f'<h2 id="column_profiles">{escape(t(lang, "section.column_profiles"))}</h2>'
+    return heading + render_column_profiles(profiles, lang=lang)
 
 
-def _report_nav(*, include_profiles: bool = False, include_comparison: bool = False) -> str:
+def _report_nav(
+    *,
+    include_profiles: bool = False,
+    include_comparison: bool = False,
+    lang: str = "en",
+) -> str:
     """粘性章节导航（scrollspy 追踪当前章节，脚本见 _LINKAGE_JS）。"""
     sections = list(HTML_SECTIONS)
     if include_profiles:
         sections.append("column_profiles")
     if include_comparison:
         sections.append("comparison")
-    links = "".join(f'<a href="#{s}">{escape(s.replace("_", " "))}</a>' for s in sections)
-    return f'<nav class="report-nav" id="report-nav" aria-label="report sections">{links}</nav>'
+    links = "".join(f'<a href="#{s}">{escape(t(lang, f"section.{s}"))}</a>' for s in sections)
+    return (
+        f'<nav class="report-nav" id="report-nav" '
+        f'aria-label="{escape(t(lang, "report.nav_aria"))}">'
+        f"{links}</nav>"
+    )
 
 
 _SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"]
 
 
-def _comparison_section(comparison: list[dict[str, Any]]) -> str:
+def _comparison_section(comparison: list[dict[str, Any]], *, lang: str = "en") -> str:
     """同数据集多 run 对比表（Step 64）：静态表，当前 run 高亮，Δ 按符号上色。"""
     dimensions: list[str] = []
     for row in comparison:
@@ -352,15 +369,20 @@ def _comparison_section(comparison: list[dict[str, Any]]) -> str:
                 dimensions.append(dim)
     present = {sev for row in comparison for sev in (row.get("issues") or {})}
     severities = [s for s in _SEVERITY_ORDER if s in present]
-    heads = ["Run", "Scanned at", "Overall"]
-    heads += [f"{d.capitalize()} score" for d in dimensions]
-    heads += [f"{s.capitalize()} issues" for s in severities]
+    heads = [
+        t(lang, "comparison.run"),
+        t(lang, "comparison.scanned_at"),
+        t(lang, "comparison.overall"),
+    ]
+    heads += [f"{d.capitalize()} {t(lang, 'comparison.score_suffix')}" for d in dimensions]
+    heads += [f"{s.capitalize()} {t(lang, 'comparison.issues_suffix')}" for s in severities]
     header = "".join(f"<th>{escape(h)}</th>" for h in heads)
+    current_label = t(lang, "comparison.current")
     body = []
     for row in comparison:
         cells = []
         if row.get("current"):
-            badge = '<span class="cmp-badge">current</span>'
+            badge = f'<span class="cmp-badge">{escape(current_label)}</span>'
             run_cell = f"<code>{escape(row['run_id'])}</code>{badge}"
         else:
             run_cell = f"<code>{escape(row['run_id'])}</code>"
@@ -389,13 +411,17 @@ def _comparison_section(comparison: list[dict[str, Any]]) -> str:
         cls = ' class="cmp-current"' if row.get("current") else ""
         body.append(f"<tr{cls}>{''.join(cells)}</tr>")
     return (
-        '<h2 id="comparison">Run Comparison</h2>'
+        f'<h2 id="comparison">{escape(t(lang, "section.comparison"))}</h2>'
         f"<table><thead><tr>{header}</tr></thead><tbody>{''.join(body)}</tbody></table>"
     )
 
 
-def _back_to_top() -> str:
-    return '<button id="back-to-top" type="button" aria-label="back to top">top &uarr;</button>'
+def _back_to_top(*, lang: str = "en") -> str:
+    return (
+        f'<button id="back-to-top" type="button" '
+        f'aria-label="{escape(t(lang, "report.back_to_top_aria"))}">'
+        f"{escape(t(lang, 'report.back_to_top'))} &uarr;</button>"
+    )
 
 
 def _meta(report: Report) -> str:
@@ -411,37 +437,44 @@ def _meta(report: Report) -> str:
     )
 
 
-def _executive_summary(report: Report) -> str:
+def _executive_summary(report: Report, *, lang: str = "en") -> str:
     scan = report["scan"]
     quality = report["quality"]
-    overall = f"{quality['overall']:.1f}" if quality else "not scored"
+    overall = f"{quality['overall']:.1f}" if quality else t(lang, "meta.not_scored")
     return (
-        '<h2 id="executive_summary">Executive Summary</h2>'
+        f'<h2 id="executive_summary">{escape(t(lang, "section.executive_summary"))}</h2>'
         "<table>"
-        f"<tr><th>Overall</th><td>{overall}</td></tr>"
-        f"<tr><th>Issues</th><td>{len(report['issues'])}</td></tr>"
-        f"<tr><th>Detector runs</th><td>{len(report['detector_runs'])}</td></tr>"
-        f"<tr><th>Rows / Columns</th><td>{scan['fingerprint']['row_count']} / "
+        f"<tr><th>{escape(t(lang, 'meta.overall'))}</th><td>{overall}</td></tr>"
+        f"<tr><th>{escape(t(lang, 'meta.issues'))}</th><td>{len(report['issues'])}</td></tr>"
+        f"<tr><th>{escape(t(lang, 'meta.detector_runs'))}</th>"
+        f"<td>{len(report['detector_runs'])}</td></tr>"
+        f"<tr><th>{escape(t(lang, 'meta.rows_cols'))}</th><td>{scan['fingerprint']['row_count']} / "
         f"{scan['fingerprint']['column_count']}</td></tr>"
         "</table>"
     )
 
 
-def _quality_score(report: Report) -> str:
+def _quality_score(report: Report, *, lang: str = "en") -> str:
     quality = report["quality"]
     if quality is None:
-        return '<h2 id="quality_score">Quality Score</h2><p>not scored</p>'
+        return (
+            f'<h2 id="quality_score">{escape(t(lang, "section.quality_score"))}</h2>'
+            f"<p>{escape(t(lang, 'meta.not_scored'))}</p>"
+        )
     sections = []
+    no_detector = t(lang, "meta.no_detector_ran")
+    n_a = t(lang, "meta.n_a")
     for index, (dim, value) in enumerate(quality["dimensions"].items()):
         if value is None:
             sections.append(
-                f'<section title="{escape(dim)}: no detector ran">{escape(dim)}: n/a</section>'
+                f'<section title="{escape(dim)}: {escape(no_detector)}">'
+                f"{escape(dim)}: {escape(n_a)}</section>"
             )
             continue
         weight = quality["weights"].get(dim, 0.0)
         width = f"{weight * 100:.1f}%"
         color = _BAR_COLORS[index % len(_BAR_COLORS)]
-        title = escape(_contributions_tooltip(quality, dim))
+        title = escape(_contributions_tooltip(quality, dim, lang=lang))
         sections.append(
             '<section class="score-dim" role="button" tabindex="0" '
             f'data-dim-link="{escape(dim)}" '
@@ -452,7 +485,9 @@ def _quality_score(report: Report) -> str:
     contributions = quality.get("dimension_contributions") or {}
     notes_rows = []
     if contributions:
-        notes_rows.append("<p><strong>Per-issue deductions (hover the score bar):</strong></p><ul>")
+        notes_rows.append(
+            f"<p><strong>{escape(t(lang, 'meta.per_issue_deductions'))}</strong></p><ul>"
+        )
         for dim, items in sorted(contributions.items()):
             for issue_id, impact in sorted(items.items()):
                 notes_rows.append(
@@ -460,27 +495,29 @@ def _quality_score(report: Report) -> str:
                 )
         notes_rows.append("</ul>")
     return (
-        f'<h2 id="quality_score">Quality Score</h2>'
-        f"<p>Overall: <strong>{quality['overall']:.1f}</strong> "
+        f'<h2 id="quality_score">{escape(t(lang, "section.quality_score"))}</h2>'
+        f"<p>{escape(t(lang, 'meta.overall'))}: <strong>{quality['overall']:.1f}</strong> "
         f"(score_version <code>{escape(quality['score_version'])}</code>)</p>"
         f'<div class="score-bar">{"".join(sections)}</div>'
         f'<p class="notes">{escape(quality["calculation_notes"])}</p>' + "".join(notes_rows)
     )
 
 
-def _contributions_tooltip(quality: dict[str, Any], dim: str) -> str:
+def _contributions_tooltip(quality: dict[str, Any], dim: str, *, lang: str = "en") -> str:
     contributions = quality.get("dimension_contributions") or {}
     items = contributions.get(dim, {})
     if not items:
-        return f"{dim}: no deductions"
+        return f"{dim}: {t(lang, 'meta.no_deductions')}"
     return f"{dim}: " + "; ".join(f"{i}: {v:.4f}" for i, v in items.items())
 
 
-def _trends_section(trends: list[dict[str, Any]]) -> str:
-    svgs = [svg for svg in (render_trend_svg(t) for t in trends) if svg]
+def _trends_section(trends: list[dict[str, Any]], *, lang: str = "en") -> str:
+    svgs = [svg for svg in (render_trend_svg(t, lang=lang) for t in trends) if svg]
     if not svgs:
         return ""
-    return '<h2 id="quality_trends">Quality Trends</h2>' + "".join(svgs)
+    return f'<h2 id="quality_trends">{escape(t(lang, "section.quality_trends"))}</h2>' + "".join(
+        svgs
+    )
 
 
 def _issue_breakdown(
@@ -488,16 +525,19 @@ def _issue_breakdown(
     *,
     page_size: int = 25,
     server_base_url: str | None = None,
+    lang: str = "en",
 ) -> str:
     return render_interactive_issue_table(
-        report, page_size=page_size, server_base_url=server_base_url
+        report, page_size=page_size, server_base_url=server_base_url, lang=lang
     )
 
 
-def _critical_findings(report: Report) -> str:
+def _critical_findings(report: Report, *, lang: str = "en") -> str:
     findings = critical_findings(report)
     if not findings:
         return ""
+    rows_affected = t(lang, "meta.rows_affected")
+    priority = t(lang, "meta.priority")
     items = []
     for issue in findings:
         items.append(
@@ -506,15 +546,18 @@ def _critical_findings(report: Report) -> str:
             f'data-issue-id="{escape(issue["id"])}">'
             f'<span class="badge-{escape(issue["severity"])}">[{escape(issue["severity"])}]</span> '
             f"{escape(mask_text_pii(issue['title']))} &mdash; "
-            f"priority {issue['priority_score']:.1f}, "
-            f"{issue['affected_count']} rows affected"
+            f"{escape(priority)} {issue['priority_score']:.1f}, "
+            f"{issue['affected_count']} {escape(rows_affected)}"
             "</a>"
             "</li>"
         )
-    return f'<h2 id="critical_findings">Critical Findings</h2><ul>{"".join(items)}</ul>'
+    return (
+        f'<h2 id="critical_findings">{escape(t(lang, "section.critical_findings"))}</h2>'
+        f"<ul>{''.join(items)}</ul>"
+    )
 
 
-def _dataset_overview(report: Report) -> str:
+def _dataset_overview(report: Report, *, lang: str = "en") -> str:
     scan = report["scan"]
     fingerprint = scan["fingerprint"]
     rows = [
@@ -528,28 +571,24 @@ def _dataset_overview(report: Report) -> str:
         for name, ptype in fingerprint["column_signature"]
     ]
     return (
-        '<h2 id="dataset_overview">Dataset Overview</h2>'
+        f'<h2 id="dataset_overview">{escape(t(lang, "section.dataset_overview"))}</h2>'
         f"<table>{''.join(rows)}</table>"
-        f"<p><strong>Columns:</strong></p><ul>{''.join(columns)}</ul>"
+        f"<p><strong>{escape(t(lang, 'meta.columns'))}</strong></p><ul>{''.join(columns)}</ul>"
     )
 
 
-def _methodology(report: Report) -> str:
+def _methodology(*, lang: str = "en") -> str:
     return (
-        '<h2 id="methodology">Methodology</h2>'
-        "<p>Deterministic SQL pushdown detectors (15 in MVP) run per column; "
-        "candidates are fused per issue cluster (confidence = 1 - prod(1 - c_i)); "
-        "each issue receives a priority score (0-100, 12.8 formula); "
-        "the quality score aggregates per dimension (27.1 formula, ADR-013). "
-        "No LLM calls in MVP: scores are fully reproducible.</p>"
+        f'<h2 id="methodology">{escape(t(lang, "section.methodology"))}</h2>'
+        f"<p>{escape(t(lang, 'methodology.body'))}</p>"
     )
 
 
-def _reproducibility(report: Report) -> str:
+def _reproducibility(report: Report, *, lang: str = "en") -> str:
     scan = report["scan"]
     repro = scan["reproducibility"]
     return (
-        '<h2 id="reproducibility">Reproducibility Metadata</h2><ul>'
+        f'<h2 id="reproducibility">{escape(t(lang, "section.reproducibility"))}</h2><ul>'
         f"<li>datasentry_version: <code>{escape(repro['datasentry_version'])}</code></li>"
         f"<li>detector_versions: <code>{escape(repr(repro['detector_versions']))}</code></li>"
         f"<li>seed: <code>{repro['seed']}</code></li>"
@@ -558,10 +597,14 @@ def _reproducibility(report: Report) -> str:
     )
 
 
-def _footer(report: Report) -> str:
+def _footer(report: Report, *, lang: str = "en") -> str:
+    sections_label = t(lang, "report.footer_sections")
     return (
         "<footer>"
-        f"Generated by DataSentry {escape(report['datasentry_version'])} &middot; "
-        f"report_schema_version {escape(report['report_schema_version'])} &middot; "
-        "sections: " + ", ".join(f'<a href="#{s}">{s}</a>' for s in HTML_SECTIONS) + "</footer>"
+        f"{escape(t(lang, 'report.generated_by'))} "
+        f"DataSentry {escape(report['datasentry_version'])} "
+        f"&middot; report_schema_version {escape(report['report_schema_version'])} &middot; "
+        f"{escape(sections_label)} "
+        + ", ".join(f'<a href="#{s}">{escape(t(lang, f"section.{s}"))}</a>' for s in HTML_SECTIONS)
+        + "</footer>"
     )

@@ -444,6 +444,32 @@ class TestCli:
         code = main(["--project", str(workspace), "report", "export", "nope"])
         assert code == 2
 
+    def test_report_export_markdown_lang_zh(
+        self, sample_csv: Path, workspace: Path, capsys
+    ) -> None:
+        main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
+        scan_id = json.loads(capsys.readouterr().out)["data"]["scan_run_id"]
+        out = workspace / "zh.md"
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "report",
+                "export",
+                scan_id,
+                "--as",
+                "markdown",
+                "--output",
+                str(out),
+                "--lang",
+                "zh",
+            ]
+        )
+        assert code == 0
+        md = out.read_text(encoding="utf-8")
+        assert "# DataSentry 数据质量报告" in md
+        assert "## 可复现性" in md
+
     def test_score_json(self, sample_csv: Path, workspace: Path, capsys) -> None:
         main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
         scan_id = json.loads(capsys.readouterr().out)["data"]["scan_run_id"]

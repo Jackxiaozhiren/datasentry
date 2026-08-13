@@ -311,7 +311,7 @@ def _cmd_report_export(args: argparse.Namespace) -> int:
     elif args.as_format == "markdown":
         from datasentry_core.reporting.markdown import render_markdown
 
-        content = render_markdown(report)
+        content = render_markdown(report, lang=args.lang)
     elif args.as_format == "junit":
         from datasentry_core.reporting.junit import render_junit
 
@@ -333,6 +333,7 @@ def _cmd_report_export(args: argparse.Namespace) -> int:
             trends=trends or None,
             profiles=profiles,
             comparison=comparison,
+            lang=args.lang,
         )
     path = _report_output_path(client, args, args.as_format)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1037,6 +1038,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_export.add_argument(
         "--output", type=str, default=None, help="output path (default: .datasentry/reports/)"
+    )
+    p_export.add_argument(
+        "--lang",
+        type=str,
+        default="en",
+        choices=["en", "zh"],
+        help="report framework language (en|zh, V8 ADR-069; default: en)",
     )
     p_export.set_defaults(func=_cmd_report_export)
 

@@ -132,7 +132,7 @@ class TestComparisonSection:
     def test_nav_anchor_only_with_comparison(self) -> None:
         html = render_html(_report(), comparison=_comparison())
         assert 'href="#comparison"' in html
-        assert '<a href="#comparison">comparison</a>' in html
+        assert '<a href="#comparison">Run Comparison</a>' in html
 
     def test_section_placed_after_profiles(self) -> None:
         profiles = {"column_profiles": {"id": {"physical_type": "BIGINT"}}}
