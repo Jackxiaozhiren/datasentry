@@ -691,3 +691,18 @@ worker 端点，共享 token 鉴权；多 worker 路由留给未来）。
   错误 → run failed（retry/死信语义不变）；同一实例可同时是
   API 服务与执行节点
 - 测试 3 例端到端（成功/失败/服务并存）
+
+## [0.17.0] - 2026-08-14
+
+V15 多 worker 池与容错路由：执行面从单点升级为池化容错。
+
+### 新增（Step 93，worker 池与失败转移，ADR-093）
+
+- **WorkerPoolExecutor**：多 worker round-robin 派发 + 失败转移
+  （节点失败/不可达 → 冷却 60s 并转移下一节点）+ 冷却防雪崩；
+  全部失败统一错误（摘要含各节点错误）；单 worker 退化为直连
+  语义
+- **健康预检可选**：/health 探活过滤（默认关闭，直连转移兜底）
+- ScanExecutor Protocol 与 Scheduler 零改动；测试 8 例（真 HTTP
+  多 worker：轮询分发/远端失败转移/不可达转移/全失败摘要/冷却
+  跳过/冷却恢复/健康过滤/空池拒绝）

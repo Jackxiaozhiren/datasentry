@@ -2352,3 +2352,21 @@
     留给未来，延续 V2-D 边界）。
 - **依据**：Step 90/91 契约 + api.py main() uvicorn 先例 +
   既有 Scheduler 失败语义。
+
+## ADR-093：多 worker 池与容错路由 WorkerPoolExecutor（V15，Step 93）
+- **背景**：V14 单点 RemoteScanExecutor 即单故障点——worker 宕机
+  /网络抖动时任务直接失败，无容错。
+- **决策**：
+  - `WorkerPoolExecutor(workers, timeout, cooldown=60,
+    health_check=False)`：实现 ScanExecutor Protocol；
+  - **路由**：自轮询起始点整轮遍历（round-robin 游标每轮推进 1），
+    健康过滤（冷却 + 可选 /health 探活）后依次尝试；
+  - **失败转移**：ScanExecutionError/不可达 → 冷却该节点并转移
+    下一节点；全部失败 → 统一错误（摘要含各节点错误与实尝试数）；
+  - **冷却**：失败节点冷却 cooldown 秒（防雪崩），`reset()` 可
+    清空；health_check 默认关闭（直连转移已兜底，避免双倍 RTT）；
+  - 单 worker 退化为直连语义；未配置 workers 回退
+    LocalScanExecutor（零迁移）。
+- **边界**：不做加权/亲和/按 job 路由/异步队列（V16 候选）。
+- **依据**：ScanExecutor Protocol 契约 + V14 远程执行语义 +
+  /health 端点既有（探活复用）。
