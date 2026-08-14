@@ -99,6 +99,9 @@ class TestTools:
                 "trends_list",
                 "profiles_get",
                 "comparison_build",
+                "pii_sessions",
+                "pii_restore",
+                "pii_delete_session",
             } == names
             for tool in tools:
                 assert tool["inputSchema"]["type"] == "object"

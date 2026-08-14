@@ -2450,3 +2450,27 @@
   缺失 404、缺 text 422、轮换全链路（旧 key 503 → 文件 key 恢复）。
 - **依据**：pii_vault.py 的 key_source/key_configured/rotate_key
   返回结构；CLI _cmd_llm_restore 语义（cli.py:861）。
+
+## ADR-100：MCP PII 工具三件套（V17，Step 100）
+- **背景**：MCP 面无 PII 工具，LLM 代理无法列会话/还原/删除；
+  且 MCP 工具列表被测试严格相等断言锁定，扩展需同步改断言。
+- **决策**：
+  - 新增 `pii_sessions`（无参，列表 + key_source，camelCase
+    字段 sessionId/keyVersion/createdAt）、`pii_restore`
+    （session_id + text → 明文）、`pii_delete_session`
+    （删除，无需密钥）——15 → 18 个工具；
+  - 描述注明 "Explicit authorization semantics: calling this
+    tool is the authorization to view plaintext"（与 CLI/REST
+    同一显式授权语义）；
+  - 缺 key（key_source=dev）→ 返回 `{"ok": false, "error":
+    ...}` 不抛异常（MCP -32603 仅留给未预期错误）；
+    session 不存在 / 解密失败（VaultKeyMissingError）同样
+    ok:false + error；
+  - pii_delete_session 不 gate key（与 REST DELETE / CLI
+    --delete 一致）；tools/list 严格断言 +3。
+- **测试**：6 例——工具清单含 3 个新工具且 schema 合法（camelCase
+  props、required）、描述含授权语义、无 key 错误消息不崩、
+  删除无 key 仍可用、端到端（save → list → restore 明文）、
+  未知会话错误、删除闭环。
+- **依据**：既有工具注册装饰器模式 + V2-A vault（ADR-048）语义；
+  与 REST（ADR-099）同一 _pii_vault 判定（key_configured）。

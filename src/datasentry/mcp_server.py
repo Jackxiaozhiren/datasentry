@@ -19,6 +19,11 @@ SDK（与 CLI/REST 同源）。
     jobs_list            列出调度任务（Step 51/52）
     job_create           注册调度任务（cron + 可选质量门禁）
     job_trigger          立即触发一次调度任务
+    job_update           部分更新调度任务（Step 88）
+    job_remove           删除调度任务（Step 88）
+    pii_sessions         列出 PII 加密会话（Step 100）
+    pii_restore          还原文本明文（显式授权，Step 100）
+    pii_delete_session   删除 PII 加密会话（Step 100）
 
 用法：`datasentry mcp [--project DIR]`；由 MCP 客户端（如 Claude
 Code）以 stdio 方式启动。
@@ -484,6 +489,90 @@ class McpServer:
             if not store.delete_job(job_id):
                 return {"ok": False, "error": f"job not found: {job_id}"}
             return {"ok": True, "removed": True}
+
+        @self._tool(
+            "pii_sessions",
+            "List PII encryption sessions (Step 100, ADR-100) with key "
+            "version and creation time (no ciphertext, no plaintext). "
+            "Returns ok:false with an error when no encryption key is "
+            "configured (set DATASENTRY_ENCRYPTION_KEY or run "
+            "'datasentry llm rotate-key').",
+            {},
+            [],
+        )
+        def pii_sessions() -> dict[str, Any]:
+            from datasentry.pii_vault import PIIVault
+
+            vault = PIIVault(self._client._store)
+            if not vault.key_configured:
+                return {
+                    "ok": False,
+                    "error": "pii vault disabled: no encryption key configured — "
+                    "set DATASENTRY_ENCRYPTION_KEY or run 'datasentry llm rotate-key'",
+                }
+            return {
+                "ok": True,
+                "key_source": vault.key_source,
+                "sessions": [
+                    {
+                        "sessionId": s["session_id"],
+                        "keyVersion": s["key_version"],
+                        "createdAt": s["created_at"].isoformat(),
+                    }
+                    for s in self._client._store.list_pii_mappings()
+                ],
+            }
+
+        @self._tool(
+            "pii_restore",
+            "Restore plaintext in a text by substituting REDACTED "
+            "placeholders from a PII session's mapping (Step 100, "
+            "ADR-100). Explicit authorization semantics: calling this "
+            "tool is the authorization to view plaintext. Returns "
+            "ok:false with an error when the session does not exist, "
+            "the mapping cannot be decrypted (missing or wrong key), "
+            "or no encryption key is configured.",
+            {
+                "session_id": {"type": "string", "description": "PII session id, e.g. pii_abc123"},
+                "text": {
+                    "type": "string",
+                    "description": "Text containing {{REDACTED:...}} placeholders",
+                },
+            },
+            ["session_id", "text"],
+        )
+        def pii_restore(session_id: str, text: str) -> dict[str, Any]:
+            from datasentry.pii_vault import PIIVault, VaultKeyMissingError
+
+            vault = PIIVault(self._client._store)
+            if not vault.key_configured:
+                return {
+                    "ok": False,
+                    "error": "pii vault disabled: no encryption key configured — "
+                    "set DATASENTRY_ENCRYPTION_KEY or run 'datasentry llm rotate-key'",
+                }
+            try:
+                restored = vault.restore_text(text, session_id)
+            except KeyError as exc:
+                return {"ok": False, "error": str(exc)}
+            except VaultKeyMissingError as exc:
+                return {"ok": False, "error": str(exc)}
+            return {"ok": True, "sessionId": session_id, "restored": restored}
+
+        @self._tool(
+            "pii_delete_session",
+            "Delete a PII encryption session (Step 100, ADR-100). "
+            "Removing the encrypted mapping is not reversible and does "
+            "not require the encryption key. Returns deleted=true or "
+            "ok:false when the session does not exist.",
+            {"session_id": {"type": "string"}},
+            ["session_id"],
+        )
+        def pii_delete_session(session_id: str) -> dict[str, Any]:
+            deleted = self._client._store.delete_pii_mapping(session_id)
+            if not deleted:
+                return {"ok": False, "error": f"pii mapping session not found: {session_id}"}
+            return {"ok": True, "sessionId": session_id, "deleted": True}
 
     # ---- JSON-RPC 分发 --------------------------------------------------
 

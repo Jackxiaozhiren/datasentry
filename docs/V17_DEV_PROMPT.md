@@ -45,7 +45,7 @@ DataSentry 是本地优先的数据质量 AI copilot（Python ≥3.12，uv 管�
 - `_ENDPOINTS` 同步加 5 个新端点
 - 测试（`tests/test_api_pii.py`）：未配置 key → 503（monkeypatch.delenv 确保无 env key + 无 key 文件，注意 `_key_file()` 位置是 `~/.config/datasentry/encryption.key` 之类——查 `pii_vault.py:57`，测试要隔离 HOME 或用 monkeypatch）；配置 key（`DATASENTRY_ENCRYPTION_KEY` env）→ 建映射（直接用 store.save_pii_mapping + vault.save_mapping）→ 列表/摘要/还原/删除/轮换全链路；session 不存在 404；还原成功但 key 轮换后 404/解密失败的语义（rotate 后旧 session 失效——验证 `rotate_key` 行为决定断言）
 
-### Step 100（ADR-100）：MCP 3 个 PII 工具
+### Step 100（ADR-100）：MCP 3 个 PII 工具 —— ✅ 完成
 
 - 在 `src/datasentry/mcp_server.py` 用 `@self._tool(...)` 注册 `pii_sessions` / `pii_restore` / `pii_delete_session`（properties 用 camelCase 与既有工具一致，看既有工具命名，如 `session_id` / `text`）
 - 工具描述写"explicit authorization semantics: calling this tool is the authorization to view plaintext"
