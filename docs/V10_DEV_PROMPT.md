@@ -139,3 +139,7 @@
 
 - Step 74（ADR-074）✅ 已落地（待 commit）：全局 --lang + cli.*
   i18n 键域 + report export 全局接管；测试 3 新增/1 更新，门禁绿
+- Step 75（ADR-075）✅ 已落地（待 commit）：reporting/translate.py
+  渲染层映射（title/description/suggestion）+ families.*/issue_types.*/
+  suggestions.* 键域 + interactive/markdown/html/ui 4 处接线 +
+  en 逐字不变测试；门禁绿（覆盖 94.99%）

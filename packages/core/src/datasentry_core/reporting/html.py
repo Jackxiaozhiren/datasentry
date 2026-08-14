@@ -36,6 +36,7 @@ from datasentry_core.reporting import HTML_SECTIONS, Report, critical_findings, 
 from datasentry_core.reporting.column_profiles import render_column_profiles
 from datasentry_core.reporting.i18n import t
 from datasentry_core.reporting.interactive import render_interactive_issue_table, render_trend_svg
+from datasentry_core.reporting.translate import translate_title
 
 _CSS = """
 :root {
@@ -545,7 +546,8 @@ def _critical_findings(report: Report, *, lang: str = "en") -> str:
             f'<a class="finding-link" href="#issue_breakdown" '
             f'data-issue-id="{escape(issue["id"])}">'
             f'<span class="badge-{escape(issue["severity"])}">[{escape(issue["severity"])}]</span> '
-            f"{escape(mask_text_pii(issue['title']))} &mdash; "
+            f"{escape(mask_text_pii(translate_title(lang, issue['title'], issue['issue_type'])))} "
+            f"&mdash; "
             f"{escape(priority)} {issue['priority_score']:.1f}, "
             f"{issue['affected_count']} {escape(rows_affected)}"
             "</a>"

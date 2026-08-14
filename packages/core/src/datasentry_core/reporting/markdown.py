@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datasentry_core.reporting import Report, critical_findings, mask_text_pii
 from datasentry_core.reporting.i18n import t
+from datasentry_core.reporting.translate import translate_title
 
 
 def render_markdown(report: Report, *, lang: str = "en") -> str:
@@ -55,9 +56,11 @@ def render_markdown(report: Report, *, lang: str = "en") -> str:
         lines.append(t(lang, "md.severity_priority_issue"))
         lines.append("|---|---|---|---|---|")
         for issue in report["issues"]:
+            title = mask_text_pii(translate_title(lang, issue["title"], issue["issue_type"]))
             lines.append(
                 f"| {issue['severity']} | {issue['priority_score']:.1f} "
-                f"| {_escape_cell(mask_text_pii(issue['title']))} | {', '.join(issue['columns'])} "
+                f"| {_escape_cell(title)} "
+                f"| {', '.join(issue['columns'])} "
                 f"| {', '.join(issue['detector_ids'])} |"
             )
     else:
@@ -67,7 +70,8 @@ def render_markdown(report: Report, *, lang: str = "en") -> str:
         lines += ["", f"## {t(lang, 'section.critical_findings')}", ""]
         for issue in findings:
             lines.append(
-                f"- **[{issue['severity']}]** {mask_text_pii(issue['title'])} "
+                f"- **[{issue['severity']}]** "
+                f"{mask_text_pii(translate_title(lang, issue['title'], issue['issue_type']))} "
                 f"({t(lang, 'md.priority')}={issue['priority_score']:.1f}, "
                 f"{t(lang, 'md.affected')}={issue['affected_count']} rows, "
                 f"{t(lang, 'md.ratio')}={issue['affected_ratio']:.4f})"

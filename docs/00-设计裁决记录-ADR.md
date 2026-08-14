@@ -2051,3 +2051,27 @@
   ADR-069「CLI 其他命令 text 输出不动」边界更新。
 - **影响**：cli.py + i18n.py + 测试（1 例更新——局部 --lang 改全局
   位置；3 例新增）；ADR-074 + CHANGELOG + DEVELOPMENT + 计划书。
+
+## ADR-075：报告正文翻译（V10，Step 75）
+
+- **状态**：已确认（Step 75, V10）
+- **背景**：V8（ADR-069）只译报告框架文案，issue 标题/描述/建议/检测
+  器名仍英文。用户选定报告正文翻译。
+- **方案**：渲染层翻译（零数据面改动）——fusion.py / suggestions.py
+  英文原文不动；新增 `reporting/translate.py` 三函数
+  （translate_title / translate_description / translate_suggestion），
+  HTML / Markdown / UI 渲染前映射；en 短路原文（逐字不变），zh 查
+  i18n 键域：families.*（9 归一化 family）/ issue_types.*（39 原始
+  issue_type）/ suggestions.*（5 operation）/ issue.title_template /
+  issue.description_template（zh 模板，数据位 cols/detector_id/count
+  不译）；键完全缺失回退英文原文（_lookup 语义区别于 t() 返回键名）。
+- **边界**：证据级动态描述（含计数 f-string 40+ 处）不译（候选 V11）；
+  JUnit XML / JSON 机器契约不译（CI 机器消费）；detector display_name
+  仅 client meta 输出（机器面）不译；UI issue 卡片 title 随 lang 译
+  （ui.py 接线）。
+- **注意**：fusion 输出的 issue_type 已是归一化 family（FAMILY_MAP），
+  title 翻译按 issue_type 查 families.*；description 内嵌的 issue_type
+  是检测器原始值，查 issue_types.*。
+- **影响**：i18n.py（en 权威 + zh 镜像共 ~120 键）、translate.py 新增、
+  interactive/markdown/html/ui 4 处接线、tests/test_reporting_translate.py
+  （9 函数 + 6 渲染，含 en 逐字不变断言）、pyproject RUF001 豁免 1 条。

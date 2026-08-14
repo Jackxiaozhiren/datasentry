@@ -23,6 +23,11 @@ from typing import Any
 from datasentry_core.reporting import Report, mask_text_pii
 from datasentry_core.reporting.i18n import t
 from datasentry_core.reporting.suggestions import suggest_repairs
+from datasentry_core.reporting.translate import (
+    translate_description,
+    translate_suggestion,
+    translate_title,
+)
 
 SEVERITY_ORDER = ("critical", "high", "medium", "low", "info")
 _SORT_KEYS = frozenset({"priority", "severity", "affected", "title"})
@@ -221,7 +226,7 @@ _INTERACTIVE_JS = """(function () {
 })();"""
 
 
-def issue_rows(report: Report) -> list[dict[str, Any]]:
+def issue_rows(report: Report, *, lang: str = "en") -> list[dict[str, Any]]:
     """report issues → 浏览器视图模型（title/description 已 PII 掩码，字段精简可 JSON 序列化）。"""
     rows = []
     for issue in report["issues"]:
@@ -229,8 +234,10 @@ def issue_rows(report: Report) -> list[dict[str, Any]]:
             {
                 "id": issue["id"],
                 "issue_type": issue["issue_type"],
-                "title": mask_text_pii(issue["title"]),
-                "description": mask_text_pii(issue.get("description") or ""),
+                "title": mask_text_pii(translate_title(lang, issue["title"], issue["issue_type"])),
+                "description": mask_text_pii(
+                    translate_description(lang, issue.get("description") or "")
+                ),
                 "severity": issue["severity"],
                 "priority": round(issue["priority_score"], 1),
                 "confidence": issue.get("confidence", 0.0),
@@ -241,7 +248,7 @@ def issue_rows(report: Report) -> list[dict[str, Any]]:
                 "columns": list(issue["columns"]),
                 "detectors": list(issue["detector_ids"]),
                 "dimensions": [str(d) for d in (issue.get("quality_dimensions") or [])],
-                "suggestions": suggest_repairs(issue),
+                "suggestions": [translate_suggestion(lang, s) for s in suggest_repairs(issue)],
             }
         )
     return rows
@@ -391,7 +398,7 @@ def render_interactive_issue_table(
     lang: str = "en",
 ) -> str:
     """Issue Breakdown 交互容器：控制条 + 可排序表格 + 分页 + 内联数据 JSON + 原生 JS。"""
-    rows = issue_rows(report)
+    rows = issue_rows(report, lang=lang)
     dimensions = sorted({d for row in rows for d in row["dimensions"]})
     payload = {
         "issues": rows,

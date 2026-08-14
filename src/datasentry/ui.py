@@ -21,6 +21,7 @@ from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairR
 from datasentry_core.models.scan import ScanConfig, ScanRun
 from datasentry_core.reporting import mask_text_pii
 from datasentry_core.reporting.i18n import t
+from datasentry_core.reporting.translate import translate_title
 
 _CSS = """
 :root { color-scheme: light; }
@@ -255,7 +256,7 @@ def _issue_rows(issues: list[Issue], run_id: str, *, lang: str = "en") -> str:
         rows.append(
             '<div class="issue-card">'
             f"<h3>{_severity_badge(issue.severity.value)} "
-            f"{escape(mask_text_pii(issue.title))}</h3>"
+            f"{escape(mask_text_pii(translate_title(lang, issue.title, issue.issue_type)))}</h3>"
             f'<p class="meta">{escape(t(lang, "ui.priority"))} {issue.priority_score:.1f} · '
             f"{escape(t(lang, 'ui.confidence'))} "
             f"{issue.confidence:.2f} · {escape(t(lang, 'ui.affected'))} {issue.affected_count} "

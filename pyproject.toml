@@ -87,6 +87,8 @@ ignore = ["RUF002", "RUF003"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B011"]
+# 翻译断言含中文全角标点，属有意为之（ADR-075）
+"tests/test_reporting_translate.py" = ["RUF001"]
 # benchmarks 打印中文报告带全角标点，属有意为之
 "benchmarks/*" = ["RUF001"]
 # demo 脚本帮助文案带中文全角括号，属有意为之

@@ -17,6 +17,17 @@
   局部 --lang，默认 en 行为不变）
 - 边界：JSON envelope 数据面不译（机器契约）；API `?lang=` 不受影响
 
+### 新增（Step 75，报告正文翻译，ADR-075）
+
+- **issue 标题/描述/修复建议翻译**：新增 `reporting/translate.py`
+  渲染层映射（translate_title / translate_description /
+  translate_suggestion），HTML / Markdown / UI 渲染前翻译；
+  `--lang zh` 时标题（如「缺失值（id）」）、融合描述
+  （`[detector_id vX.Y] 空值率过高：2`）、建议 label·rationale 全中文
+- 键域：families.*（9）/ issue_types.*（39）/ suggestions.*（5）/
+  issue 模板 2；en 逐字不变（短路原文），键缺失回退英文原文
+- 边界：证据级动态描述、JUnit XML / JSON 机器面不译（候选 V11）
+
 ## [0.11.0] - 2026-08-14
 
 V9 大文件性能：抽样扫描 + 扫描管线瘦身 + 内存打磨。
