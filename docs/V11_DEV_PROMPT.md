@@ -105,7 +105,7 @@ core 包恒 0.7.0 不动；tag v0.13.0 触发 PyPI + Pages）+ GitHub release
   （双语表数据行）
 - tests/test_evidence_desc.py 13 例（en 逐字 / zh 同参 / 历史回退 /
   降级 / make_evidence 合并 / 交互行集成）；门禁全绿（覆盖 95.03%）
-- 提交：见 git log（Step 78 提交 hash）
+- 提交：`97d8dfe`
 
 ### Step 79（ADR-079）调度任务 ScanConfig 透传 —— ⏳ 待开始
 
