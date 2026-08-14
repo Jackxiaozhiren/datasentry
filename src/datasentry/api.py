@@ -46,6 +46,7 @@ from datasentry.scheduler.models import (
     JobCreate,
     JobUpdate,
     ScheduledJob,
+    iso,
     utcnow,
 )
 from datasentry_core.models.issue import Issue
@@ -533,6 +534,57 @@ def create_app(project: str | Path | None = None) -> FastAPI:
             "job": job.view(),
             "runs": [run.view() for run in scheduler.store.list_runs(job_id)],
         }
+
+    @app.get("/jobs/{job_id}/runs", tags=["jobs"])
+    def list_job_runs(job_id: str, limit: int = Query(default=20, ge=1, le=200)) -> dict[str, Any]:
+        if scheduler.store.get_job(job_id) is None:
+            raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
+        runs = [run.view() for run in scheduler.store.list_runs(job_id, limit=limit)]
+        return {"job_id": job_id, "count": len(runs), "runs": runs}
+
+    @app.post("/jobs/{job_id}/test-webhook", tags=["jobs"])
+    def test_job_webhook(job_id: str) -> dict[str, Any]:
+        """发送样例通知负载到任务 webhook（V13，ADR-087 协作链路验证）。"""
+        from datasentry.scheduler.models import JobResult
+
+        job = scheduler.store.get_job(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
+        if not job.webhook_url:
+            raise HTTPException(status_code=422, detail=f"job has no webhook_url: {job_id}")
+        payload: dict[str, object] = {
+            "event": "job.test",
+            "job_id": job_id,
+            "name": job.name,
+            "timestamp": iso(utcnow()),
+            "payload": JobResult().model_dump(),
+        }
+        try:
+            import time
+
+            import httpx
+
+            started = time.monotonic()
+            with httpx.Client(timeout=5.0) as client:
+                response = client.post(job.webhook_url, json=payload)
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            if response.status_code >= 400:
+                return {
+                    "job_id": job_id,
+                    "url": job.webhook_url,
+                    "status_code": response.status_code,
+                    "elapsed_ms": elapsed_ms,
+                    "notified": False,
+                }
+            return {
+                "job_id": job_id,
+                "url": job.webhook_url,
+                "status_code": response.status_code,
+                "elapsed_ms": elapsed_ms,
+                "notified": True,
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"webhook delivery failed: {exc}") from exc
 
     @app.post("/jobs/{job_id}/trigger", tags=["jobs"], status_code=202)
     def trigger_job(job_id: str) -> dict[str, Any]:

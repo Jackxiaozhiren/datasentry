@@ -118,6 +118,16 @@ V13 = **调度管理面三面补齐（CLI/HTTP API/MCP 同源）+ 生命周期
   envelope 层）；`SchedulerStore` 类型注解需 TYPE_CHECKING 导入
   （函数内 import 会触发 ruff F821/UP037 冲突）
 
-### Step 87（ADR-087）HTTP API /jobs 路由族 —— ⏳ 待开始
+### Step 87（ADR-087）HTTP API /jobs 路由族 —— ✅ 完成
+
+- 勘察修正：Step 51 已实现 POST/GET/GET{id}/trigger(202)/
+  PATCH(JobUpdate)/DELETE(204)（422/404/409 语义已定）；实际缺口
+  仅 runs 历史端点 + test-webhook
+- 交付：`GET /jobs/{job_id}/runs?limit=N`（默认 20，未知 404）；
+  `POST /jobs/{job_id}/test-webhook`（job.test 样例负载 → 远端
+  状态码+耗时；无 webhook 422 / 连接失败 502 / ≥400 notified=false）；
+  tests/test_api_jobs.py 追加 8 例（共 30 例全绿）；门禁全绿
+  （95.01%）
+
 ### Step 88（ADR-088）MCP 补全 + 三面对齐 + 历史保留 —— ⏳ 待开始
 ### Step 89 收尾 v0.15.0 —— ⏳ 待开始

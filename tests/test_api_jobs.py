@@ -208,6 +208,137 @@ class TestJobLifecycle:
             new_run = store.get_run(resp.json()["run_id"])
             assert new_run is not None and new_run.status == RunStatus.COMPLETED
 
+
+class TestJobsV13:
+    """Step 87（ADR-087）：runs 历史端点 + test-webhook 协作链路验证。"""
+
+    def test_runs_endpoint_with_limit(self, client: TestClient, tmp_path: Path) -> None:
+        csv = _sample_csv(tmp_path)
+        job_id = client.post(
+            "/jobs", json={"name": "a", "path": str(csv), "cron": "* * * * *"}
+        ).json()["job_id"]
+        client.post(f"/jobs/{job_id}/trigger")
+        client.post(f"/jobs/{job_id}/trigger")
+        resp = client.get(f"/jobs/{job_id}/runs")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["job_id"] == job_id
+        assert body["count"] == 2
+        assert [r["status"] for r in body["runs"]] == ["completed", "completed"]
+        limited = client.get(f"/jobs/{job_id}/runs", params={"limit": 1})
+        assert limited.json()["count"] == 1
+
+    def test_runs_endpoint_unknown_job_404(self, client: TestClient) -> None:
+        assert client.get("/jobs/nope/runs").status_code == 404
+
+    def test_webhook_test_success(self, client: TestClient, tmp_path: Path) -> None:
+        import json as _json
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        received: list[dict[str, object]] = []
+
+        class _Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0"))
+                received.append(_json.loads(self.rfile.read(length)))
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *args: object) -> None:
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), _Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            port = server.server_address[1]
+            csv = _sample_csv(tmp_path)
+            job_id = client.post(
+                "/jobs",
+                json={
+                    "name": "hook",
+                    "path": str(csv),
+                    "cron": "* * * * *",
+                    "webhook_url": f"http://127.0.0.1:{port}/hook",
+                },
+            ).json()["job_id"]
+            resp = client.post(f"/jobs/{job_id}/test-webhook")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["notified"] is True
+            assert body["status_code"] == 200
+            assert body["elapsed_ms"] >= 0
+            assert len(received) == 1
+            assert received[0]["event"] == "job.test"
+            assert received[0]["job_id"] == job_id
+            assert "payload" in received[0]
+        finally:
+            server.shutdown()
+            thread.join()
+
+    def test_webhook_test_remote_error(self, client: TestClient, tmp_path: Path) -> None:
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        class _Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                self.send_response(500)
+                self.end_headers()
+
+            def log_message(self, *args: object) -> None:
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), _Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            port = server.server_address[1]
+            csv = _sample_csv(tmp_path)
+            job_id = client.post(
+                "/jobs",
+                json={
+                    "name": "hook",
+                    "path": str(csv),
+                    "cron": "* * * * *",
+                    "webhook_url": f"http://127.0.0.1:{port}/hook",
+                },
+            ).json()["job_id"]
+            resp = client.post(f"/jobs/{job_id}/test-webhook")
+            assert resp.status_code == 200
+            assert resp.json()["notified"] is False
+            assert resp.json()["status_code"] == 500
+        finally:
+            server.shutdown()
+            thread.join()
+
+    def test_webhook_test_connection_failed_502(self, client: TestClient, tmp_path: Path) -> None:
+        csv = _sample_csv(tmp_path)
+        job_id = client.post(
+            "/jobs",
+            json={
+                "name": "hook",
+                "path": str(csv),
+                "cron": "* * * * *",
+                "webhook_url": "http://127.0.0.1:1/hook",
+            },
+        ).json()["job_id"]
+        resp = client.post(f"/jobs/{job_id}/test-webhook")
+        assert resp.status_code == 502
+        assert "webhook delivery failed" in resp.json()["detail"]
+
+    def test_webhook_test_no_url_422(self, client: TestClient, tmp_path: Path) -> None:
+        csv = _sample_csv(tmp_path)
+        job_id = client.post(
+            "/jobs", json={"name": "plain", "path": str(csv), "cron": "* * * * *"}
+        ).json()["job_id"]
+        resp = client.post(f"/jobs/{job_id}/test-webhook")
+        assert resp.status_code == 422
+        assert "no webhook_url" in resp.json()["detail"]
+
+    def test_webhook_test_unknown_job_404(self, client: TestClient) -> None:
+        assert client.post("/jobs/nope/test-webhook").status_code == 404
+
     def test_worker_tick_runs_due_job_after_startup(self, tmp_path: Path) -> None:
         """startup 起 worker：到期任务自动执行（无需手动触发）。"""
         csv = _sample_csv(tmp_path)

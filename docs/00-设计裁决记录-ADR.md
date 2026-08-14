@@ -2263,3 +2263,19 @@
   + error 字段；成功 → EXIT_OK。
 - **依据**：既有 CLI 惯例（_envelope/_emit + 退出码）+ MCP
   job_create 先例；未引入新存储/新依赖。
+
+## ADR-087：HTTP API /jobs 运行历史与 webhook 验证（V13，Step 87）
+- **背景**：/jobs 路由族在 Step 51 已存在（POST/GET/PATCH/DELETE/
+  trigger，422/404/409 语义已定）；V13 勘察确认缺口为：运行历史
+  无独立端点、webhook 协作链路无法验证（notify 仅尽力而为日志）。
+- **决策**：
+  - `GET /jobs/{job_id}/runs?limit=N`（默认 20，1..200）：任务
+    运行历史独立视图（get_job 内联 runs 保留不变，兼容既有调用）；
+  - `POST /jobs/{job_id}/test-webhook`：向任务 webhook 发送
+    `event=job.test` 样例负载（JobResult 空值样本），返回远端
+    HTTP 状态码与耗时；无 webhook_url → 422；连接/发送失败 → 502
+    （Bad Gateway 语义）；远端 ≥400 不视为异常，返回
+    `notified=false` + 状态码（用户可判读）。
+- **错误语义延续**：未知 job → 404；pydantic/业务校验 → 422。
+- **依据**：API 既有错误映射惯例（404/400/422）+ WebhookNotifier
+  负载形状（JobResult 序列化），无新依赖。

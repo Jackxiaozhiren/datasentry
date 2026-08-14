@@ -628,3 +628,12 @@ V1 收官：漂移引擎、跨表完整性、AI 修复候选、MCP 生态面、�
 - **job remove ID**：删除任务（不存在报错）
 - 与 MCP job_create/jobs_list/job_trigger 同源同语义（同一
   SchedulerStore），无第二套逻辑
+
+### 新增（Step 87，HTTP API jobs 运行历史与 webhook 验证，ADR-087）
+
+- **GET /jobs/{job_id}/runs?limit=N**：运行历史独立端点（默认
+  20 条；未知任务 404）
+- **POST /jobs/{job_id}/test-webhook**：发送 job.test 样例负载
+  验证协作链路，返回远端状态码与耗时；无 webhook 422、连接失败
+  502、远端 ≥400 返回 notified=false 可判读
+- 既有 /jobs CRUD/trigger/PATCH 保持兼容（Step 51 语义不变）
