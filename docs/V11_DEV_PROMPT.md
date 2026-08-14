@@ -129,7 +129,7 @@ core 包恒 0.7.0 不动；tag v0.13.0 触发 PyPI + Pages）+ GitHub release
 - tests/test_profile_reuse.py 12 例（复用同一性 / 仅新列重算 /
   删列剔除 / 类型变更重算 / dataset_id 重建 / 行数最新 / client
   加列·删列·全量·无 sidecar·契约稳定）；门禁全绿
-- 提交：见 git log（Step 80 提交 hash）
+- 提交：`424694b`
 
 ### Step 81 收尾 v0.13.0 —— ⏳ 待开始
 
