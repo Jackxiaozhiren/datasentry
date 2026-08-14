@@ -603,3 +603,15 @@ V1 收官：漂移引擎、跨表完整性、AI 修复候选、MCP 生态面、�
 - 门禁：ruff + mypy --strict + pytest 覆盖率 >= 85%
   （当前 522 例，95%）
 - Docker 一键启动（`datasentry-server` 入口）
+
+### 新增（Step 84，插件测试夹具，ADR-083）
+
+- **声明式夹具**：plugin.yaml 可选 `fixtures` 段——每条声明
+  `data: <文件>` + `expect: detector/issues/dimension`；非法
+  （缺失数据文件、负数期望）解析/安装即报错
+- **plugin test <name>**：隔离注册表（内置 + 被测插件）按标准
+  连接器管线执行扫描，按期望断言；三态结果（全过=0 / 任一失败=
+  EXIT_GATE_FAILED=1 / 无夹具=跳过视为通过）
+- **断言语义**：仅统计命中检测器的 Issue（内置检测器命中不计）；
+  dimension 未声明则放行
+- **不落库**：夹具执行不写 scan history，无副作用

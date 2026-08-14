@@ -54,14 +54,36 @@ class PluginManifestError(ValueError):
 
 
 @dataclass(frozen=True)
+class FixtureExpectation:
+    """fixture 断言（Step 84，ADR-084）：检测器过滤 + 数量阈值 + 维度。"""
+
+    detector: str | None = None
+    issues: int = 1
+    dimension: str | None = None
+
+
+@dataclass(frozen=True)
+class FixtureSpec:
+    """manifest 声明的测试夹具：数据文件（相对插件根）+ 断言。"""
+
+    data: str
+    expect: FixtureExpectation = field(default_factory=FixtureExpectation)
+
+
+@dataclass(frozen=True)
 class PluginManifest:
-    """插件清单（Step 82，ADR-082）：name/version 必填，其余可选。"""
+    """插件清单（Step 82，ADR-082）：name/version 必填，其余可选。
+
+    Step 84（ADR-084）：`fixtures` 为测试夹具声明（可选，见
+    `run_plugin_fixtures`）。
+    """
 
     name: str
     version: str
     author: str = "unknown"
     license: str = "unknown"
     description: str = ""
+    fixtures: list[FixtureSpec] = field(default_factory=list)
 
     @classmethod
     def from_file(cls, path: Path) -> PluginManifest:
@@ -84,13 +106,54 @@ class PluginManifest:
         version = raw.get("version")
         if not isinstance(version, str) or not version:
             raise PluginManifestError(f"{path}: manifest requires a non-empty 'version'")
+        fixtures = _parse_fixtures(raw.get("fixtures"), path)
         return cls(
             name=name,
             version=version,
             author=str(raw.get("author") or "unknown"),
             license=str(raw.get("license") or "unknown"),
             description=str(raw.get("description") or ""),
+            fixtures=fixtures,
         )
+
+
+def _parse_fixtures(raw_fixtures: Any, manifest_path: Path) -> list[FixtureSpec]:
+    """解析 manifest `fixtures:` 列表；非法抛 PluginManifestError。"""
+    if raw_fixtures is None:
+        return []
+    if not isinstance(raw_fixtures, list):
+        raise PluginManifestError(f"{manifest_path}: 'fixtures' must be a list")
+    specs: list[FixtureSpec] = []
+    for item in raw_fixtures:
+        if not isinstance(item, dict) or not isinstance(item.get("data"), str) or not item["data"]:
+            raise PluginManifestError(
+                f"{manifest_path}: each fixture requires a non-empty 'data' path"
+            )
+        expect_raw = item.get("expect", {})
+        if not isinstance(expect_raw, dict):
+            raise PluginManifestError(f"{manifest_path}: fixture 'expect' must be a mapping")
+        detector = expect_raw.get("detector")
+        issues = expect_raw.get("issues", 1)
+        dimension = expect_raw.get("dimension")
+        if detector is not None and not isinstance(detector, str):
+            raise PluginManifestError(
+                f"{manifest_path}: fixture 'expect.detector' must be a string"
+            )
+        if not isinstance(issues, int) or issues < 0:
+            raise PluginManifestError(
+                f"{manifest_path}: fixture 'expect.issues' must be a non-negative integer"
+            )
+        if dimension is not None and not isinstance(dimension, str):
+            raise PluginManifestError(
+                f"{manifest_path}: fixture 'expect.dimension' must be a string"
+            )
+        specs.append(
+            FixtureSpec(
+                data=item["data"],
+                expect=FixtureExpectation(detector=detector, issues=issues, dimension=dimension),
+            )
+        )
+    return specs
 
 
 def _manifest_paths(directory: Path) -> list[Path]:
@@ -324,6 +387,8 @@ def discover_entrypoint_detectors(
 __all__ = [
     "DETECTOR_ENTRY_POINT_GROUP",
     "PLUGIN_MANIFEST_FILE",
+    "FixtureExpectation",
+    "FixtureSpec",
     "PluginError",
     "PluginLoadError",
     "PluginLoadReport",

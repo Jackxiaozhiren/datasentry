@@ -395,6 +395,43 @@ class DataSentry:
         self._locks.to_file(self._locks_path())
         return {"name": name, "version": lock.version, "relocked": True}
 
+    def test_plugin(self, name: str) -> dict[str, Any]:
+        """插件测试夹具（Step 84，ADR-084）：隔离注册表跑 manifest fixtures。
+
+        无 fixtures 声明 → {"skipped": true}；任一 fixture 失败 →
+        结果含明细（调用方按 passed 决定退出码）。插件未安装抛
+        FileNotFoundError。
+        """
+        from datasentry_core.plugin_fixtures import run_plugin_fixtures
+        from datasentry_core.plugins import PluginManifest
+
+        plugins_root = self._workspace / "plugins"
+        unit = next((u for u in _plugin_units(plugins_root) if u[0] == name), None)
+        if unit is None:
+            raise FileNotFoundError(f"plugin {name!r} not installed at {plugins_root}")
+        _, plugin_root = unit
+        manifest_path = plugin_root / "plugin.yaml"
+        fixtures = []
+        if manifest_path.is_file():
+            fixtures = PluginManifest.from_file(manifest_path).fixtures
+        report = run_plugin_fixtures(name, plugins_root, fixtures)
+        return {
+            "name": report.name,
+            "passed": report.passed(),
+            "results": [
+                {
+                    "data": r.data,
+                    "passed": r.passed,
+                    "issue_count": r.issue_count,
+                    "detector": r.detector_id,
+                    "dimension": r.dimension,
+                    "detail": r.detail,
+                }
+                for r in report.results
+            ],
+            "skipped": report.skipped,
+        }
+
     # ---- 扫描 ----------------------------------------------------------
 
     def scan_file(
@@ -833,6 +870,13 @@ class DataSentry:
     def get_issue(self, issue_id: str) -> Issue | None:
         """按 ID 取 Issue（修复工作台等 UI 用途）。"""
         return self._store.get_issue_by_id(issue_id)
+
+
+def _plugin_units(plugins_root: Path) -> list[tuple[str, Path]]:
+    """插件单元（name, 路径）：复用 core 的 plugin_units。"""
+    from datasentry_core.plugins import plugin_units
+
+    return plugin_units(plugins_root)
 
 
 def _write_placeholder_manifest(target: Path, manifest: Any) -> None:

@@ -2224,3 +2224,23 @@
   list_plugins integrity 字段）+ cli.py（plugin reaccept）+ tests/
   test_plugin_locks.py 20 例（锁读写 6 / 校验报告 7 / 排除加载 2 /
   集成 5，含 pycache 回归）。
+
+## ADR-083：插件测试夹具（V12，Step 84）
+- **背景**：插件是"本机可信代码"，但无任何回归防护——安装前
+  无法验证插件在新数据/新版本上是否仍按预期工作；手工冒烟成本高、
+  不可重复。
+- **决策**：清单内嵌声明式夹具 + 隔离执行：
+  - plugin.yaml 增 `fixtures` 段（可选）：每个条目声明数据文件与
+    期望（detector/issues/dimension），非法值（缺失数据、负数）
+    安装/解析期即抛错；
+  - `plugin test <name>`：为被测插件构建隔离注册表（内置 + 该
+    插件），数据文件经标准连接器管线（SQL guard 与 README 纪律
+    照常适用），ScanRunner 全流程执行后按期望断言；
+  - 期望匹配采用"过滤器"语义：仅统计检测器 ID 命中的 Issue
+    （插件之外的检测器命中不计）；dimension 缺省放行；
+  - 结果三态：全过=exit 0；任一失败=exit EXIT_GATE_FAILED；
+    无 fixtures=跳过（视为通过，exit 0）；
+  - 不落库（scan_run 不写入 history），fixtures 数据不入
+    workspace 数据目录，仅存在于插件安装目录。
+- **依据**：Step 82 清单契约 + Step 31 插件 API 载荷不变
+  （FixtureExpectation 仅用 Issue 模型既有字段）。

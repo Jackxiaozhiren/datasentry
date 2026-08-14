@@ -885,6 +885,22 @@ def _cmd_plugin_reaccept(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_plugin_test(args: argparse.Namespace) -> int:
+    """插件测试夹具（Step 84，ADR-084）：manifest fixtures 断言。"""
+    client = DataSentry(args.project)
+    try:
+        result = client.test_plugin(args.name)
+    except FileNotFoundError as exc:
+        _emit(_envelope("plugin test", {"error": str(exc)}), args.format)
+        return EXIT_SOURCE_UNAVAILABLE
+    finally:
+        client.close()
+    _emit(_envelope("plugin test", result), args.format)
+    if not result.get("passed", False):
+        return EXIT_GATE_FAILED
+    return EXIT_OK
+
+
 def _cmd_rules_propose(args: argparse.Namespace) -> int:
     """自然语言 → 规则候选（14.4）：脱敏 → LLM → 严格校验 → 预运行，不落库。"""
     from datasentry.rules_ai import RuleProposalService
@@ -1245,6 +1261,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_plugin_reaccept.add_argument("name", help="plugin name to re-lock")
     p_plugin_reaccept.set_defaults(func=_cmd_plugin_reaccept)
+    p_plugin_test = plugin_sub.add_parser(
+        "test", help="run plugin fixtures declared in plugin.yaml (Step 84, ADR-084)"
+    )
+    p_plugin_test.add_argument("name", help="plugin name to test")
+    p_plugin_test.set_defaults(func=_cmd_plugin_test)
 
     p_secrets = sub.add_parser(
         "secrets",

@@ -66,7 +66,7 @@ V11（v0.13.0）已发布。V12 主题：**插件生态治理**——补齐
 - **影响**：plugins.py 加载前置校验 + 锁文件读写（新模块
   plugin_locks.py 或并入 plugins.py）+ cli 提示 + tests
 
-### Step 84（ADR-084）插件测试夹具
+### Step 84（ADR-083）插件测试夹具
 
 - **现状**：插件作者无自测设施；只能手写临时脚本构造
   DetectionContext 跑检测器。
@@ -78,6 +78,8 @@ V11（v0.13.0）已发布。V12 主题：**插件生态治理**——补齐
     通过/失败明细（复用报告 JSON 面）
   - 无 fixtures 声明 → 提示跳过（exit 0）
 - **影响**：新 CLI 子命令 + 断言求值（复用注册表/扫描管线）+ tests
+- **落地**：✅ 完成（ADR-083；实现 + 15 测试 + CLI 冒烟 + 门禁
+  95.01%；详见本文档 Step 84 落地记录）
 
 ### Step 85 收尾 v0.14.0
 
@@ -124,7 +126,22 @@ V11（v0.13.0）已发布。V12 主题：**插件生态治理**——补齐
   20 例全绿；CLI 冒烟（install→tamper→reject→reaccept→ok）通过；
   门禁全绿（覆盖 95.00%）
 
-### Step 84（ADR-084）插件测试夹具 —— ⏳ 待开始
+### Step 84（ADR-083）插件测试夹具 —— ✅ 完成
+
+- 交付：plugin.yaml `fixtures` 段（FixtureSpec/FixtureExpectation，
+  非法即抛）；`plugin test <name>`（隔离注册表=内置+被测插件、
+  标准连接器管线、ScanRunner 全流程、过滤命中检测器的 Issue、
+  三态：全过=0 / 失败=EXIT_GATE_FAILED / 无夹具=跳过视为通过、
+  不落库）；tests/test_plugin_fixtures.py 15 例全绿；门禁全绿
+  （ruff/mypy --strict/pytest 95.01%）；CLI 冒烟 pass/fail/skip
+  三路径验证（exit 0/1/0）
+- 坑位：IssueCandidate 必填字段多（detector_version/dataset_id/
+  raw_score/confidence/estimated_false_positive_risk/
+  suggested_severity）——插件作者易踩；`sql_aggregate` 返回
+  FrameBatch（`.table.column()` 取值）；DataFrame 不存在时连接器
+  抛 DataSourceNotFoundError（ConnectorError 子类），夹具层需
+  捕获 ConnectorError；Issue 的 quality_dimensions 取自检测器
+  声明维度，而非 IssueCandidate 传入值
 
 ### Step 85 收尾 v0.14.0 —— ⏳ 待开始
 
