@@ -41,6 +41,7 @@ from pydantic import BaseModel, Field
 
 from datasentry import __version__, ui
 from datasentry import client as sdk
+from datasentry.pii_vault import PIIVault, VaultKeyMissingError, format_mapping_summary
 from datasentry.scheduler.core import LocalScanExecutor, Scheduler, SchedulerWorker
 from datasentry.scheduler.models import (
     JobCommand,
@@ -101,6 +102,12 @@ class HealthResponse(BaseModel):
 class ErrorBody(BaseModel):
     ok: bool = False
     detail: str
+
+
+class PiiRestoreRequest(BaseModel):
+    """POST /pii/sessions/{session_id}/restore 请求体：待还原的占位符文本。"""
+
+    text: str
 
 
 def _config_from(req: ScanRequest) -> ScanConfig:
@@ -225,6 +232,23 @@ def _job_command_from(req: JobCreate, workspace: str) -> JobCommand:
         export_report=req.export_report,
         config=req.config,
     )
+
+
+def _pii_vault(client: sdk.DataSentry) -> PIIVault:
+    """绑定工作区元数据库的 PII vault（V17，Step 99，ADR-099）。
+
+    key 未配置（env/文件均无）时抛 503——与 /rpc/execute 的
+    disabled 语义一致（CLI 侧等价 EXIT_CONFIG）。删除端点不经过
+    本函数：删除密文行无需密钥（与 CLI llm restore --delete 一致）。
+    """
+    vault = PIIVault(client._store)
+    if not vault.key_configured:
+        raise HTTPException(
+            status_code=503,
+            detail="pii vault disabled: no encryption key configured — "
+            "set DATASENTRY_ENCRYPTION_KEY or run 'datasentry llm rotate-key'",
+        )
+    return vault
 
 
 # ---------------------------------------------------------------------------
@@ -729,6 +753,83 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             ) from exc
         return result.model_dump()
 
+    # ---- PII 加密 vault 管理面（V17，Step 99，ADR-099） -------------------
+
+    @app.get("/pii/sessions", tags=["pii"])
+    def pii_list_sessions() -> dict[str, Any]:
+        """加密会话列表（不含密文；含 key_source 提示，与 CLI llm restore 对齐）。"""
+        vault = _pii_vault(client)
+        return {
+            "sessions": [
+                {
+                    "session_id": s["session_id"],
+                    "key_version": s["key_version"],
+                    "created_at": s["created_at"].isoformat(),
+                }
+                for s in client._store.list_pii_mappings()
+            ],
+            "key_source": vault.key_source,
+        }
+
+    @app.get("/pii/sessions/{session_id}", tags=["pii"])
+    def pii_session_summary(session_id: str) -> dict[str, Any]:
+        """会话映射摘要（kind → count + 掩码→原文预览）；缺 key 503、不存在 404。"""
+        vault = _pii_vault(client)
+        try:
+            mapping = vault.load_mapping(session_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except VaultKeyMissingError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {
+            "session_id": session_id,
+            "key_source": vault.key_source,
+            "mapping": format_mapping_summary(mapping),
+        }
+
+    @app.post("/pii/sessions/{session_id}/restore", tags=["pii"])
+    def pii_restore(session_id: str, req: PiiRestoreRequest) -> dict[str, Any]:
+        """还原文本明文（显式授权语义：调用即授权查看明文，与 CLI restore 同源）。"""
+        vault = _pii_vault(client)
+        try:
+            restored = vault.restore_text(req.text, session_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except VaultKeyMissingError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {
+            "session_id": session_id,
+            "key_source": vault.key_source,
+            "restored": restored,
+        }
+
+    @app.delete("/pii/sessions/{session_id}", tags=["pii"], status_code=204)
+    def pii_delete_session(session_id: str) -> Response:
+        """删除加密会话（密文行，无需密钥）；不存在 404。"""
+        if not client._store.delete_pii_mapping(session_id):
+            raise HTTPException(
+                status_code=404, detail=f"pii mapping session not found: {session_id}"
+            )
+        return Response(status_code=204)
+
+    @app.post("/pii/rotate-key", tags=["pii"])
+    def pii_rotate_key() -> dict[str, Any]:
+        """轮换加密密钥：全部映射以新密钥重加密 + 写入本地 key 文件。
+
+        返回 key_version（轮换后恒 "file"——密钥已落盘，与落库行的
+        key_version 一致）；不返回新密钥材料本身（远程面不泄露）。
+        """
+        vault = _pii_vault(client)
+        try:
+            result = vault.rotate_key()
+        except VaultKeyMissingError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {
+            "key_version": "file",
+            "rotated": result["rotated"],
+            "key_file": result["key_file"],
+        }
+
     return app
 
 
@@ -755,6 +856,11 @@ _ENDPOINTS = frozenset(
         "POST /jobs/{job_id}/trigger",
         "PATCH /jobs/{job_id}",
         "DELETE /jobs/{job_id}",
+        "GET /pii/sessions",
+        "GET /pii/sessions/{session_id}",
+        "POST /pii/sessions/{session_id}/restore",
+        "DELETE /pii/sessions/{session_id}",
+        "POST /pii/rotate-key",
     }
 )
 

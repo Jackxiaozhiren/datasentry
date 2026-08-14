@@ -38,7 +38,7 @@ DataSentry 是本地优先的数据质量 AI copilot（Python ≥3.12，uv 管�
 
 ## 四、Step 分解
 
-### Step 99（ADR-099）：REST API PII 端点
+### Step 99（ADR-099）：REST API PII 端点 —— ✅ 完成
 
 - 在 `src/datasentry/api.py` 加端点（仿既有 job 端点风格：`from datasentry.pii_vault import PIIVault, VaultKeyMissingError, format_mapping_summary`；`vault = PIIVault(app.state.client._store)`——注意 client 是 `sdk.DataSentry`，store 是其 `_store` 属性，参考 `cli.py:866` 的用法）
 - 401/404/422/503 语义清晰；`POST /pii/rotate-key` 返回 `{"key_version": ...}`（rotate_key 返回值含此信息，核对 `pii_vault.py:168` 返回结构）
@@ -94,6 +94,20 @@ uv run --offline pytest -q --cov=datasentry_core --cov-fail-under=85
 10. PyPI 索引有延迟（发布后数分钟才可见）；Pages 部署工作流 `pages.yml` 上传 `docs/`（含 index.html）——push main 自动重部署
 11. `datasentry --project <dir> --format json` 是全局参数放子命令前；CLI 输出 envelope（`{ok, command, data, warnings}`）JSON 流
 12. key 相关测试隔离：`PIIVault._key_file()` 指向用户级路径（核对 `pii_vault.py:57` 具体路径，测试用 monkeypatch 隔离）
+
+## V17 执行坑位记录（Step 99-101）
+
+- 缺 key 判定用 `key_configured`（key_source=dev 时 False）：API 503 /
+  MCP 错误消息 / UI 提示，均 gate 在 dev 兜底键之前——dev key 只
+  留给 CLI（有显式告警）
+- DELETE /pii/sessions/{id} 不 gate key（删除密文行无需密钥，与
+  CLI `--delete` 一致）；测试断言无 key 时 delete 仍 404 而非 503
+- rotate-key 后旧 env key 解密失败 → 503（VaultKeyMissingError），
+  不是 404；去掉 env 后 vault 改读轮换写下的 key 文件 → 还原恢复
+- API 测试 key 隔离：monkeypatch.setenv/delenv +
+  monkeypatch.setattr("datasentry.pii_vault._key_file", ...) 双管齐下
+- CHANGELOG 实际是顺序追加结构（最新节在文件尾部，非严格倒序）——
+  [0.19.0] 追加在 [0.18.0] 之后
 
 ## 八、验收
 

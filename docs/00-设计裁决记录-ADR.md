@@ -2423,3 +2423,30 @@
   透传）、_build_scheduler 集成 3（未设同步 / env=3 池 /
   非法回退）、端到端 2（env=3 异步 trigger 202 → 轮询 completed；
   未设 env 同步 trigger 返回即终态）、lifespan 退出无残留线程 1。
+
+## ADR-099：REST API PII vault 管理面（V17，Step 99）
+- **背景**：vault（Step 48，ADR-048）只有 CLI 面；REST 无 PII
+  端点，远端/脚本侧无法列会话、还原或轮换。V17 对齐 V13
+  "CLI/REST/MCP 三面同语义"模式补全。
+- **决策**：
+  - 五端点：`GET /pii/sessions`（列表 + key_source 提示）、
+    `GET /pii/sessions/{id}`（映射摘要 format_mapping_summary）、
+    `POST /pii/sessions/{id}/restore`（body.text → 还原明文，
+    显式授权语义与 CLI 同源）、`DELETE /pii/sessions/{id}`
+    （204）、`POST /pii/rotate-key`（轮换）；
+  - 缺 key（key_source=dev，key_configured=False）→ 503 +
+    detail，仿 /rpc/execute disabled 语义（CLI 等价 EXIT_CONFIG）；
+    session 不存在 → 404；还原缺 text → 422（pydantic）；
+    解密失败（VaultKeyMissingError，如轮换后旧 key）→ 503；
+  - DELETE 不 gate key：删除密文行无需密钥（与 CLI
+    llm restore --delete 一致）；
+  - rotate-key 返回 `{"key_version": "file", "rotated", "key_file"}`
+    ——轮换后密钥落盘恒为 file（与落库行 key_version 一致），
+    远程面不返回新密钥材料本身；
+  - 每次请求现场构造 `PIIVault(client._store)`（env→file 解析链
+    与 CLI 一致）；`_ENDPOINTS` frozenset 同步 +5。
+- **测试**：12 例——无 key 503×4 + 无 key 删除 404、端点清单、
+  列表/摘要/还原全链路、还原与 CLI 同源一致、删除 204→404、
+  缺失 404、缺 text 422、轮换全链路（旧 key 503 → 文件 key 恢复）。
+- **依据**：pii_vault.py 的 key_source/key_configured/rotate_key
+  返回结构；CLI _cmd_llm_restore 语义（cli.py:861）。

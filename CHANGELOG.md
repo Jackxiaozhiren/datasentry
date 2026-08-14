@@ -740,3 +740,37 @@ V16 异步任务队列与并行执行：调度循环从同步串行升级为异�
   关闭（等待 in-flight，无残留线程）
 - 测试 9 例（解析单元 / 构建集成 / 端到端异步+同步 / 生命周期
   线程泄漏检查）
+
+## [0.19.0] - 2026-08-14
+
+V17 PII 加密 vault 管理面补全：CLI 之外的 REST / MCP / Web UI
+三面还原入口 + 四面缺 key 语义对齐。
+
+### 新增（Step 99，REST API PII 端点，ADR-099）
+
+- **五个 /pii 端点**：`GET /pii/sessions`（列表 + key_source
+  提示）、`GET /pii/sessions/{id}`（映射摘要）、
+  `POST /pii/sessions/{id}/restore`（还原明文）、
+  `DELETE /pii/sessions/{id}`（204）、`POST /pii/rotate-key`
+- 缺 key → 503（仿 /rpc/execute disabled 语义）；session 不存在
+  → 404；还原缺 text → 422；轮换后旧 key 解密失败 → 503；
+  DELETE 无需密钥（与 CLI --delete 一致）；_ENDPOINTS 同步 +5
+- 测试 12 例（无 key 语义 / 端点清单 / 全链路 / 与 CLI 同源 /
+  轮换全链路 旧 key 失效 → 文件 key 恢复）
+
+### 新增（Step 100，MCP PII 工具，ADR-100）
+
+- **pii_sessions / pii_restore / pii_delete_session** 三个新工具
+  （15 → 18 个）：工具描述注明"显式授权语义：调用即授权查看明文"
+- 无 key → 工具返回错误消息不崩；tools/list 严格相等断言同步 +3
+- 测试 6 例（工具清单与 schema / 空列表 / 还原端到端 / 删除 /
+  缺 key 错误消息 / 未知会话）
+
+### 新增（Step 101，Web UI /ui/pii + 发布，ADR-101）
+
+- **/ui/pii 页面**：会话列表（session_id / key_version / 时间）+
+  还原表单（post 同页，还原结果仅内存展示不落盘）；缺 key 显示
+  "未配置密钥"提示；导航加入口；en/zh 文案内嵌 i18n
+- 打码语义零改动（mask_text_pii 路径未动）；冒烟：uvicorn 起
+  服务 curl 200
+- 发布 v0.19.0：PyPI / Pages / CI / GitHub release / uv.lock 同步
