@@ -2196,3 +2196,31 @@
   增 manifests）+ cli.py（plugin install/uninstall）+ tests/
   test_plugin_manifest.py 17 例（清单解析 5 / 扫描加载 4 /
   安装卸载列表 8）。
+
+## ADR-082：插件完整性校验与信任锚（V12，Step 83）
+
+- **背景**：目录插件加载前无内容校验，import 即执行代码；插件被
+  篡改/替换无感知（装完删改文件照常加载）。
+- **决策**：SHA-256 锁文件 + 加载前校验：
+  - 锁文件 `<workspace>/.datasentry/plugin_locks.json`（version 1 +
+    name → {version, files{relpath: sha256}, installed_at}）；
+    `plugin install` 写锁、`plugin uninstall` 删锁、`plugin reaccept
+    <name>` 按当前内容重锁（用户确认后放行）
+  - 加载前（import 之前）校验：无锁条目自动建锁（覆盖本功能之前
+    的旧插件，锁定首次见到内容）；被篡改插件**跳过加载**并记入
+    errors（校验失败仅限该插件，不影响内置与其他插件——与
+    entry points 优雅降级同构，ADR-050 扩展）；校验/锁定在
+    import 前完成（先验后载）
+  - 单元枚举与加载语义一致（plugin_units：清单目录 name=manifest
+    name + 平铺 *.py name=stem）；排除衍生文件（__pycache__/*.pyc/
+    .DS_Store，避免 import 产生缓存后误判篡改——回归测试覆盖）
+- **边界**：不引入签名公钥体系（本机信任模型不变，ADR-031/050
+  延续）；entry points 插件由包管理器负责完整性；锁损坏回退空锁
+  （视为 no_lock 自动重建）；`load_plugin_detectors` 签名不变，
+  新增 `load_plugin_detectors_excluding`（v1 稳定承诺保持）。
+- **影响**：新模块 plugin_locks.py（PluginLocks/PluginLock/build_lock/
+  integrity_report/compute_sha256）+ plugins.py（plugin_units 公开 +
+  excluding 加载）+ client.py（初始化校验接线 + reaccept_plugin +
+  list_plugins integrity 字段）+ cli.py（plugin reaccept）+ tests/
+  test_plugin_locks.py 20 例（锁读写 6 / 校验报告 7 / 排除加载 2 /
+  集成 5，含 pycache 回归）。

@@ -172,6 +172,50 @@ def _iter_detector_classes(module: Any) -> Iterator[type[Detector]]:
             yield cast(type[Detector], obj)
 
 
+def _manifest_name_of(sub: Path) -> str:
+    """子目录的插件名：plugin.yaml 的 name（非法/缺失回退目录名）。"""
+    manifest = sub / PLUGIN_MANIFEST_FILE
+    if manifest.is_file():
+        try:
+            raw = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                name = raw.get("name")
+                if isinstance(name, str) and name:
+                    return name
+        except yaml.YAMLError:
+            pass
+    return sub.name
+
+
+def plugin_units(plugins_root: Path) -> list[tuple[str, Path]]:
+    """枚举插件单元（name, 路径）：清单目录 + 平铺 `*.py`。
+
+    与加载语义一致（Step 82）：无 plugin.yaml 的子目录不属于插件。
+    """
+    if not plugins_root.is_dir():
+        return []
+    units: list[tuple[str, Path]] = []
+    for sub in sorted(p for p in plugins_root.iterdir() if p.is_dir()):
+        if (sub / PLUGIN_MANIFEST_FILE).is_file():
+            units.append((_manifest_name_of(sub), sub))
+    for file_path in _module_paths(plugins_root):
+        units.append((file_path.stem, file_path))
+    return units
+
+
+def _load_units(registry: DetectorRegistry, units: Sequence[tuple[str, Path]]) -> list[str]:
+    loaded: list[str] = []
+    for name, root in units:
+        if root.is_file():
+            module_name = f"datasentry_plugin_{name}"
+            loaded.extend(_register_module(registry, root, module_name))
+            continue
+        for file_path in _module_paths(root):
+            module_name = f"datasentry_plugin_{name}_{file_path.stem}"
+            loaded.extend(_register_module(registry, file_path, module_name))
+    return loaded
+
+
 def load_plugin_detectors(
     registry: DetectorRegistry,
     plugin_dirs: Sequence[str | Path],
@@ -188,15 +232,27 @@ def load_plugin_detectors(
         root = Path(directory)
         if not root.is_dir():
             continue
-        for file_path in _module_paths(root):
-            module_name = f"datasentry_plugin_{root.name}_{file_path.stem}"
-            loaded.extend(_register_module(registry, file_path, module_name))
-        for sub in sorted(p for p in root.iterdir() if p.is_dir()):
-            if not (sub / PLUGIN_MANIFEST_FILE).is_file():
-                continue
-            for file_path in _module_paths(sub):
-                module_name = f"datasentry_plugin_{sub.name}_{file_path.stem}"
-                loaded.extend(_register_module(registry, file_path, module_name))
+        loaded.extend(_load_units(registry, plugin_units(root)))
+    return loaded
+
+
+def load_plugin_detectors_excluding(
+    registry: DetectorRegistry,
+    plugin_dirs: Sequence[str | Path],
+    exclude: set[str],
+) -> list[str]:
+    """同 `load_plugin_detectors`，但按插件名跳过 exclude 中的单元。
+
+    Step 83（ADR-083）：完整性校验失败（tampered）的插件跳过加载，
+    其余插件与内置不受影响（校验失败仅限该插件）。
+    """
+    loaded: list[str] = []
+    for directory in plugin_dirs:
+        root = Path(directory)
+        if not root.is_dir():
+            continue
+        units = [(name, unit) for name, unit in plugin_units(root) if name not in exclude]
+        loaded.extend(_load_units(registry, units))
     return loaded
 
 
@@ -275,5 +331,7 @@ __all__ = [
     "PluginManifestError",
     "discover_entrypoint_detectors",
     "load_plugin_detectors",
+    "load_plugin_detectors_excluding",
+    "plugin_units",
     "read_plugin_manifests",
 ]

@@ -111,7 +111,18 @@ V11（v0.13.0）已发布。V12 主题：**插件生态治理**——补齐
   test_plugin_manifest.py 17 例全绿；CLI 冒烟（install→list→uninstall）
   通过；门禁全绿（覆盖 95.02%）
 
-### Step 83（ADR-083）完整性校验与信任锚 —— ⏳ 待开始
+### Step 83（ADR-083）完整性校验与信任锚 —— ✅ 完成
+
+- 提交：`TODO_FEATURE_HASH`（docs 回填 `TODO_DOCS_HASH`）
+- 落地：新模块 plugin_locks.py（PluginLocks/PluginLock/build_lock/
+  integrity_report/compute_sha256，锁文件 .datasentry/
+  plugin_locks.json）；plugins.py 公开 plugin_units + 新增
+  load_plugin_detectors_excluding（v1 签名不变）；client 初始化
+  接线（先验后载：无锁自动建锁 / 篡改跳过+记 errors）+ reaccept_
+  plugin + list_plugins integrity 字段；cli.py 增 plugin reaccept；
+  修复 pycache 误判 bug（排除衍生文件）；tests/test_plugin_locks.py
+  20 例全绿；CLI 冒烟（install→tamper→reject→reaccept→ok）通过；
+  门禁全绿（覆盖 95.00%）
 
 ### Step 84（ADR-084）插件测试夹具 —— ⏳ 待开始
 

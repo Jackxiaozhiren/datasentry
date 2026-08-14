@@ -66,24 +66,54 @@ class DataSentry:
         """内置 + 目录插件（Step 31）+ entry points 插件（Step 50，V2-C）。
 
         目录插件保持 fail-fast（ADR-031 语义）；entry points 插件优雅降级，
-        失败项经 `list_plugins()` 可观测（ADR-050）。
+        失败项经 `list_plugins()` 可观测（ADR-050）。Step 83（ADR-083）：
+        目录插件 import 前做完整性校验——无锁条目自动建锁（锁定当前
+        内容，覆盖本功能之前的旧插件）；被篡改插件跳过加载并记入
+        `_plugin_errors`（校验失败仅限该插件，不影响内置与其他插件）。
         """
+        from datasentry_core.plugin_locks import (
+            PluginLocks,
+            build_lock,
+            integrity_report,
+        )
         from datasentry_core.plugins import (
             DETECTOR_ENTRY_POINT_GROUP,
             discover_entrypoint_detectors,
-            load_plugin_detectors,
+            load_plugin_detectors_excluding,
         )
 
         registry = DetectorRegistry()
         register_default_detectors(registry)
         self._source_map = {d.detector_id: "builtin" for d in registry.list()}
         self._plugin_errors: list[dict[str, str]] = []
-        for detector_id in load_plugin_detectors(registry, [self._workspace / "plugins"]):
+        plugins_root = self._workspace / "plugins"
+        self._locks = PluginLocks.from_file(self._locks_path())
+        report = integrity_report(plugins_root, self._locks)
+        for entry in report.entries:
+            if entry.status == "no_lock":
+                self._locks.set_plugin(entry.name, build_lock(plugins_root / entry.name))
+            elif entry.status == "tampered":
+                self._plugin_errors.append(
+                    {
+                        "name": entry.name,
+                        "error": (
+                            f"integrity check failed: {entry.detail}; re-run install "
+                            f"or use `plugin reaccept {entry.name}` after confirming "
+                            f"the current content"
+                        ),
+                    }
+                )
+        if report.entries:
+            self._locks.to_file(self._locks_path())
+        skip = {e.name for e in report.tampered()}
+        for detector_id in load_plugin_detectors_excluding(registry, [plugins_root], skip):
             self._source_map[detector_id] = "dir"
-        report = discover_entrypoint_detectors(registry, group=DETECTOR_ENTRY_POINT_GROUP)
-        for detector_id in report.loaded:
+        ep_report = discover_entrypoint_detectors(registry, group=DETECTOR_ENTRY_POINT_GROUP)
+        for detector_id in ep_report.loaded:
             self._source_map[detector_id] = "entrypoint"
-        self._plugin_errors = [{"name": err.name, "error": err.message} for err in report.errors]
+        self._plugin_errors.extend(
+            {"name": err.name, "error": err.message} for err in ep_report.errors
+        )
         return registry
 
     @property
@@ -230,6 +260,7 @@ class DataSentry:
             manifests = read_plugin_manifests([self._workspace / "plugins"])
         except ValueError as exc:
             self._plugin_errors.append({"name": "manifest", "error": str(exc)})
+        integrity = self._plugin_integrity_status()
         plugins = [d for d in self.list_detectors() if d["source"] in ("dir", "entrypoint")]
         return {
             "plugins": plugins,
@@ -240,12 +271,24 @@ class DataSentry:
                     "author": m.author,
                     "license": m.license,
                     "description": m.description,
+                    "integrity": integrity.get(m.name, "unknown"),
                 }
                 for m in manifests.values()
             ],
             "errors": self._plugin_errors,
             "workspace_plugins_dir": str(self._workspace / "plugins"),
         }
+
+    def _locks_path(self) -> Path:
+        return self._workspace / ".datasentry" / "plugin_locks.json"
+
+    def _plugin_integrity_status(self) -> dict[str, str]:
+        """插件完整性状态（Step 83，ADR-083）：name → ok/tampered/no_lock。"""
+        from datasentry_core.plugin_locks import PluginLocks, integrity_report
+
+        locks = PluginLocks.from_file(self._locks_path())
+        report = integrity_report(self._workspace / "plugins", locks)
+        return {e.name: e.status for e in report.entries}
 
     def plugins_dir(self) -> Path:
         """工作区插件目录（ADR-031）：<workspace>/plugins（不存在时创建）。"""
@@ -263,6 +306,7 @@ class DataSentry:
         """
         import shutil
 
+        from datasentry_core.plugin_locks import build_lock
         from datasentry_core.plugins import (
             PLUGIN_MANIFEST_FILE,
             PluginManifest,
@@ -308,6 +352,8 @@ class DataSentry:
             shutil.copy2(src, target / src.name)
             files = [target / src.name]
             _write_placeholder_manifest(target, manifest)
+        self._locks.set_plugin(manifest.name, build_lock(target, version=manifest.version))
+        self._locks.to_file(self._locks_path())
         return {
             "name": manifest.name,
             "version": manifest.version,
@@ -316,17 +362,38 @@ class DataSentry:
         }
 
     def uninstall_plugin(self, name: str) -> dict[str, Any]:
-        """卸载插件（Step 82，ADR-082）：删除 <workspace>/plugins/<name>/。
+        """卸载插件（Step 82/83）：删除 <workspace>/plugins/<name>/ + 锁条目。
 
         未知插件抛 FileNotFoundError（未安装）。
         """
         import shutil
 
+        from datasentry_core.plugin_locks import PluginLocks
+
         target = self._workspace / "plugins" / name
         if not target.is_dir():
             raise FileNotFoundError(f"plugin {name!r} not installed at {target}")
         shutil.rmtree(target)
+        locks = PluginLocks.from_file(self._locks_path())
+        locks.remove_plugin(name)
+        locks.to_file(self._locks_path())
         return {"name": name, "removed": str(target)}
+
+    def reaccept_plugin(self, name: str) -> dict[str, Any]:
+        """重新锁定插件当前内容（Step 83，ADR-083）：用户确认后放行。
+
+        完整性校验失败（tampered）的插件在 `plugin reaccept <name>`
+        后按当前内容重新建锁，下次加载通过。
+        """
+        from datasentry_core.plugin_locks import build_lock
+
+        target = self._workspace / "plugins" / name
+        if not target.is_dir():
+            raise FileNotFoundError(f"plugin {name!r} not installed at {target}")
+        lock = build_lock(target)
+        self._locks.set_plugin(name, lock)
+        self._locks.to_file(self._locks_path())
+        return {"name": name, "version": lock.version, "relocked": True}
 
     # ---- 扫描 ----------------------------------------------------------
 

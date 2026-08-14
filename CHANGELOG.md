@@ -21,6 +21,18 @@ V12 插件生态治理：清单 + 安装管理 + 完整性校验 + 测试夹具�
   清单非法不中断 list（记入 errors）
 - 安全边界不变：插件=本机可信代码，无沙箱（ADR-031/050 延续）
 
+### 新增（Step 83，插件完整性校验与信任锚，ADR-083）
+
+- **SHA-256 锁文件**（.datasentry/plugin_locks.json）：`plugin
+  install` 安装即锁定全部文件哈希；`plugin uninstall` 移除锁条目；
+  `plugin reaccept <name>` 按当前内容重锁（篡改后用户确认放行）
+- **加载前校验**：import 之前比对锁——被篡改插件跳过加载并记入
+  errors（仅限该插件，不影响内置与其他插件）；旧插件（本功能
+  之前安装）首次加载自动建锁，零迁移
+- **防误判**：完整性扫描排除 __pycache__/*.pyc/.DS_Store 等衍生
+  文件（import 产生缓存不破坏锁）
+- **plugin list** 增 integrity 状态（ok/tampered/no_lock）
+
 ## [0.13.0] - 2026-08-14
 
 V11 三件套：证据级描述本地化 + 调度配置透传 + 增量画像列级复用。

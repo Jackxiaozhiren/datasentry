@@ -871,6 +871,20 @@ def _cmd_plugin_uninstall(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_plugin_reaccept(args: argparse.Namespace) -> int:
+    """重新锁定插件当前内容（Step 83，ADR-083）：完整性校验失败后放行。"""
+    client = DataSentry(args.project)
+    try:
+        result = client.reaccept_plugin(args.name)
+    except FileNotFoundError as exc:
+        _emit(_envelope("plugin reaccept", {"error": str(exc)}), args.format)
+        return EXIT_SOURCE_UNAVAILABLE
+    finally:
+        client.close()
+    _emit(_envelope("plugin reaccept", result), args.format)
+    return EXIT_OK
+
+
 def _cmd_rules_propose(args: argparse.Namespace) -> int:
     """自然语言 → 规则候选（14.4）：脱敏 → LLM → 严格校验 → 预运行，不落库。"""
     from datasentry.rules_ai import RuleProposalService
@@ -1225,6 +1239,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_plugin_uninstall.add_argument("name", help="plugin name (manifest name / directory name)")
     p_plugin_uninstall.set_defaults(func=_cmd_plugin_uninstall)
+    p_plugin_reaccept = plugin_sub.add_parser(
+        "reaccept",
+        help="re-lock plugin current content after integrity failure (Step 83, ADR-083)",
+    )
+    p_plugin_reaccept.add_argument("name", help="plugin name to re-lock")
+    p_plugin_reaccept.set_defaults(func=_cmd_plugin_reaccept)
 
     p_secrets = sub.add_parser(
         "secrets",

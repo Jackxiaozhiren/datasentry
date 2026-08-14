@@ -171,6 +171,7 @@ def test_install_plugin_from_dir(tmp_path: Path) -> None:
             "author": "alice",
             "license": "MIT",
             "description": "demo plugin",
+            "integrity": "ok",
         }
     ]
     client.close()
