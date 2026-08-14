@@ -140,4 +140,20 @@ V13 = **调度管理面三面补齐（CLI/HTTP API/MCP 同源）+ 生命周期
 - 坑位：MCP tools 集合被 test_tools_list_shape 严格相等断言锁定
   ——新增工具需同步更新该断言
 
-### Step 89 收尾 v0.15.0 —— ⏳ 待开始
+### Step 89 收尾 v0.15.0 —— ✅ 完成
+
+- 交付：版本 0.15.0（根 pyproject + 双 __init__，core pyproject
+  恒 0.7.0）、CHANGELOG [0.15.0]（含 Step 84 节归位修正——
+  曾错落在文件末尾）、DEVELOPMENT V13 段、tag v0.15.0 → PyPI
+  ✓ Pages ✓ CI ✓、GitHub release、uv.lock 同步 0.15.0
+- 坑位（测试稳定性，ADR-087/088 关联）：
+  1. **worker tick 竞态**：SchedulerWorker 每 1s tick 会在测试
+     窗口内真实执行 cron 到期的 job——测试中 job 一律用远未来
+     cron "0 0 1 1 *"（每年 1 月 1 日），专测 worker 自动执行的
+     用例除外（:384 store 直建 next_run_at 已到期）
+  2. **cron 字段语义**：5 字段为 分/时/日/月/周，"0 0 0 1 1"
+     的 day=0 非法（validate_cron 拒绝，POST 422 无 job_id）
+  3. **HTTPServer 测试**：handler 须读掉 Content-Length body，
+     finally 需 server.server_close()（仅 shutdown 会泄漏监听
+     socket，偶发连接异常导致 502 误判）
+- 累计 14+ 次全量连跑无失败（95.01% 覆盖，mypy --strict）
