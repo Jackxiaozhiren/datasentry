@@ -24,7 +24,7 @@
 > **中文导读**：DataSentry 是一个以统计证据为基础、以 AI 为辅助、以人工审批为保障的本地优先数据质量平台。
 > 一次扫描生成六维质量评分，每个问题带证据链；自然语言即可提出规则与修复方案，但**只有人工批准才生效**。
 > 数据不出机器（LLM 可接本地 Ollama），DuckDB 执行引擎，百万行 10 秒级。
-> 云侧调度四部曲已就绪：cron 任务队列（V13）→ 分布式执行节点（V14）→ 多 worker 容错路由（V15）→ 并行派发（V16）。
+> 调度体系已就绪：cron 任务队列 → 分布式执行节点 → 多 worker 容错路由 → 并行派发。
 
 ## What is DataSentry?
 
@@ -60,7 +60,7 @@ datasentry drift latest orders           # drift between the two latest scans
 datasentry-server                       # Web UI + REST API at http://localhost:8000
 ```
 
-Scheduled jobs on remote workers (V14/V15 — multi-worker pool with
+Scheduled jobs on remote workers (multi-worker pool with
 failover; jobs stay in the scheduler's SQLite queue, execution is
 delegated to `datasentry worker` nodes):
 
@@ -71,7 +71,7 @@ DATASENTRY_WORKERS="http://worker-a:8001:secret;http://worker-b:8001:secret" dat
 # cooled down (60s) and the next worker takes over; unset DATASENTRY_WORKERS
 # to keep running everything locally (zero migration).
 
-# Parallel execution (V16): default is synchronous (one job at a time);
+# Parallel execution: default is synchronous (one job at a time);
 # set a worker count to dispatch due jobs concurrently on a thread pool.
 DATASENTRY_MAX_WORKERS=4 datasentry-server
 ```
@@ -80,11 +80,11 @@ Scan a DuckDB file (optional — any CSV/Parquet/JSONL/XLSX/SQLite works):
 
 ```bash
 datasentry scan analytics.duckdb --table payments
-datasentry scan analytics.db --table payments     # SQLite (Step 54)
+datasentry scan analytics.db --table payments     # SQLite
 ```
 
-Scan a MySQL table (V5, Step 56 — via DuckDB mysql extension, no client
-library; `--table` required) or a cloud file (V5, Step 57 — CSV/Parquet/
+Scan a MySQL table (via DuckDB mysql extension, no client
+library; `--table` required) or a cloud file (CSV/Parquet/
 JSONL over s3:// gs:// az://, credentials from process env / `secrets`):
 
 ```bash
@@ -92,7 +92,7 @@ datasentry scan "mysql://user:pass@localhost:3306/analytics" --table payments
 datasentry scan s3://bucket/orders.csv            # AWS credentials from env
 ```
 
-Scan a PostgreSQL table (V4, Step 55 — DSN is passed on the command line /
+Scan a PostgreSQL table (DSN is passed on the command line /
 via `DATASENTRY_PG_DSN` and is never persisted or logged):
 
 ```bash
@@ -101,7 +101,7 @@ DATASENTRY_PG_DSN="postgresql://user:pass@localhost:5432/analytics" \
   datasentry scan postgresql:// --table payments --schema public
 ```
 
-### Credentials (V5, Step 59 — ADR-059)
+### Credentials
 
 `connection_ref` resolution chain: process environment variable, then
 `~/.config/datasentry/secrets.env` (overridable via `DATASENTRY_CONFIG_HOME`
@@ -172,7 +172,7 @@ flowchart LR
 | Area | What you get |
 |------|--------------|
 | Detection | 39 detectors across 6 dimensions; SQL-pushdown single-table; plugin API (`plugins/` auto-load, SHA-256 integrity locks) |
-| Scoring | 0–100 six-dimension score, ADR-003 severity normalization, contract criticality |
+| Scoring | 0–100 six-dimension score, severity normalization, contract criticality |
 | Contracts | YAML contract DSL → validation + gate + Pandera / Great Expectations export |
 | Repair | trim / normalize case / replace missing token / set null / clip values; preview re-runs rules |
 | Drift | schema / row-count / score / issue-distribution signals between historical scans |
@@ -197,7 +197,7 @@ flowchart LR
 ```bash
 uv sync
 make check          # ruff + mypy --strict + pytest with 85% coverage gate
-make demo           # M9 demo script
+make demo           # demo script
 make bench          # 1e6-row benchmark (60s gate)
 make build          # build both wheels (datasentry + datasentry_core)
 ```
