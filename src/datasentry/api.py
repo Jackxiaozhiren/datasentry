@@ -163,12 +163,26 @@ def parse_workers(raw: str) -> list[tuple[str, str]]:
     return workers
 
 
+def _parse_max_workers(raw: str | None) -> int:
+    """解析 DATASENTRY_MAX_WORKERS：非法/<=1 → 1（同步语义），告警。"""
+    if not raw:
+        return 1
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("DATASENTRY_MAX_WORKERS=%r invalid, using 1", raw)
+        return 1
+    return value if value > 1 else 1
+
+
 def _build_scheduler(client: sdk.DataSentry) -> Scheduler:
     """绑定工作区元数据库的调度器（SQLite 持久化任务队列，ADR-051）。
 
     执行器选择（V15，ADR-094）：配置了 DATASENTRY_WORKERS 则用
     WorkerPoolExecutor（url:token 分号分隔，多节点容错路由），
     否则回退 LocalScanExecutor（零迁移）。
+    并行度（V16，ADR-096/097）：DATASENTRY_MAX_WORKERS>1 时
+    tick/trigger 异步派发线程池并行执行；默认 1 保持同步（零迁移）。
     """
     from datasentry.scheduler.store import SchedulerStore
     from datasentry_core.storage.paths import project_db_path
@@ -185,9 +199,17 @@ def _build_scheduler(client: sdk.DataSentry) -> Scheduler:
         ]
         if workers:
             logger.info("scheduler using worker pool: %d worker(s)", len(workers))
-            return Scheduler(store=store, executor=WorkerPoolExecutor(workers))
+            return Scheduler(
+                store=store,
+                executor=WorkerPoolExecutor(workers),
+                max_workers=_parse_max_workers(os.environ.get("DATASENTRY_MAX_WORKERS")),
+            )
         logger.warning("DATASENTRY_WORKERS set but no valid entries; using local executor")
-    return Scheduler(store=store, executor=LocalScanExecutor())
+    return Scheduler(
+        store=store,
+        executor=LocalScanExecutor(),
+        max_workers=_parse_max_workers(os.environ.get("DATASENTRY_MAX_WORKERS")),
+    )
 
 
 def _job_command_from(req: JobCreate, workspace: str) -> JobCommand:
@@ -236,6 +258,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
 
     app = FastAPI(title="DataSentry API", version=__version__, lifespan=_lifespan)
     app.state.client = client
+    app.state.scheduler = scheduler
 
     @app.get("/health", response_model=HealthResponse, tags=["meta"])
     def health() -> HealthResponse:

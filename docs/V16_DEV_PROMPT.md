@@ -58,7 +58,7 @@ SchedulerWorker.tick ──claim 到期 jobs──▶ Scheduler._run_job ──�
   - 异常消化：executor 抛错（注入抛错 executor）→ run failed，
     无异常泄漏（future 回调消费）
 
-### Step 97（ADR-097）API 接入 + 优雅关闭
+### Step 97（ADR-097）API 接入 + 优雅关闭 —— ✅ 完成
 
 - `_build_scheduler` 读 `DATASENTRY_MAX_WORKERS`（默认 1，非法
   回退 1 + 告警）传入 Scheduler；create_app 生命周期：
@@ -90,3 +90,6 @@ SchedulerWorker.tick ──claim 到期 jobs──▶ Scheduler._run_job ──�
 - Step 96 坑位：create_job 收 ScheduledJob 对象（非关键字参数）；
   线程池提交后并发峰值需轮询观察（调度延迟）；uv 网络抖动时
   用 `uv run --offline`（索引拉取失败不阻塞）
+- Step 97 坑位：端到端测试须显式 monkeypatch.setenv 后才断言池
+  存在（否则默认同步正确回落）；run_id 断言只读不用 → F841
+  （ruff 拦下）；app.state.scheduler 需显式挂载

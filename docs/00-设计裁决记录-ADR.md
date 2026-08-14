@@ -2406,3 +2406,20 @@
   并行 5（tick 不阻塞+并发峰值>=2、trigger 异步、互斥、shutdown
   等待 in-flight、执行器抛错 → failed 无泄漏）。
 - **依据**：claim_due_jobs/claim_job 原子互斥 + store 连接管理。
+
+## ADR-097：API 层并行配置 DATASENTRY_MAX_WORKERS（V16，Step 97）
+- **背景**：Step 96 的 max_workers 需从运行面暴露，且优雅关闭需
+  接入服务生命周期。
+- **决策**：
+  - `DATASENTRY_MAX_WORKERS` 环境变量（默认 1；非法/<=1 → 1 +
+    告警，同步语义零迁移）；`_build_scheduler` 同时注入
+    WorkerPoolExecutor 分支与 LocalScanExecutor 分支；
+  - create_app 挂 `app.state.scheduler`（运维/测试观测）；
+  - 优雅关闭：lifespan finally 的 `worker.stop()` 内部已调
+    `scheduler.shutdown(wait=True)`（Step 96）——服务退出等待
+    in-flight 完成，无残留线程（ThreadPoolExecutor 线程非
+    daemon，必须被 join）。
+- **测试**：9 例——_parse_max_workers 单元 3（默认/非法回退/
+  透传）、_build_scheduler 集成 3（未设同步 / env=3 池 /
+  非法回退）、端到端 2（env=3 异步 trigger 202 → 轮询 completed；
+  未设 env 同步 trigger 返回即终态）、lifespan 退出无残留线程 1。
