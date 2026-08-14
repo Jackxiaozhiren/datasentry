@@ -52,7 +52,7 @@ DataSentry 是本地优先的数据质量 AI copilot（Python ≥3.12，uv 管�
 - 同步更新测试里 tools 列表严格断言（找到 `test_tools_list_shape` 所在文件 `tests/test_mcp_*.py` 并加 3 个名字）
 - 测试：新工具存在且 schema 合法；`pii_restore` 端到端（save_mapping → restore 返回明文）；无 key → 工具返回错误消息不崩
 
-### Step 101（ADR-101）：Web UI `/ui/pii` + 发布 v0.19.0
+### Step 101（ADR-101）：Web UI `/ui/pii` + 发布 v0.19.0 —— ✅ 完成
 
 - `src/datasentry/ui.py` 加 `/ui/pii` 路由（HTML，复用既有样式惯例——nav/table/button；打码显示 session_id + 时间 + key_version；还原表单 post 到同页并展示还原结果一次）；**还原结果只存内存响应体**
 - 冒烟：`uvicorn` 起服务 curl 页面 200

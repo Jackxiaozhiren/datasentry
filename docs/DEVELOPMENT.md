@@ -154,6 +154,20 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
   互斥/重试/死信/webhook 语义不变（SQL 层原子 claim）；下一
   阶段候选：PII 还原（加密存储）、报告交互增强、跨进程/多
   调度端队列
+- **V17 已完成（v0.19.0）**：PII 加密 vault 管理面补全——REST
+  面（Step 99：五端点 /pii/sessions 列表+摘要+还原+删除+
+  rotate-key；缺 key 503 对齐 /rpc/execute disabled 语义、
+  session 缺失 404、还原缺 text 422、轮换后旧 key 解密失败 503、
+  DELETE 无需密钥；_ENDPOINTS 同步 +5）、MCP 面（Step 100：
+  pii_sessions/pii_restore/pii_delete_session 三工具，15→18；
+  描述注明显式授权语义，缺 key → ok:false 错误消息不崩；
+  tools/list 严格断言 +3）、Web UI 面（Step 101：/ui/pii
+  会话列表 + 还原表单，还原结果仅内存展示不落盘，缺 key 显示
+  未配置提示；mask_text_pii 打码路径零改动）；CLI / REST /
+  MCP / UI 四面缺 key 语义对齐（EXIT_CONFIG / 503 / 错误消息 /
+  页面提示）；CI 全绿（95.01% 覆盖，1131 测试），mypy --strict
+  通过；下一阶段候选：报告交互增强、跨进程/多调度端队列、
+  vault 密钥的 UI 管理
 
 ---
 

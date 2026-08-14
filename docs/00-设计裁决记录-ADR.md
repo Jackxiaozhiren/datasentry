@@ -2474,3 +2474,23 @@
   未知会话错误、删除闭环。
 - **依据**：既有工具注册装饰器模式 + V2-A vault（ADR-048）语义；
   与 REST（ADR-099）同一 _pii_vault 判定（key_configured）。
+
+## ADR-101：Web UI /ui/pii 还原查看入口（V17，Step 101）
+- **背景**：Web UI 报告只打码（mask_text_pii）无还原入口，运营
+  侧无法在浏览器查看脱敏后的明文；CLI/REST/MCP 已有还原面。
+- **决策**：
+  - `/ui/pii` 服务端渲染页（复用 ui.py 既有样式惯例）：
+    GET 列会话（session_id / key_version / created_at，不打码
+    内容不显示明文）+ 还原表单；POST 同页提交，还原结果仅存
+    本次响应体（内存展示、不落盘、不写审计外的持久化）；
+  - 缺 key（key_source=dev）→ 页面显示"未配置密钥"提示、不
+    提供还原表单（与 API 503 / MCP 错误消息 / CLI 告警对齐）；
+  - 表单提交错误（session 不存在 / 解密失败）→ 页面 alert
+    展示，不崩溃；所有输出 escape()（XSS 惯例延续）；
+  - 默认打码语义零改动：mask_text_pii 路径（报告/issue 页）
+    未触碰；导航栏加入口（en/zh 内嵌 i18n，V8 ADR-069 惯例）。
+- **测试**：10 例——无 key 提示（en/zh/表单隐藏/POST 提示）、
+  空列表+表单、会话列表、还原结果一次展示、未知会话错误、
+  还原 XSS 转义、导航入口；冒烟：uvicorn 真服务 GET/POST 200。
+- **依据**：ui.py 渲染惯例 + i18n（ADR-069）+ vault 语义
+  （ADR-048/099）。

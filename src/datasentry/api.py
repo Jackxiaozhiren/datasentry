@@ -496,6 +496,51 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
 
         return HTMLResponse(ui.render_trends(build_trends(client.list_scan_runs()), lang=lang))
 
+    @app.get("/ui/pii", response_class=HTMLResponse, tags=["ui"])
+    def ui_pii(lang: str = Query(default="en")) -> HTMLResponse:
+        """PII 加密会话管理页（V17，Step 101，ADR-101）：列表 + 还原表单。"""
+        from datasentry.pii_vault import PIIVault
+
+        vault = PIIVault(client._store)
+        return HTMLResponse(
+            ui.render_pii(
+                client._store.list_pii_mappings(),
+                key_source=vault.key_source,
+                key_configured=vault.key_configured,
+                lang=lang,
+            )
+        )
+
+    @app.post("/ui/pii", response_class=HTMLResponse, tags=["ui"])
+    def ui_pii_restore(
+        session_id: str = Form(), text: str = Form(), lang: str = Query(default="en")
+    ) -> HTMLResponse:
+        """还原表单提交：同页展示还原结果（仅内存响应体，不落盘）。"""
+        from datasentry.pii_vault import PIIVault, VaultKeyMissingError
+
+        vault = PIIVault(client._store)
+        restored: str | None = None
+        error: str | None = None
+        if not vault.key_configured:
+            error = _t(lang, "ui.pii_key_missing")
+        else:
+            try:
+                restored = vault.restore_text(text, session_id)
+            except KeyError as exc:
+                error = str(exc)
+            except VaultKeyMissingError as exc:
+                error = str(exc)
+        return HTMLResponse(
+            ui.render_pii(
+                client._store.list_pii_mappings(),
+                key_source=vault.key_source,
+                key_configured=vault.key_configured,
+                restored=restored,
+                error=error,
+                lang=lang,
+            )
+        )
+
     @app.get("/ui/scans/{run_id}", response_class=HTMLResponse, tags=["ui"])
     def ui_scan_detail(
         run_id: str,

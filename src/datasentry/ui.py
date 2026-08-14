@@ -14,6 +14,7 @@ Column Explorer / 跨扫描趋势归 V1（MVP 只做问题定位闭环）。
 from __future__ import annotations
 
 from html import escape
+from typing import Any
 
 from datasentry.trends import DatasetTrend, ScanPoint
 from datasentry_core.models.issue import Issue
@@ -95,6 +96,7 @@ def _page(title: str, body: str, *, active: str = "", lang: str = "en") -> str:
             f'<a href="/ui/">{escape(t(lang, "ui.nav_home"))}</a>'
             f'<a href="/ui/scans">{escape(t(lang, "ui.nav_scans"))}</a>'
             f'<a href="/ui/trends">{escape(t(lang, "ui.nav_trends"))}</a>'
+            f'<a href="/ui/pii">{escape(t(lang, "ui.nav_pii"))}</a>'
             f'<a href="/api/docs">{escape(t(lang, "ui.nav_api_docs"))}</a>'
             "</nav>",
             f"<h1>{escape(title)}</h1>",
@@ -399,3 +401,72 @@ def render_error(title: str, message: str, *, lang: str = "en") -> str:
         f'<p><a href="/ui/">{escape(t(lang, "ui.back_home"))}</a></p>',
         lang=lang,
     )
+
+
+def render_pii(
+    sessions: list[dict[str, Any]],
+    *,
+    key_source: str = "dev",
+    key_configured: bool = True,
+    restored: str | None = None,
+    error: str | None = None,
+    lang: str = "en",
+) -> str:
+    """PII 加密会话管理页（Step 101，V17，ADR-101）。
+
+    默认打码语义不变：列表只显示 session_id/key_version/时间；
+    还原表单提交到本页，还原结果仅存在于本次响应体（内存），
+    不落盘。缺 key 时只显示提示、不提供还原表单。
+    """
+    body: list[str] = []
+    if not key_configured:
+        body.append(f'<div class="alert alert-err">{escape(t(lang, "ui.pii_key_missing"))}</div>')
+    else:
+        body.append(
+            f'<p class="meta">{escape(t(lang, "ui.pii_key_source"))}: '
+            f"<code>{escape(key_source)}</code></p>"
+        )
+        if not sessions:
+            body.append(f'<p class="meta">{escape(t(lang, "ui.pii_no_sessions"))}</p>')
+        else:
+            rows = []
+            for session in sessions:
+                created = session["created_at"]
+                created_text = (
+                    f"{created:%Y-%m-%d %H:%M}" if hasattr(created, "strftime") else str(created)
+                )
+                rows.append(
+                    "<tr>"
+                    f"<td><code>{escape(str(session['session_id']))}</code></td>"
+                    f"<td>{escape(str(session['key_version']))}</td>"
+                    f"<td>{escape(created_text)}</td>"
+                    "</tr>"
+                )
+            body.append(
+                "<table><tr>"
+                f"<th>{escape(t(lang, 'ui.pii_session_id'))}</th>"
+                f"<th>{escape(t(lang, 'ui.pii_key_version'))}</th>"
+                f"<th>{escape(t(lang, 'ui.pii_created'))}</th>"
+                f"</tr>{''.join(rows)}</table>"
+            )
+        body.append(
+            f"<h2>{escape(t(lang, 'ui.pii_restore_form'))}</h2>"
+            f'<p class="meta">{escape(t(lang, "ui.pii_explicit_note"))}</p>'
+            '<form method="post" action="/ui/pii">'
+            f'<label for="session_id">{escape(t(lang, "ui.pii_session_id"))}</label>'
+            '<input type="text" id="session_id" name="session_id" required '
+            'placeholder="pii_...">'
+            f'<label for="text">{escape(t(lang, "ui.pii_restore_text"))}</label>'
+            '<textarea id="text" name="text" rows="4" required></textarea>'
+            f'<button type="submit">{escape(t(lang, "ui.pii_restore_button"))}</button>'
+            "</form>"
+        )
+    if restored is not None:
+        body.append(
+            '<div class="alert alert-ok"><strong>'
+            f"{escape(t(lang, 'ui.pii_restore_result'))}:</strong>"
+            f"<pre>{escape(restored)}</pre></div>"
+        )
+    if error:
+        body.append(f'<div class="alert alert-err">{escape(error)}</div>')
+    return _page(t(lang, "ui.pii_title"), "\n".join(body), lang=lang)
