@@ -18,6 +18,7 @@ from datasentry_core.detectors.common import (
 )
 from datasentry_core.models.detector import DetectorCapabilities, IssueCandidate
 from datasentry_core.models.enums import EvidenceType, QualityDimension, Severity
+from datasentry_core.reporting.evidence_desc import ev
 
 # 字符串日期列判定（列名特征；VARCHAR 列才适用 invalid/impossible/mixed）
 # 注意：时间戳列（created_at 等，物理 TIMESTAMP 或含时间值）不归此组，
@@ -74,8 +75,11 @@ class InvalidDateDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.PATTERN_MATCH,
-                                description=f"{count} values fail ISO date pattern",
-                                data={"count": count, "pattern": _DATETIME_RE},
+                                description=ev(
+                                    "datetime.iso",
+                                    {"count": count, "pattern": _DATETIME_RE},
+                                    count=count,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -123,8 +127,11 @@ class ImpossibleDateDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.PATTERN_MATCH,
-                                description=f"{count} calendar-invalid dates",
-                                data={"count": count, "pattern": _DATETIME_RE},
+                                description=ev(
+                                    "datetime.invalid",
+                                    {"count": count, "pattern": _DATETIME_RE},
+                                    count=count,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -168,8 +175,11 @@ class FutureDateDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.CONSTRAINT_VIOLATION,
-                                description=f"{count} dates beyond today + 1 day",
-                                data={"count": count, "max_future_days": 1},
+                                description=ev(
+                                    "datetime.future",
+                                    {"count": count, "max_future_days": 1},
+                                    count=count,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -215,8 +225,11 @@ class StaleDateDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.CONSTRAINT_VIOLATION,
-                                description=f"{count} dates older than 365 days",
-                                data={"count": count, "max_age_days": 365},
+                                description=ev(
+                                    "datetime.old",
+                                    {"count": count, "max_age_days": 365},
+                                    count=count,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -283,8 +296,11 @@ class MixedDateFormatDetector(DetectorBase):
                             detector_id=self.detector_id,
                             detector_version=self.detector_version,
                             evidence_type=EvidenceType.STATISTICAL_MEASURE,
-                            description=f"{len(major)} date formats each >2%",
-                            data={"formats": {k: round(v, 4) for k, v in formats.items()}},
+                            description=ev(
+                                "datetime.formats",
+                                {"formats": {k: round(v, 4) for k, v in formats.items()}},
+                                len=len(major),
+                            ),
                         )
                     ],
                     raw_score=len(major),
@@ -331,8 +347,11 @@ class DuplicateTimestampDetector(DetectorBase):
                             detector_id=self.detector_id,
                             detector_version=self.detector_version,
                             evidence_type=EvidenceType.DUPLICATE_MATCH,
-                            description=f"{len(counts)} timestamps appear more than twice",
-                            data={"groups": len(counts), "affected": affected},
+                            description=ev(
+                                "datetime.timestamps",
+                                {"groups": len(counts), "affected": affected},
+                                len=len(counts),
+                            ),
                         )
                     ],
                     raw_score=len(counts),

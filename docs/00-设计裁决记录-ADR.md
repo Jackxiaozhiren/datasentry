@@ -2117,3 +2117,21 @@
   私有方法（复用 list_scan_runs / get_detector_runs / get_issues，
   零新增 store API）；tests/test_incremental.py 6 例（未变更复用 /
   变更重扫 / 首次全扫 / 远程降级 / sampled 档降级 / 默认零影响）。
+
+## ADR-078：证据级动态描述（V11，Step 78）
+
+- **背景**：检测器证据 description 为硬编码 f-string（29 处），
+  zh 报告下证据节仍是英文；修复引擎/交互面板依赖描述文本参数。
+- **决策**：新增 `ev(key, base=None, **params)` 生成端函数——en 渲染
+  文本（str 子类 EvText，携带 key/params/base）；`make_evidence`
+  识别 EvText 自动把 `base + _text_key/_params` 并入 evidence.data
+  （原 data 语义零变化）；渲染端 `translate_evidence_desc(lang, data,
+  description)` 用 zh 模板 + 同源 params 渲染，回退原文。
+- **边界**：落库 description 保持 en 原文；JSON/Markdown/JUnit/SARIF
+  数据面不译（机器契约，延续 ADR-075）；zh 仅覆盖交互 detail 面板
+  证据节；历史数据（无 meta）/模板缺失/参数缺失一律回退原文
+  （诚实降级，不中断扫描）。
+- **影响**：detectors/common.py `make_evidence`（公共插件 API，EvText
+  为 str 子类向后兼容）；i18n.py 增 `evidence_desc.*` 29 组 en/zh 键；
+  tests/test_evidence_desc.py 13 例（en 逐字快照 / zh 同参数 /
+  历史回退 / 降级 / 交互行集成）；交互 JS 证据节渲染。

@@ -24,6 +24,7 @@ from datasentry_core.detectors.common import (
 )
 from datasentry_core.models.detector import DetectorCapabilities, IssueCandidate
 from datasentry_core.models.enums import EvidenceType, QualityDimension, Severity
+from datasentry_core.reporting.evidence_desc import ev
 
 # 全角字母数字（CJK 全角标点/中文本身不含这些码位，不误报）
 # duckdb RE2 不支持 \u 转义，用 \x{HHHH} 形式（RE2 Go 语法）
@@ -175,8 +176,11 @@ class FullwidthCharacterDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.PATTERN_MATCH,
-                                description=f"{count} values contain fullwidth characters",
-                                data={"count": count, "pattern": _FULLWIDTH_RE},
+                                description=ev(
+                                    "textual_variants.fullwidth",
+                                    {"count": count, "pattern": _FULLWIDTH_RE},
+                                    count=count,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -223,8 +227,11 @@ class MojibakeCharacterDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.PATTERN_MATCH,
-                                description=f"{count} values contain encoding corruption markers",
-                                data={"count": count, "pattern": _MOJIBAKE_RE},
+                                description=ev(
+                                    "textual_variants.corruption",
+                                    {"count": count, "pattern": _MOJIBAKE_RE},
+                                    count=count,
+                                ),
                             )
                         ],
                         raw_score=count,

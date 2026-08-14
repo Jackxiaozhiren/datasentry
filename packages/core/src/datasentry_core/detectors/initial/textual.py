@@ -15,6 +15,7 @@ from datasentry_core.detectors.common import (
 )
 from datasentry_core.models.detector import DetectorCapabilities, IssueCandidate
 from datasentry_core.models.enums import EvidenceType, QualityDimension, Severity
+from datasentry_core.reporting.evidence_desc import ev
 
 _EMAIL_RE = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 # RE2 支持 \xNN 十六进制转义；直接嵌入控制字符会破坏 duckdb 字符串字面量
@@ -64,8 +65,11 @@ class LeadingTrailingWhitespaceDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.PATTERN_MATCH,
-                                description=f"{count} values differ from their trimmed form",
-                                data={"count": count},
+                                description=ev(
+                                    "textual.trimmed",
+                                    {"count": count},
+                                    count=count,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -107,8 +111,11 @@ class RepeatedWhitespaceDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.PATTERN_MATCH,
-                                description=f"{count} values with repeated whitespace",
-                                data={"count": count},
+                                description=ev(
+                                    "textual.whitespace",
+                                    {"count": count},
+                                    count=count,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -151,8 +158,11 @@ class HiddenControlCharacterDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.PATTERN_MATCH,
-                                description=f"{count} values contain control characters",
-                                data={"count": count},
+                                description=ev(
+                                    "textual.control",
+                                    {"count": count},
+                                    count=count,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -196,8 +206,12 @@ class UnusualLengthDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.PATTERN_MATCH,
-                                description=f"{count} values longer than {max_length} chars",
-                                data={"max_length": max_length, "count": count},
+                                description=ev(
+                                    "textual.long",
+                                    {"max_length": max_length, "count": count},
+                                    count=count,
+                                    max_length=max_length,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -245,8 +259,11 @@ class InvalidEmailDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.PATTERN_MATCH,
-                                description=f"{count} values fail email pattern",
-                                data={"count": count, "pattern": _EMAIL_RE},
+                                description=ev(
+                                    "textual.email",
+                                    {"count": count, "pattern": _EMAIL_RE},
+                                    count=count,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -295,8 +312,11 @@ class InvalidPhoneDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.PATTERN_MATCH,
-                                description=f"{count} values with digit count outside [7, 15]",
-                                data={"count": count, "min_digits": 7, "max_digits": 15},
+                                description=ev(
+                                    "textual.digit_count",
+                                    {"count": count, "min_digits": 7, "max_digits": 15},
+                                    count=count,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -342,8 +362,11 @@ class InvalidUrlDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.PATTERN_MATCH,
-                                description=f"{count} values fail URL pattern",
-                                data={"count": count, "pattern": _URL_RE},
+                                description=ev(
+                                    "textual.url",
+                                    {"count": count, "pattern": _URL_RE},
+                                    count=count,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -395,8 +418,11 @@ class InvalidIpDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.PATTERN_MATCH,
-                                description=f"{count} values fail IPv4 pattern",
-                                data={"count": count, "pattern": _IPV4_RE},
+                                description=ev(
+                                    "textual.ipv4",
+                                    {"count": count, "pattern": _IPV4_RE},
+                                    count=count,
+                                ),
                             )
                         ],
                         raw_score=count,

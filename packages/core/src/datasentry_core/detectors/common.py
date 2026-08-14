@@ -34,6 +34,15 @@ def make_evidence(
     data: dict[str, Any] | None = None,
     confidence: float = 1.0,
 ) -> Evidence:
+    from datasentry_core.reporting.evidence_desc import EvText
+
+    if isinstance(description, EvText):
+        data = {
+            **description.base,
+            **(data or {}),
+            "_text_key": description.key,
+            "_params": description.params,
+        }
     return Evidence(
         evidence_id=f"ev_{uuid.uuid4().hex[:12]}",
         evidence_type=evidence_type,

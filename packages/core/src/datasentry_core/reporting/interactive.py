@@ -120,6 +120,11 @@ _INTERACTIVE_JS = """(function () {
     } else {
       lines.push(l("detail.no_suggestion", "No built-in repair suggestion for this issue type."));
     }
+    var evs = r.evidence || [];
+    if (evs.length) {
+      lines.push(l("detail.evidence", "Evidence:"));
+      evs.forEach(function (e) { lines.push("  - " + e); });
+    }
     td.textContent = lines.join("\\n");
     td.style.whiteSpace = "pre-line";
     tr.appendChild(td);
@@ -228,8 +233,14 @@ _INTERACTIVE_JS = """(function () {
 
 def issue_rows(report: Report, *, lang: str = "en") -> list[dict[str, Any]]:
     """report issues → 浏览器视图模型（title/description 已 PII 掩码，字段精简可 JSON 序列化）。"""
+    from datasentry_core.reporting.evidence_desc import translate_evidence_desc
+
     rows = []
     for issue in report["issues"]:
+        evidence = [
+            translate_evidence_desc(lang, dict(e.get("data") or {}), e.get("description") or "")
+            for e in issue.get("evidence") or []
+        ]
         rows.append(
             {
                 "id": issue["id"],
@@ -249,6 +260,7 @@ def issue_rows(report: Report, *, lang: str = "en") -> list[dict[str, Any]]:
                 "detectors": list(issue["detector_ids"]),
                 "dimensions": [str(d) for d in (issue.get("quality_dimensions") or [])],
                 "suggestions": [translate_suggestion(lang, s) for s in suggest_repairs(issue)],
+                "evidence": evidence,
             }
         )
     return rows

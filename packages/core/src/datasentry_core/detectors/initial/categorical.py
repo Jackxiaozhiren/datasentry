@@ -16,6 +16,7 @@ from datasentry_core.detectors.common import (
 )
 from datasentry_core.models.detector import DetectorCapabilities, IssueCandidate
 from datasentry_core.models.enums import EvidenceType, QualityDimension, Severity
+from datasentry_core.reporting.evidence_desc import ev
 
 
 def _json_safe(value: Any) -> Any:
@@ -67,8 +68,11 @@ class SuspiciousPlaceholderDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.PATTERN_MATCH,
-                                description=f"{count} placeholder values",
-                                data={"count": count},
+                                description=ev(
+                                    "categorical.placeholder",
+                                    {"count": count},
+                                    count=count,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -131,13 +135,16 @@ class RareCategoryDetector(DetectorBase):
                             detector_id=self.detector_id,
                             detector_version=self.detector_version,
                             evidence_type=EvidenceType.STATISTICAL_MEASURE,
-                            description=f"{len(values)} rare categories",
-                            data={
-                                "categories": [
-                                    (_json_safe(v), int(c))
-                                    for v, c in zip(values, counts, strict=True)
-                                ]
-                            },
+                            description=ev(
+                                "categorical.rare",
+                                {
+                                    "categories": [
+                                        (_json_safe(v), int(c))
+                                        for v, c in zip(values, counts, strict=True)
+                                    ]
+                                },
+                                len=len(values),
+                            ),
                         )
                     ],
                     raw_score=len(values),
@@ -188,8 +195,11 @@ class CategoryExplosionDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.STATISTICAL_MEASURE,
-                                description=f"unique_ratio={ratio:.3f} > 0.9",
-                                data={"unique_ratio": round(ratio, 6), "distinct": distinct},
+                                description=ev(
+                                    "categorical.high_unique",
+                                    {"unique_ratio": round(ratio, 6), "distinct": distinct},
+                                    ratio=ratio,
+                                ),
                             )
                         ],
                         raw_score=ratio,
@@ -240,8 +250,12 @@ class InconsistentCaseDetector(DetectorBase):
                             detector_id=self.detector_id,
                             detector_version=self.detector_version,
                             evidence_type=EvidenceType.STATISTICAL_MEASURE,
-                            description=f"{affected} rows in {len(keys)} case-variant groups",
-                            data={"groups": list(zip(keys, counts, forms, strict=True))},
+                            description=ev(
+                                "categorical.case_variant",
+                                {"groups": list(zip(keys, counts, forms, strict=True))},
+                                affected=affected,
+                                len=len(keys),
+                            ),
                         )
                     ],
                     raw_score=len(keys),

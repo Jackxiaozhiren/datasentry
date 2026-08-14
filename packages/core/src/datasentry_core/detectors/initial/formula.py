@@ -15,6 +15,7 @@ from datasentry_core.detectors.common import (
 )
 from datasentry_core.models.detector import DetectorCapabilities, IssueCandidate
 from datasentry_core.models.enums import EvidenceType, QualityDimension, Severity
+from datasentry_core.reporting.evidence_desc import ev
 
 FORMULA_INJECTION_PREFIXES: tuple[str, ...] = ("=", "+", "-", "@", "\t", "\r")
 
@@ -54,8 +55,11 @@ class FormulaInjectionDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.PATTERN_MATCH,
-                                description=f"{count} values start with formula-injection prefixes",
-                                data={"count": count},
+                                description=ev(
+                                    "formula.injection",
+                                    {"count": count},
+                                    count=count,
+                                ),
                             )
                         ],
                         raw_score=count,

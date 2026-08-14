@@ -14,6 +14,7 @@ from datasentry_core.detectors.common import (
 )
 from datasentry_core.models.detector import DetectorCapabilities, IssueCandidate
 from datasentry_core.models.enums import EvidenceType, QualityDimension, Severity
+from datasentry_core.reporting.evidence_desc import ev
 
 
 class IqrOutlierDetector(DetectorBase):
@@ -62,14 +63,19 @@ class IqrOutlierDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.STATISTICAL_MEASURE,
-                                description=f"{count} values outside [{lower:.3g}, {upper:.3g}]",
-                                data={
-                                    "q25": q25,
-                                    "q75": q75,
-                                    "iqr": iqr,
-                                    "lower": lower,
-                                    "upper": upper,
-                                },
+                                description=ev(
+                                    "numeric.range",
+                                    {
+                                        "q25": q25,
+                                        "q75": q75,
+                                        "iqr": iqr,
+                                        "lower": lower,
+                                        "upper": upper,
+                                    },
+                                    count=count,
+                                    lower=lower,
+                                    upper=upper,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -122,8 +128,12 @@ class ModifiedZScoreDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.STATISTICAL_MEASURE,
-                                description=f"{count} values beyond {z_threshold} MAD-z",
-                                data={"median": median, "mad": mad, "threshold": z_threshold},
+                                description=ev(
+                                    "numeric.mad",
+                                    {"median": median, "mad": mad, "threshold": z_threshold},
+                                    count=count,
+                                    z_threshold=z_threshold,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -167,8 +177,12 @@ class TailProbabilityDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.CONSTRAINT_VIOLATION,
-                                description=f"{count} values below min_value={min_value}",
-                                data={"min_value": min_value, "count": count},
+                                description=ev(
+                                    "numeric.min",
+                                    {"min_value": min_value, "count": count},
+                                    count=count,
+                                    min_value=min_value,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -223,8 +237,13 @@ class PercentileOutlierDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.STATISTICAL_MEASURE,
-                                description=f"{count} values outside [{p_low:.3g}, {p_high:.3g}]",
-                                data={"p0_1": p_low, "p99_9": p_high, "count": count},
+                                description=ev(
+                                    "numeric.p_range",
+                                    {"p0_1": p_low, "p99_9": p_high, "count": count},
+                                    count=count,
+                                    p_low=p_low,
+                                    p_high=p_high,
+                                ),
                             )
                         ],
                         raw_score=count,
@@ -285,13 +304,17 @@ class HistogramRarityDetector(DetectorBase):
                             detector_id=self.detector_id,
                             detector_version=self.detector_version,
                             evidence_type=EvidenceType.STATISTICAL_MEASURE,
-                            description=f"{affected} values in {len(bins)} rare bins",
-                            data={
-                                "n_bins": n_bins,
-                                "bin_width": width,
-                                "min_frequency": threshold,
-                                "rare_bins": list(zip(bins, counts, strict=True)),
-                            },
+                            description=ev(
+                                "numeric.rare_bins",
+                                {
+                                    "n_bins": n_bins,
+                                    "bin_width": width,
+                                    "min_frequency": threshold,
+                                    "rare_bins": list(zip(bins, counts, strict=True)),
+                                },
+                                affected=affected,
+                                len=len(bins),
+                            ),
                         )
                     ],
                     raw_score=len(bins),

@@ -15,6 +15,7 @@ from datasentry_core.detectors.common import (
 )
 from datasentry_core.models.detector import DetectorCapabilities, IssueCandidate
 from datasentry_core.models.enums import EvidenceType, QualityDimension, Severity
+from datasentry_core.reporting.evidence_desc import ev
 
 _MISSING_TOKENS = (
     "na",
@@ -79,13 +80,17 @@ class ExcessiveNullRateDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.STATISTICAL_MEASURE,
-                                description=f"null_ratio={ratio:.4f} exceeds threshold={threshold}",
-                                data={
-                                    "null_ratio": round(ratio, 6),
-                                    "threshold": threshold,
-                                    "nulls": nulls,
-                                    "total": total,
-                                },
+                                description=ev(
+                                    "missing.null_ratio",
+                                    {
+                                        "null_ratio": round(ratio, 6),
+                                        "threshold": threshold,
+                                        "nulls": nulls,
+                                        "total": total,
+                                    },
+                                    ratio=ratio,
+                                    threshold=threshold,
+                                ),
                             )
                         ],
                         raw_score=ratio,
@@ -138,8 +143,12 @@ class SuspiciousMissingTokenDetector(DetectorBase):
                                 detector_id=self.detector_id,
                                 detector_version=self.detector_version,
                                 evidence_type=EvidenceType.PATTERN_MATCH,
-                                description=f"{count} values are missing stand-ins ({ratio:.4f})",
-                                data={"count": count, "ratio": round(ratio, 6)},
+                                description=ev(
+                                    "missing.standin",
+                                    {"count": count, "ratio": round(ratio, 6)},
+                                    count=count,
+                                    ratio=ratio,
+                                ),
                             )
                         ],
                         raw_score=ratio,

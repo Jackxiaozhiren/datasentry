@@ -4,6 +4,21 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+V11 三件套：证据级描述本地化 + 调度配置透传 + 增量画像列级复用。
+
+### 新增（Step 78，证据级动态描述，ADR-078）
+
+- **证据描述模板化**：29 处检测器证据的 `description=f"..."` 改为
+  `ev()`（en 渲染文本 + 携带 `_text_key`/`_params` 翻译 meta 与数据
+  base），en 逐字不变、JSON 契约面零改动
+- **zh 证据镜像**：交互报告 detail 面板证据节按 `--lang` 渲染
+  （`evidence_desc.*` i18n 键域 29 组 en/zh 模板，同源参数数值逐字
+  一致）；JSON/Markdown/JUnit/SARIF 数据面保持 en 原文（机器契约）
+- 历史证据（无 meta）回退原文；模板/参数缺失回退原文（诚实降级）；
+  `make_evidence` 公共插件 API 向后兼容（EvText 为 str 子类）
+
 ## [0.12.0] - 2026-08-14
 
 V10 全球化与扫描管线：CLI 全局 --lang + 报告正文翻译 + MCP 透传 + 增量画像。

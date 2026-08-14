@@ -14,6 +14,7 @@ from datasentry_core.detectors.common import (
 )
 from datasentry_core.models.detector import DetectorCapabilities, IssueCandidate
 from datasentry_core.models.enums import EvidenceType, QualityDimension, Severity
+from datasentry_core.reporting.evidence_desc import ev
 
 _CAP_EXAMPLES = 20
 
@@ -63,9 +64,12 @@ class UniquenessViolationDetector(DetectorBase):
                             detector_id=self.detector_id,
                             detector_version=self.detector_version,
                             evidence_type=EvidenceType.DUPLICATE_MATCH,
-                            description=f"{len(values)} duplicated values, "
-                            f"{duplicate_rows} duplicate rows",
-                            data={"examples": examples[:10]},
+                            description=ev(
+                                "uniqueness.duplicate",
+                                {"examples": examples[:10]},
+                                len=len(values),
+                                rows=duplicate_rows,
+                            ),
                         )
                     ],
                     raw_score=duplicate_rows,
