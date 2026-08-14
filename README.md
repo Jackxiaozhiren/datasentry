@@ -24,18 +24,22 @@
 > **中文导读**：DataSentry 是一个以统计证据为基础、以 AI 为辅助、以人工审批为保障的本地优先数据质量平台。
 > 一次扫描生成六维质量评分，每个问题带证据链；自然语言即可提出规则与修复方案，但**只有人工批准才生效**。
 > 数据不出机器（LLM 可接本地 Ollama），DuckDB 执行引擎，百万行 10 秒级。
+> 云侧调度四部曲已就绪：cron 任务队列（V13）→ 分布式执行节点（V14）→ 多 worker 容错路由（V15）→ 并行派发（V16）。
 
 ## What is DataSentry?
 
-DataSentry scans your data (CSV / Parquet / JSONL / XLSX / DuckDB / SQLite / PostgreSQL) and produces:
+DataSentry scans your data (CSV / Parquet / JSONL / XLSX / DuckDB / SQLite / PostgreSQL / MySQL / cloud objects on s3:// gs:// az://) and produces:
 
 - **39 evidence-driven detectors** — missingness, dates, encodings, cross-field rules, cross-table foreign keys, duplicates (exact + fuzzy), outlier models (Isolation Forest / LOF), and more. Every issue carries a statistical evidence chain: samples, ratios, confidence.
 - **Six-dimension quality score** — completeness, validity, uniqueness, consistency, integrity, timeliness — with explainable weights and per-dimension contributions.
 - **Repair loop with human approval** — propose → preview (rule re-run before/after) → apply (fingerprinted copy + rollback artifact) → rollback. AI suggests; you decide.
 - **Drift engine** — compare historical scans: schema, row-count, score and issue-distribution drift.
 - **Quality gates in CI** — `scan --fail-on` blocks releases by severity or score; export reports as JSON / Markdown / HTML / JUnit / SARIF.
-- **LLM assistance, safely** — natural language → rule candidates with preflight simulation; PII redacted before any prompt; every call audited (`llm status`).
-- **Multiple surfaces** — CLI, REST API, server-rendered Web UI with cross-scan trends, and an MCP stdio server so LLM agents can use the tools directly.
+- **LLM assistance, safely** — natural language → rule candidates with preflight simulation; PII redacted before any prompt into an encrypted vault with key rotation (`llm restore` / `rotate-key`); every call audited (`llm status`).
+- **Cron scheduling** — persistent SQLite job queue: cron jobs, manual triggers, run history, webhooks, per-job quality gates and change-aware skip (no re-scan when the source is unchanged).
+- **Distributed execution** — any instance runs as a worker (`datasentry worker`); a worker pool gives round-robin routing, failover, cooldown and optional health checks, plus parallel dispatch (`DATASENTRY_MAX_WORKERS`).
+- **Plugin ecosystem** — `plugin.yaml` metadata, install/uninstall lifecycle, and SHA-256 integrity locks (tamper-resistant loading, `plugin test` sandbox).
+- **Multiple surfaces** — CLI, REST API, server-rendered Web UI with cross-scan trends, and an MCP stdio server (15 tools) so LLM agents can use the tools directly.
 
 <p align="center">
   <img src="docs/demo/orders-report.html.png" alt="Sample quality report" width="720">
@@ -131,7 +135,7 @@ flowchart LR
     subgraph Sources
         CSV[CSV / Parquet / JSONL / XLSX] --> Exec[DuckDB SQL executor]
         DDB[(.duckdb / .db files)] --> Exec
-        PG[(PostgreSQL / SQLite)] --> Exec
+        PG[(PostgreSQL / SQLite / MySQL / cloud)] --> Exec
     end
     Exec --> Dets[39 detectors]
     Dets --> Fuse[Evidence fusion]
@@ -141,9 +145,15 @@ flowchart LR
     Report --> UI[Web UI + trends]
     Report --> MCP[MCP stdio server]
     Report --> CLI[CLI / REST]
+    subgraph Scheduling
+        Q[(SQLite job queue)] --> Sched[Scheduler + worker thread]
+        Sched -->|dispatch| Pool[Worker pool: round-robin + failover + parallel]
+        Pool --> W1[Worker A: /rpc/execute]
+        Pool --> W2[Worker B: /rpc/execute]
+    end
     subgraph AI
         LLM[LLM provider: OpenAI / Ollama]
-        Red[PII redaction]
+        Red[PII redaction + encrypted vault]
         Audit[llm_cache + audit]
         LLM --> Red
         Red --> Rules[NL → rule candidates]
@@ -161,13 +171,16 @@ flowchart LR
 
 | Area | What you get |
 |------|--------------|
-| Detection | 39 detectors across 6 dimensions; SQL-pushdown single-table; plugin API (`plugins/` auto-load) |
+| Detection | 39 detectors across 6 dimensions; SQL-pushdown single-table; plugin API (`plugins/` auto-load, SHA-256 integrity locks) |
 | Scoring | 0–100 six-dimension score, ADR-003 severity normalization, contract criticality |
 | Contracts | YAML contract DSL → validation + gate + Pandera / Great Expectations export |
 | Repair | trim / normalize case / replace missing token / set null / clip values; preview re-runs rules |
 | Drift | schema / row-count / score / issue-distribution signals between historical scans |
-| AI | NL→rules with preflight + approval gate; AI repair candidates with locked operation surface |
-| Interfaces | CLI · REST API · Web UI (`/ui`, `/ui/trends`) · MCP stdio (7 tools) |
+| AI | NL→rules with preflight + approval gate; AI repair candidates with locked operation surface; PII vault + key rotation |
+| Scheduling | cron jobs, manual triggers, run history (pruned), webhooks, quality gates, change-aware skip — CLI / REST / MCP 三面同语义 |
+| Distributed | `datasentry worker` nodes; pool routing with failover + cooldown + health checks; parallel dispatch (`DATASENTRY_MAX_WORKERS`) |
+| Plugins | `plugin.yaml` metadata, install/uninstall, integrity locks, test sandbox (three-state exit codes) |
+| Interfaces | CLI · REST API · Web UI (`/ui`, `/ui/trends`) · MCP stdio (15 tools) |
 | Engineering | 11-stage CI, wheel build + isolated install smoke, 1e6-row benchmark gate |
 
 ## Documentation
@@ -175,7 +188,7 @@ flowchart LR
 | Doc | Content |
 |-----|---------|
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Full development notes, per-step decisions and conventions |
-| [docs/00-设计裁决记录-ADR.md](docs/00-设计裁决记录-ADR.md) | 46 architecture decision records (design rationale) |
+| [docs/00-设计裁决记录-ADR.md](docs/00-设计裁决记录-ADR.md) | 93 architecture decision records (design rationale) |
 | [docs/01-一致性检查.md](docs/01-设计材料-一致性检查.md) | Spec consistency checks |
 | [docs/03-MVP-V1-划分.md](docs/03-设计材料-MVP-V1-划分.md) | MVP vs V1 feature scoping |
 
