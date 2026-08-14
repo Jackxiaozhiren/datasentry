@@ -190,6 +190,7 @@ class DataSentry:
         table_name: str | None = None,
         config: ScanConfig | None = None,
         references: list[TableReference] | None = None,
+        incremental: bool = False,
     ) -> tuple[ScanRun, list[DetectorRun], list[Issue]]:
         """导入 + 扫描 + 评分 + 落库（数据源不可用抛 FileNotFoundError 类异常）。
 
@@ -198,6 +199,12 @@ class DataSentry:
         数据源处理（Step 55/56，V4/V5）：凭据经 spec.options["dsn"] 内存态
         流转，不落库/日志/报告。
         references：契约跨表引用（Step 40），触发外键完整性检测。
+        incremental（Step 77，ADR-077）：本地文件源指纹（文件 SHA-256，
+        与调度器 Step 53 同源）比对最近一次完成扫描——未变更直接复用
+        上次 scan_run/检测器运行/Issue（画像随 scan_run_id 自然复用，
+        不建新 run）；无基准（远程源、抽样扫描 sampled 档指纹、首次
+        扫描）或指纹计算失败 → 降级全量扫描（绝不误跳过）。默认
+        False 行为与旧版完全一致。
         """
         if isinstance(path, str) and (
             path.startswith("postgresql://") or path.startswith("postgres://")
@@ -226,6 +233,10 @@ class DataSentry:
                 table_name=table_name,
                 options={"dataset_id": dataset_id},
             )
+        if incremental:
+            cached = self._incremental_cached(path, dataset_id, table_name)
+            if cached is not None:
+                return cached
         handle = default_registry().open(spec)
         try:
             context = DetectionContext(
@@ -258,6 +269,60 @@ class DataSentry:
                 options={"dsn": dsn, "dataset_id": resolved},
             ),
             resolved,
+        )
+
+    def _incremental_cached(
+        self,
+        path: str | Path,
+        dataset_id: str | None,
+        table_name: str | None,
+    ) -> tuple[ScanRun, list[DetectorRun], list[Issue]] | None:
+        """增量画像（Step 77，ADR-077）：本地文件源指纹比对最近完成扫描。
+
+        基准缺失（远程 DSN/URI、首次扫描、上次为抽样 sampled 档指纹或
+        异常扫描）或指纹计算失败 → 返回 None 降级全量扫描（绝不误跳过）；
+        未变更 → 返回上次 scan_run + 检测器运行 + Issue（不建新 run，
+        画像按 scan_run_id 自然复用）。
+        """
+        if isinstance(path, str) and (
+            path.startswith(("postgresql://", "postgres://", "mysql://", "s3://", "gs://", "az://"))
+        ):
+            return None
+        source_path = Path(path).expanduser()
+        if not source_path.is_file():
+            return None
+        previous = None
+        for scan in self._store.list_scan_runs():
+            if (
+                scan.dataset_id == dataset_id
+                and scan.status == "completed"
+                and scan.fingerprint.file_sha256
+            ):
+                previous = scan
+                break
+        if previous is None:
+            return None
+        from datasentry.scheduler.core import _source_fingerprint
+        from datasentry.scheduler.models import JobCommand
+
+        try:
+            current = _source_fingerprint(
+                JobCommand(
+                    project=str(self.workspace),
+                    path=str(source_path),
+                    dataset_id=dataset_id,
+                    table_name=table_name,
+                ),
+                None,
+            )
+        except OSError:
+            return None
+        if current is None or current != previous.fingerprint.file_sha256:
+            return None
+        return (
+            previous,
+            self.get_detector_runs(previous.id),
+            self._store.get_issues(previous.id),
         )
 
     @staticmethod

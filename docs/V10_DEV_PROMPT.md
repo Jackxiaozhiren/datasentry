@@ -146,3 +146,8 @@
 - Step 76（ADR-076）✅ 已落地（待 commit）：scan_file 透传 sampling
   （size/ratio/method/seed）+ detectors + tags，与 CLI 构造同源；
   测试 3 新增（含 SamplingInfo 等价性），门禁绿
+- Step 77（ADR-077）✅ 已落地（待 commit）：client.scan_file
+  incremental 参数 + _incremental_cached（复用 scheduler
+  _source_fingerprint，本地文件 SHA-256 比对最近 completed 扫描）；
+  未变更复用不建 run，无基准/远程/sampled 档降级全扫；测试 6 新增，
+  门禁绿（覆盖 94.99%）

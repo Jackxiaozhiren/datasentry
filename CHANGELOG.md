@@ -37,6 +37,15 @@
 - 等价性：MCP 落库 detector run 的 SamplingInfo 与 CLI 扫描一致
   （method/sample_size/full_size 断言）
 
+### 新增（Step 77，增量画像，ADR-077）
+
+- **`client.scan_file(..., incremental=True)`**：本地文件源指纹
+  （文件 SHA-256，与调度器 Step 53 同源）比对最近一次完成扫描；
+  未变更 → 直接复用上次 scan_run / 检测器运行 / Issue（画像按
+  scan_run_id 自然复用，不建新 run）；变更或无基准（首次扫描 /
+  抽样 sampled 档指纹 / 远程源 / 指纹失败）→ 全量重扫，绝不误跳过
+- 默认 `incremental=False` 行为与旧版完全一致（零影响）
+
 ## [0.11.0] - 2026-08-14
 
 V9 大文件性能：抽样扫描 + 扫描管线瘦身 + 内存打磨。

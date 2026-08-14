@@ -2093,3 +2093,27 @@
 - **影响**：mcp_server.py scan_file + 测试 3 新增（透传采样 /
   detectors+tags / 与 CLI 等价性：MCP 落库 run 的 SamplingInfo
   经 client.get_detector_runs 校验）。
+
+## ADR-077：增量画像（V10，Step 77）
+
+- **状态**：已确认（Step 77, V10）
+- **背景**：重复 `scan_file` 相同文件会产生全新 scan_run，全量重扫 +
+  重建画像（V9 基准：medium CSV 全扫 ~2s 量级）。目标：文件未变更
+  时秒级返回，画像（按 scan_run_id 命名的 sidecar）自然复用。
+- **方案**：`client.scan_file(..., incremental=False)` 新参，默认
+  False 行为与旧版完全一致。incremental=True 时：仅本地文件路径
+  参与（远程 DSN/URI 直接降级全扫）；构造 JobCommand 调调度器共享
+  `scheduler.core._source_fingerprint`（Step 53 同源：本地 = 文件
+  SHA-256 单层），与最近一次 completed 且 file_sha256 非空的
+  scan_run 指纹比对；相等 → 返回上次 (scan_run, detector_runs,
+  issues) 不建新 run（与调度器 `_finish_skipped` 同语义，不落库）；
+  不等或基准缺失 → 全量扫描。
+- **边界**：基准缺失 = 首次扫描 / 上次为抽样 sampled 档指纹
+  （fingerprint.mode="sampled" 时 file_sha256=None，csv.py）/
+  上次异常 → 全扫，绝不误跳过；指纹计算 OSError → 全扫；增量
+  仅文件级 SHA-256，不做列级 diff（候选 V11）；远程源增量诚实
+  降级（调度器已覆盖远程跳过，客户端不重复实现）。
+- **影响**：client.py `scan_file` 签名 + `_incremental_cached`
+  私有方法（复用 list_scan_runs / get_detector_runs / get_issues，
+  零新增 store API）；tests/test_incremental.py 6 例（未变更复用 /
+  变更重扫 / 首次全扫 / 远程降级 / sampled 档降级 / 默认零影响）。
