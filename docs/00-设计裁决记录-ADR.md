@@ -2152,3 +2152,21 @@
   core.py LocalScanExecutor.execute；tests/test_job_config.py 7 例
   （落库回显 / 无配置 None / 非法 422 / 重启持久 / trigger 生效
   scan_run.config 一致 / 默认等价 / 指纹跳过与 config 无关）。
+
+## ADR-080：增量画像列级 diff（V11，Step 80）
+
+- **背景**：加列场景下全量画像重复计算未变列（N 列聚合 + 每列
+  top_categories），宽表加列成本线性浪费。
+- **决策**：`_save_profile` 读上次 completed 扫描的画像 sidecar
+  （排除当前 run——已落库但 sidecar 未写），比较当前 schema 列签名
+  （名字+物理类型）：一致 → 全量画像（数据可能变更，画像必变，
+  不优化）；有增/删/改 → 同名同类型交集列复用上次 ColumnProfile，
+  仅对新增/变更列发起单条 SQL 聚合（Profiler.reuse，保持下推特性）；
+  无 sidecar/损坏 → 全量。行数（count(*)）始终最新。
+- **边界**：数据行变更（列集合不变）仍全量画像——画像随数据变化，
+  无漏检；列改名视为删+增（重算）；复用列 dataset_id 漂移时重建。
+- **影响**：Profiler.profile 增 `reuse` 参数（默认 None 行为不变）；
+  client.py `_save_profile` + `_column_reuse_candidates`（私有）；
+  tests/test_profile_reuse.py 12 例（复用同一性 / 仅新列重算 /
+  删列剔除 / 类型变更重算 / dataset_id 重建 / 行数最新 / client
+  加列·删列·全量·无 sidecar·契约稳定）。

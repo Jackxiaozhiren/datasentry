@@ -33,6 +33,7 @@ from datasentry_core.models.drift import DriftReport
 from datasentry_core.models.enums import Severity
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.llm import LLMInvocation
+from datasentry_core.models.profile import ColumnProfile
 from datasentry_core.models.quality import QualityScore
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
 from datasentry_core.models.rules import Rule
@@ -124,12 +125,20 @@ class DataSentry:
 
         不落元数据库（26 章契约与审计面不动），仅供 HTML Column Profiles 节
         消费；画像为增值信息，无列/聚合异常时静默跳过，扫描结果不受影响。
+        Step 80（ADR-080）：schema 列集合（名+物理类型）与上次 completed
+        画像一致 → 数据可能变更，全量画像（画像必变，不优化）；有增/删/改
+        列 → 未变列复用上次 sidecar，仅重算新增/变更列（绝不引入漏检：
+        数据行变更仍全量；列改名视为删+增）。
         """
         from datasentry_core.engine.profiler import Profiler
 
         try:
+            reuse = self._column_reuse_candidates(
+                scan_run.dataset_id, handle, scan_run_id=scan_run.id
+            )
             profile = Profiler(handle, dataset_id=scan_run.dataset_id).profile(
-                row_count=scan_run.fingerprint.row_count
+                row_count=scan_run.fingerprint.row_count,
+                reuse=reuse,
             )
         except (ValueError, AssertionError):
             return
@@ -139,6 +148,41 @@ class DataSentry:
             json.dumps(profile.model_dump(mode="json"), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
+    def _column_reuse_candidates(
+        self, dataset_id: str, handle: DataHandle, scan_run_id: str | None = None
+    ) -> dict[str, ColumnProfile] | None:
+        """Step 80（ADR-080）：上次 completed 画像 sidecar 的列级复用候选。
+
+        返回 None = 全量画像（无上次 sidecar / sidecar 损坏 / 列集合一致
+        ——数据可能变，画像必变）；否则返回同名同物理类型的交集列
+        （增/删/改列不在其中，将重算）。scan_run_id 排除当前 run
+        （已落库 completed 但 sidecar 尚未写入）。
+        """
+        for scan in self._store.list_scan_runs():
+            if (
+                scan.id == scan_run_id
+                or scan.dataset_id != dataset_id
+                or scan.status != "completed"
+            ):
+                continue
+            prev = self.load_profile(scan.id)
+            if prev is None:
+                return None
+            prev_cols = prev.get("column_profiles") or {}
+            if not prev_cols:
+                return None
+            current = {c.name: c.physical_type for c in handle.schema().columns}
+            prev_sig = {name: cp.get("physical_type") for name, cp in prev_cols.items()}
+            if current == prev_sig:
+                return None
+            reuse: dict[str, ColumnProfile] = {}
+            for name, ptype in current.items():
+                cp = prev_cols.get(name)
+                if cp is not None and cp.get("physical_type") == ptype:
+                    reuse[name] = ColumnProfile.model_validate(cp)
+            return reuse or None
+        return None
 
     def _ensure_gitignore(self) -> None:
         """ADR-010：工作区打开即确保 .gitignore 含 .datasentry/ 条目（防元数据入库）。"""

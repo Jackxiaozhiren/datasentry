@@ -118,7 +118,18 @@ core 包恒 0.7.0 不动；tag v0.13.0 触发 PyPI + Pages）+ GitHub release
   指纹跳过与 config 无关）；门禁全绿
 - 提交：`cbb9e26`
 
-### Step 80（ADR-080）增量画像列级 diff —— ⏳ 待开始
+### Step 80（ADR-080）增量画像列级 diff —— ✅ 已完成
+
+- Profiler.profile 增 `reuse` 参数（仅新列聚合，保持单条 SQL 下推；
+  默认 None 行为不变）；client `_save_profile` + `_column_reuse_candidates`
+  （排除当前 run；列签名一致 → 全量；增/删/改 → 交集列复用；无
+  sidecar → 全量；行数始终最新；dataset_id 漂移重建）
+- 修复：复用候选曾误读当前 run（已落库 completed 但 sidecar 未写）
+  —— 排除 scan_run_id 后按预期工作
+- tests/test_profile_reuse.py 12 例（复用同一性 / 仅新列重算 /
+  删列剔除 / 类型变更重算 / dataset_id 重建 / 行数最新 / client
+  加列·删列·全量·无 sidecar·契约稳定）；门禁全绿
+- 提交：见 git log（Step 80 提交 hash）
 
 ### Step 81 收尾 v0.13.0 —— ⏳ 待开始
 

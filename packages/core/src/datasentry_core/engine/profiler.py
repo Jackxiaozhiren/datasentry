@@ -67,11 +67,22 @@ class Profiler:
         self._handle = handle
         self._dataset_id = dataset_id
 
-    def profile(self, row_count: int | None = None) -> DatasetProfile:
+    def profile(
+        self,
+        row_count: int | None = None,
+        reuse: dict[str, ColumnProfile] | None = None,
+    ) -> DatasetProfile:
+        """全量或列级复用画像（Step 80，ADR-080）。
+
+        reuse：上次画像的可复用列（同名同物理类型），仅对新增/变更列
+        发起聚合（仍为单条 SQL 下推）；行数（count(*)）始终最新。
+        未提供 reuse 行为与旧版完全一致。
+        """
         schema = self._handle.schema()
         columns = [c.name for c in schema.columns]
         if not columns:
             raise ValueError("dataset has no columns")
+        reuse = reuse or {}
         quoted = {c: _quote_ident(c) for c in columns}
         # Step 72/ADR-072：复用扫描期 count（如 ScanRun.fingerprint.row_count），
         # 避免重复全扫；未提供时仍自取
@@ -80,6 +91,8 @@ class Profiler:
         exprs: list[str] = ["count(*) AS __row_count"]
         numeric: dict[str, bool] = {}
         for c in schema.columns:
+            if c.name in reuse:
+                continue
             is_num = c.physical_type.upper() in _NUMERIC_TYPES
             numeric[c.name] = is_num
             exprs.extend(_column_exprs(c.name, quoted[c.name], is_num))
@@ -87,8 +100,17 @@ class Profiler:
         row = _single_row(table)
 
         column_profiles: dict[str, ColumnProfile] = {}
+        current_names = {c.name for c in schema.columns}
+        for name, cp in reuse.items():
+            if name not in current_names:
+                continue
+            if cp.dataset_id != self._dataset_id:
+                cp = cp.model_copy(update={"dataset_id": self._dataset_id})
+            column_profiles[name] = cp
         for c in schema.columns:
             name = c.name
+            if name in reuse:
+                continue
             q = quoted[name]
             distinct = _as_int(row.get(f"{name}__distinct"))
             non_null = _as_int(row.get(f"{name}__n"))
