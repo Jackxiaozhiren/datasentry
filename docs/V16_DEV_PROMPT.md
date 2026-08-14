@@ -93,3 +93,8 @@ SchedulerWorker.tick ──claim 到期 jobs──▶ Scheduler._run_job ──�
 - Step 97 坑位：端到端测试须显式 monkeypatch.setenv 后才断言池
   存在（否则默认同步正确回落）；run_id 断言只读不用 → F841
   （ruff 拦下）；app.state.scheduler 需显式挂载
+## 收官
+- 门禁全绿（95.01%，108 源文件 mypy --strict）；全量连跑通过
+- tag v0.18.0 → PyPI 0.18.0 / Pages / CI / GitHub release；
+  uv.lock 同步；DEVELOPMENT V16 段 + README DATASENTRY_MAX_WORKERS
+- ADR-096/097/098 落档

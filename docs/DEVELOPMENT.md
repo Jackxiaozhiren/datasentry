@@ -145,6 +145,15 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
   真扫描落库）；ScanExecutor Protocol / Scheduler /
   RemoteScanExecutor 零改动；下一阶段候选：异步任务队列与
   多 worker 并行执行、PII 还原（加密存储）、报告交互增强
+- **V16 已完成（v0.18.0）**：异步任务队列与并行执行——线程池
+  派发（Step 96：Scheduler max_workers>1 时 tick/trigger 异步
+  派发 ThreadPoolExecutor 立即返回、多 job 并行；=1 同步语义
+  零迁移；shutdown(wait=True) 优雅关闭接 worker.stop）、API
+  配置（Step 97：DATASENTRY_MAX_WORKERS 环境变量、非法回退 1、
+  app.state.scheduler 观测、服务退出等待 in-flight 无残留线程）；
+  互斥/重试/死信/webhook 语义不变（SQL 层原子 claim）；下一
+  阶段候选：PII 还原（加密存储）、报告交互增强、跨进程/多
+  调度端队列
 
 ---
 

@@ -66,6 +66,10 @@ DATASENTRY_WORKERS="http://worker-a:8001:secret;http://worker-b:8001:secret" dat
 # scheduler round-robins jobs across workers; a failing/unreachable worker is
 # cooled down (60s) and the next worker takes over; unset DATASENTRY_WORKERS
 # to keep running everything locally (zero migration).
+
+# Parallel execution (V16): default is synchronous (one job at a time);
+# set a worker count to dispatch due jobs concurrently on a thread pool.
+DATASENTRY_MAX_WORKERS=4 datasentry-server
 ```
 
 Scan a DuckDB file (optional — any CSV/Parquet/JSONL/XLSX/SQLite works):
