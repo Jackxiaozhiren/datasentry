@@ -33,7 +33,7 @@ import uuid
 from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from datasentry import __version__
 from datasentry.client import DataSentry
@@ -126,7 +126,7 @@ class McpServer:
             seed: int = 42,
             sampling_size: int | None = None,
             sampling_ratio: float | None = None,
-            sampling_method: str = "reservoir",
+            sampling_method: Literal["random", "reservoir", "none"] = "reservoir",
             sampling_seed: int = 42,
             detectors: list[str] | None = None,
             tags: dict[str, str] | None = None,
