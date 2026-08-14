@@ -4,9 +4,22 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.11.0] - 2026-08-14
 
-（V9 开发中：抽样扫描 Step 71~73 已落地，收尾统一升版 v0.11.0）
+V9 大文件性能：抽样扫描 + 扫描管线瘦身 + 内存打磨。
+
+### 发布说明（V9 收尾）
+
+- V9 三个落点全部落地：Step 71 抽样配置接线（SampledDataHandle +
+  capability 调度 + 报告/UI 标注）、Step 72 扫描管线瘦身（count 一次
+  注入 + anomaly_ml SQL 侧抽样 + 画像复用计数）、Step 73 内存打磨
+  （抽样物化表 + xlsx 行预算 + CSV 非 utf-8 提示 + 抽样指纹档 +
+  fuzzy_duplicate 支持抽样 + bench 抽样档）；版本统一 v0.11.0，tag
+  `v0.11.0` 触发 PyPI 发布 + Pages 更新
+- 基准实测（1e6 行 CSV，reservoir 200000，seed 42）：抽样全量扫描
+  **3.0s**（优化档 <15s）、质量分漂移 **3.7**（≤5）、抽样峰值内存
+  525MB（仅跟踪，ADR-007/073 口径）；全量档保持 PASS（12.7s）
+- 默认路径（不传抽样参数）行为与 v0.10.0 完全一致
 
 ### 新增（Step 71，抽样扫描，ADR-071）
 

@@ -90,7 +90,14 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
 
 - **V1 已完成（0.1.0）**：MVP M1–M9 全达成 —— 36+ 检测器 / 融合评分 / 门禁 / 修复闭环 / 报告 / 契约 / API+UI / Docker+CI / M9 Demo / LLM 辅助规则（脱敏+审批） / 插件 API v1 / 发布工程
 - **V2 方向**：云侧调度与协作、报告 HTML 交互增强（已落地：Step 49 交互表 / Step 60 联动导航 / Step 61 列画像节）、加密存储的 PII 还原、插件生态治理
-- **V8 已完成（v0.10.0）**：MCP 数据面工具（Step 68）、报告与 UI 本地化（Step 69）、调度报告推送（Step 70）；下一阶段候选：大文件性能（抽样扫描/增量画像）、报告正文翻译、CLI 全局 --lang、MCP scan 配置透传
+- **V9 已完成（v0.11.0）**：大文件性能——抽样扫描（Step 71：显式
+  `--sampling-size/--sampling-ratio`，reservoir REPEATABLE(seed) 可复现，
+  capability 调度 + 报告/UI 标注）、扫描管线瘦身（Step 72：count 一次
+  注入 + anomaly_ml SQL 侧抽样 + 画像复用计数）、内存打磨（Step 73：
+  抽样物化表 52.2s→3.0s、xlsx 行预算、CSV 非 utf-8 提示、抽样指纹档、
+  fuzzy_duplicate 支持抽样）；基准 1e6 行抽样 3.0s / 漂移 3.7 / 全量
+  档保持 PASS；下一阶段候选：报告正文翻译、CLI 全局 --lang、MCP
+  scan 配置透传、增量画像
 
 ---
 
