@@ -75,7 +75,7 @@ class TestJobsApi:
         _sample_csv(tmp_path)
         resp = client.post(
             "/jobs",
-            json={"name": "rel", "path": "orders.csv", "cron": "* * * * *"},
+            json={"name": "rel", "path": "orders.csv", "cron": "0 0 1 1 *"},
         )
         assert resp.status_code == 201
         assert resp.json()["command"]["path"] == str(tmp_path / "orders.csv")
@@ -91,7 +91,7 @@ class TestJobsApi:
 
     def test_list_jobs(self, client: TestClient, tmp_path: Path) -> None:
         csv = _sample_csv(tmp_path)
-        client.post("/jobs", json={"name": "a", "path": str(csv), "cron": "* * * * *"})
+        client.post("/jobs", json={"name": "a", "path": str(csv), "cron": "0 0 1 1 *"})
         client.post("/jobs", json={"name": "b", "path": str(csv), "cron": "*/10 * * * *"})
         resp = client.get("/jobs")
         assert resp.status_code == 200
@@ -100,7 +100,7 @@ class TestJobsApi:
     def test_get_job_with_runs(self, client: TestClient, tmp_path: Path) -> None:
         csv = _sample_csv(tmp_path)
         created = client.post(
-            "/jobs", json={"name": "a", "path": str(csv), "cron": "* * * * *"}
+            "/jobs", json={"name": "a", "path": str(csv), "cron": "0 0 1 1 *"}
         ).json()
         job_id = created["job_id"]
         triggered = client.post(f"/jobs/{job_id}/trigger")
@@ -122,7 +122,7 @@ class TestJobsApi:
         """手动触发：真实执行扫描（含脏数据 → 有 issues 的结果摘要）。"""
         csv = _sample_csv(tmp_path)
         job_id = client.post(
-            "/jobs", json={"name": "a", "path": str(csv), "cron": "* * * * *"}
+            "/jobs", json={"name": "a", "path": str(csv), "cron": "0 0 1 1 *"}
         ).json()["job_id"]
         resp = client.post(f"/jobs/{job_id}/trigger")
         assert resp.status_code == 202
@@ -139,7 +139,7 @@ class TestJobsApi:
     def test_update_job_cron_and_disable(self, client: TestClient, tmp_path: Path) -> None:
         csv = _sample_csv(tmp_path)
         job_id = client.post(
-            "/jobs", json={"name": "a", "path": str(csv), "cron": "* * * * *"}
+            "/jobs", json={"name": "a", "path": str(csv), "cron": "0 0 1 1 *"}
         ).json()["job_id"]
         resp = client.patch(
             f"/jobs/{job_id}",
@@ -154,7 +154,7 @@ class TestJobsApi:
     def test_update_job_invalid_cron_422(self, client: TestClient, tmp_path: Path) -> None:
         csv = _sample_csv(tmp_path)
         job_id = client.post(
-            "/jobs", json={"name": "a", "path": str(csv), "cron": "* * * * *"}
+            "/jobs", json={"name": "a", "path": str(csv), "cron": "0 0 1 1 *"}
         ).json()["job_id"]
         resp = client.patch(f"/jobs/{job_id}", json={"cron": "bad"})
         assert resp.status_code == 422
@@ -165,7 +165,7 @@ class TestJobsApi:
     def test_delete_job(self, client: TestClient, tmp_path: Path) -> None:
         csv = _sample_csv(tmp_path)
         job_id = client.post(
-            "/jobs", json={"name": "a", "path": str(csv), "cron": "* * * * *"}
+            "/jobs", json={"name": "a", "path": str(csv), "cron": "0 0 1 1 *"}
         ).json()["job_id"]
         assert client.delete(f"/jobs/{job_id}").status_code == 204
         assert client.get(f"/jobs/{job_id}").status_code == 404
@@ -179,7 +179,7 @@ class TestJobLifecycle:
         app1 = create_app(project=tmp_path)
         with TestClient(app1) as client1:
             job_id = client1.post(
-                "/jobs", json={"name": "a", "path": str(csv), "cron": "* * * * *"}
+                "/jobs", json={"name": "a", "path": str(csv), "cron": "0 0 1 1 *"}
             ).json()["job_id"]
             client1.post(f"/jobs/{job_id}/trigger")
             assert client1.get(f"/jobs/{job_id}").json()["runs"][0]["status"] == "completed"
@@ -215,7 +215,7 @@ class TestJobsV13:
     def test_runs_endpoint_with_limit(self, client: TestClient, tmp_path: Path) -> None:
         csv = _sample_csv(tmp_path)
         job_id = client.post(
-            "/jobs", json={"name": "a", "path": str(csv), "cron": "* * * * *"}
+            "/jobs", json={"name": "a", "path": str(csv), "cron": "0 0 1 1 *"}
         ).json()["job_id"]
         client.post(f"/jobs/{job_id}/trigger")
         client.post(f"/jobs/{job_id}/trigger")
@@ -259,7 +259,7 @@ class TestJobsV13:
                 json={
                     "name": "hook",
                     "path": str(csv),
-                    "cron": "* * * * *",
+                    "cron": "0 0 1 1 *",
                     "webhook_url": f"http://127.0.0.1:{port}/hook",
                 },
             ).json()["job_id"]
@@ -275,6 +275,7 @@ class TestJobsV13:
             assert "payload" in received[0]
         finally:
             server.shutdown()
+            server.server_close()
             thread.join()
 
     def test_webhook_test_remote_error(self, client: TestClient, tmp_path: Path) -> None:
@@ -283,6 +284,9 @@ class TestJobsV13:
 
         class _Handler(BaseHTTPRequestHandler):
             def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0"))
+                if length:
+                    self.rfile.read(length)
                 self.send_response(500)
                 self.end_headers()
 
@@ -300,7 +304,7 @@ class TestJobsV13:
                 json={
                     "name": "hook",
                     "path": str(csv),
-                    "cron": "* * * * *",
+                    "cron": "0 0 1 1 *",
                     "webhook_url": f"http://127.0.0.1:{port}/hook",
                 },
             ).json()["job_id"]
@@ -310,6 +314,7 @@ class TestJobsV13:
             assert resp.json()["status_code"] == 500
         finally:
             server.shutdown()
+            server.server_close()
             thread.join()
 
     def test_webhook_test_connection_failed_502(self, client: TestClient, tmp_path: Path) -> None:
@@ -319,7 +324,7 @@ class TestJobsV13:
             json={
                 "name": "hook",
                 "path": str(csv),
-                "cron": "* * * * *",
+                "cron": "0 0 1 1 *",
                 "webhook_url": "http://127.0.0.1:1/hook",
             },
         ).json()["job_id"]
@@ -330,7 +335,7 @@ class TestJobsV13:
     def test_webhook_test_no_url_422(self, client: TestClient, tmp_path: Path) -> None:
         csv = _sample_csv(tmp_path)
         job_id = client.post(
-            "/jobs", json={"name": "plain", "path": str(csv), "cron": "* * * * *"}
+            "/jobs", json={"name": "plain", "path": str(csv), "cron": "0 0 1 1 *"}
         ).json()["job_id"]
         resp = client.post(f"/jobs/{job_id}/test-webhook")
         assert resp.status_code == 422
@@ -351,7 +356,7 @@ class TestPruneRuns:
         app = create_app(project=tmp_path)
         with TestClient(app) as client:
             job_id = client.post(
-                "/jobs", json={"name": "a", "path": str(csv), "cron": "* * * * *"}
+                "/jobs", json={"name": "a", "path": str(csv), "cron": "0 0 1 1 *"}
             ).json()["job_id"]
             for _ in range(5):
                 client.post(f"/jobs/{job_id}/trigger")
@@ -373,7 +378,7 @@ class TestPruneRuns:
         app = create_app(project=tmp_path)
         with TestClient(app) as client:
             job_id = client.post(
-                "/jobs", json={"name": "a", "path": str(csv), "cron": "* * * * *"}
+                "/jobs", json={"name": "a", "path": str(csv), "cron": "0 0 1 1 *"}
             ).json()["job_id"]
             client.post(f"/jobs/{job_id}/trigger")
 
@@ -423,7 +428,7 @@ class TestJobsGate:
         csv = _sample_csv(tmp_path)
         resp = client.post(
             "/jobs",
-            json={"name": "gated", "path": str(csv), "cron": "* * * * *", "gate_quality_min": 90.0},
+            json={"name": "gated", "path": str(csv), "cron": "0 0 1 1 *", "gate_quality_min": 90.0},
         )
         assert resp.status_code == 201
         assert resp.json()["gate_quality_min"] == 90.0
@@ -432,14 +437,14 @@ class TestJobsGate:
         csv = _sample_csv(tmp_path)
         resp = client.post(
             "/jobs",
-            json={"name": "bad", "path": str(csv), "cron": "* * * * *", "gate_quality_min": 150.0},
+            json={"name": "bad", "path": str(csv), "cron": "0 0 1 1 *", "gate_quality_min": 150.0},
         )
         assert resp.status_code == 422
 
     def test_update_job_gate(self, client: TestClient, tmp_path: Path) -> None:
         csv = _sample_csv(tmp_path)
         job_id = client.post(
-            "/jobs", json={"name": "a", "path": str(csv), "cron": "* * * * *"}
+            "/jobs", json={"name": "a", "path": str(csv), "cron": "0 0 1 1 *"}
         ).json()["job_id"]
         resp = client.patch(f"/jobs/{job_id}", json={"gate_quality_min": 75.0})
         assert resp.status_code == 200
@@ -452,7 +457,7 @@ class TestJobsGate:
             json={
                 "name": "gated",
                 "path": str(csv),
-                "cron": "* * * * *",
+                "cron": "0 0 1 1 *",
                 "gate_quality_min": 99.99,
             },
         ).json()["job_id"]
@@ -476,7 +481,7 @@ class TestChangeAwareApi:
 
         csv = _sample_csv(tmp_path)
         job_id = client.post(
-            "/jobs", json={"name": "inc", "path": str(csv), "cron": "* * * * *"}
+            "/jobs", json={"name": "inc", "path": str(csv), "cron": "0 0 1 1 *"}
         ).json()["job_id"]
         store = SchedulerStore(project_db_path(tmp_path))
 
@@ -508,7 +513,7 @@ class TestChangeAwareApi:
 
         csv = _sample_csv(tmp_path)
         job_id = client.post(
-            "/jobs", json={"name": "chg", "path": str(csv), "cron": "* * * * *"}
+            "/jobs", json={"name": "chg", "path": str(csv), "cron": "0 0 1 1 *"}
         ).json()["job_id"]
         store = SchedulerStore(project_db_path(tmp_path))
         first_run = store.get_run(client.post(f"/jobs/{job_id}/trigger").json()["run_id"])
@@ -517,7 +522,7 @@ class TestChangeAwareApi:
         new = csv.with_name("orders2.csv")
         new.write_text("id,amount\n9,42\n", encoding="utf-8")
         job_id2 = client.post(
-            "/jobs", json={"name": "chg2", "path": str(new), "cron": "* * * * *"}
+            "/jobs", json={"name": "chg2", "path": str(new), "cron": "0 0 1 1 *"}
         ).json()["job_id"]
         second_run = store.get_run(client.post(f"/jobs/{job_id2}/trigger").json()["run_id"])
         assert second_run is not None and second_run.file_hash is not None

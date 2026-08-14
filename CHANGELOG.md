@@ -33,6 +33,55 @@ V12 插件生态治理：清单 + 安装管理 + 完整性校验 + 测试夹具�
   文件（import 产生缓存不破坏锁）
 - **plugin list** 增 integrity 状态（ok/tampered/no_lock）
 
+### 新增（Step 84，插件测试夹具，ADR-083）
+
+- **声明式夹具**：plugin.yaml 可选 `fixtures` 段——每条声明
+  `data: <文件>` + `expect: detector/issues/dimension`；非法
+  （缺失数据文件、负数期望）解析/安装即报错
+- **plugin test <name>**：隔离注册表（内置 + 被测插件）按标准
+  连接器管线执行扫描，按期望断言；三态结果（全过=0 / 任一失败=
+  EXIT_GATE_FAILED=1 / 无夹具=跳过视为通过）
+- **断言语义**：仅统计命中检测器的 Issue（内置检测器命中不计）；
+  dimension 未声明则放行
+- **不落库**：夹具执行不写 scan history，无副作用
+
+## [0.15.0] - 2026-08-14
+
+V13 云侧调度与协作：调度管理面三面补齐（CLI/HTTP API/MCP）。
+
+### 新增（Step 86，CLI job 子命令，ADR-086）
+
+- **job list [--status]**：调度任务列表（status 过滤）
+- **job create NAME PATH --cron EXPR**：注册任务（dataset-id /
+  table-name / retry-attempts / webhook-url / gate-quality-min /
+  export-report 可选）；非法 cron 报错（EXIT_CONFIG=2）
+- **job trigger ID**：立即同步执行一次（复用 Scheduler +
+  LocalScanExecutor；正在运行拒绝）
+- **job status ID**：任务视图 + 最近 5 条运行历史
+- **job remove ID**：删除任务（不存在报错）
+- 与 MCP job_create/jobs_list/job_trigger 同源同语义（同一
+  SchedulerStore），无第二套逻辑
+
+### 新增（Step 87，HTTP API jobs 运行历史与 webhook 验证，ADR-087）
+
+- **GET /jobs/{job_id}/runs?limit=N**：运行历史独立端点（默认
+  20 条；未知任务 404）
+- **POST /jobs/{job_id}/test-webhook**：发送 job.test 样例负载
+  验证协作链路，返回远端状态码与耗时；无 webhook 422、连接失败
+  502、远端 ≥400 返回 notified=false 可判读
+- 既有 /jobs CRUD/trigger/PATCH 保持兼容（Step 51 语义不变）
+
+### 新增（Step 88，MCP 生命周期补全 + 历史保留，ADR-088）
+
+- **MCP job_update**：部分更新（enabled/cron/retry_attempts/
+  webhook_url/gate_quality_min），cron 变更重算下次运行时间，
+  与 HTTP PATCH /jobs/{job_id} 同语义
+- **MCP job_remove**：删除任务（未知任务返回 ok:false）
+- **运行历史保留**：SchedulerStore.prune_runs(max_per_job=100)
+  裁剪每个任务最旧的超限运行记录（窗口函数按时间倒序分区）
+- 三面对齐：CLI / HTTP API / MCP 的 job 能力语义一致，共用
+  同一 SchedulerStore，无分叉
+
 ## [0.13.0] - 2026-08-14
 
 V11 三件套：证据级描述本地化 + 调度配置透传 + 增量画像列级复用。
@@ -602,49 +651,3 @@ V1 收官：漂移引擎、跨表完整性、AI 修复候选、MCP 生态面、�
 - Python >= 3.12，DuckDB 执行引擎（ADR-005/007）
 - 门禁：ruff + mypy --strict + pytest 覆盖率 >= 85%
   （当前 522 例，95%）
-- Docker 一键启动（`datasentry-server` 入口）
-
-### 新增（Step 84，插件测试夹具，ADR-083）
-
-- **声明式夹具**：plugin.yaml 可选 `fixtures` 段——每条声明
-  `data: <文件>` + `expect: detector/issues/dimension`；非法
-  （缺失数据文件、负数期望）解析/安装即报错
-- **plugin test <name>**：隔离注册表（内置 + 被测插件）按标准
-  连接器管线执行扫描，按期望断言；三态结果（全过=0 / 任一失败=
-  EXIT_GATE_FAILED=1 / 无夹具=跳过视为通过）
-- **断言语义**：仅统计命中检测器的 Issue（内置检测器命中不计）；
-  dimension 未声明则放行
-- **不落库**：夹具执行不写 scan history，无副作用
-
-### 新增（Step 86，CLI job 子命令，ADR-086）
-
-- **job list [--status]**：调度任务列表（status 过滤）
-- **job create NAME PATH --cron EXPR**：注册任务（dataset-id /
-  table-name / retry-attempts / webhook-url / gate-quality-min /
-  export-report 可选）；非法 cron 报错（EXIT_CONFIG=2）
-- **job trigger ID**：立即同步执行一次（复用 Scheduler +
-  LocalScanExecutor；正在运行拒绝）
-- **job status ID**：任务视图 + 最近 5 条运行历史
-- **job remove ID**：删除任务（不存在报错）
-- 与 MCP job_create/jobs_list/job_trigger 同源同语义（同一
-  SchedulerStore），无第二套逻辑
-
-### 新增（Step 87，HTTP API jobs 运行历史与 webhook 验证，ADR-087）
-
-- **GET /jobs/{job_id}/runs?limit=N**：运行历史独立端点（默认
-  20 条；未知任务 404）
-- **POST /jobs/{job_id}/test-webhook**：发送 job.test 样例负载
-  验证协作链路，返回远端状态码与耗时；无 webhook 422、连接失败
-  502、远端 ≥400 返回 notified=false 可判读
-- 既有 /jobs CRUD/trigger/PATCH 保持兼容（Step 51 语义不变）
-
-### 新增（Step 88，MCP 生命周期补全 + 历史保留，ADR-088）
-
-- **MCP job_update**：部分更新（enabled/cron/retry_attempts/
-  webhook_url/gate_quality_min），cron 变更重算下次运行时间，
-  与 HTTP PATCH /jobs/{job_id} 同语义
-- **MCP job_remove**：删除任务（未知任务返回 ok:false）
-- **运行历史保留**：SchedulerStore.prune_runs(max_per_job=100)
-  裁剪每个任务最旧的超限运行记录（窗口函数按时间倒序分区）
-- 三面对齐：CLI / HTTP API / MCP 的 job 能力语义一致，共用
-  同一 SchedulerStore，无分叉

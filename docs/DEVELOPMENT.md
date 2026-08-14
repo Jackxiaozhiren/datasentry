@@ -107,11 +107,21 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
 - **V12 已完成（v0.14.0）**：插件生态治理——插件清单（Step 82：
   plugin.yaml 元数据 + plugin install/uninstall 管理 + plugin list
   清单视图）、完整性校验（Step 83：SHA-256 锁 + 加载前校验 +
-  plugin reaccept + integrity 状态）、测试夹具（Step 84：fixtures
+  plugin reaccept + integrity 状态）、  测试夹具（Step 84：fixtures
   声明 + plugin test 隔离执行 + 三态退出码）；插件 API v1 载荷
   零改动，旧平铺布局零迁移；CI 全绿（95.01% 覆盖），mypy --strict
   通过；下一阶段候选：云侧调度与协作、PII 还原（加密存储）、
   报告交互增强（Step 49/60/61 已落地，持续迭代）
+- **V13 已完成（v0.15.0）**：云侧调度与协作——CLI job 子命令
+  （Step 86：list/create/trigger/status/remove，非法 cron
+  EXIT_CONFIG=2，与 MCP 同源同 store）、HTTP API 运行历史与
+  webhook 验证（Step 87：GET /jobs/{id}/runs?limit=N +
+  POST /jobs/{id}/test-webhook，远端状态可判读）、MCP 生命周期
+  补全与历史保留（Step 88：job_update/job_remove 部分更新、
+  prune_runs 按任务保留最近 100 条运行）；CLI / HTTP API / MCP
+  三面 job 能力语义对齐，共用 SchedulerStore 无分叉；CI 全绿
+  （95.01% 覆盖），mypy --strict 通过；下一阶段候选：PII 还原
+  （加密存储）、报告交互增强、调度执行器分布式化
 
 ---
 
