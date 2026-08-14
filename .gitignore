@@ -30,3 +30,6 @@ credentials.json
 .vscode/
 ~$*
 workspace/
+
+# Debug scratch (agent sessions)
+p/
