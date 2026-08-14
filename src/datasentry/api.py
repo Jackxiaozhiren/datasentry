@@ -27,6 +27,7 @@ body 统一 {"ok": false, "detail": "..."}。
 
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 from collections.abc import AsyncIterator
@@ -53,6 +54,8 @@ from datasentry_core.models.issue import Issue
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
 from datasentry_core.models.scan import DetectorRun, SamplingConfig, ScanConfig, ScanRun
 from datasentry_core.reporting.i18n import t as _t
+
+logger = logging.getLogger(__name__)
 
 
 class ScanRequest(BaseModel):
@@ -141,13 +144,50 @@ def _get_issue(client: sdk.DataSentry, issue_id: str) -> Issue | None:
 # ---------------------------------------------------------------------------
 
 
+def parse_workers(raw: str) -> list[tuple[str, str]]:
+    """解析 DATASENTRY_WORKERS（"url:token;url:token"）为 (url, token) 列表。
+
+    非法条目（空 url/缺 token/畸形分隔）跳过不炸启动（V15，
+    ADR-094）。
+    """
+    workers: list[tuple[str, str]] = []
+    for entry in raw.split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        url, _, token = entry.rpartition(":")
+        if not url.strip() or not token.strip():
+            logger.warning("skipping malformed worker entry: %r", entry)
+            continue
+        workers.append((url.strip(), token.strip()))
+    return workers
+
+
 def _build_scheduler(client: sdk.DataSentry) -> Scheduler:
-    """绑定工作区元数据库的调度器（SQLite 持久化任务队列，ADR-051）。"""
+    """绑定工作区元数据库的调度器（SQLite 持久化任务队列，ADR-051）。
+
+    执行器选择（V15，ADR-094）：配置了 DATASENTRY_WORKERS 则用
+    WorkerPoolExecutor（url:token 分号分隔，多节点容错路由），
+    否则回退 LocalScanExecutor（零迁移）。
+    """
     from datasentry.scheduler.store import SchedulerStore
     from datasentry_core.storage.paths import project_db_path
 
     db_path = project_db_path(client.workspace)
-    return Scheduler(store=SchedulerStore(db_path), executor=LocalScanExecutor())
+    store = SchedulerStore(db_path)
+    raw_workers = os.environ.get("DATASENTRY_WORKERS", "")
+    if raw_workers:
+        from datasentry.scheduler.pool import RemoteWorker, WorkerPoolExecutor
+
+        workers = [
+            RemoteWorker(id=f"w{i}", url=url, token=token)
+            for i, (url, token) in enumerate(parse_workers(raw_workers))
+        ]
+        if workers:
+            logger.info("scheduler using worker pool: %d worker(s)", len(workers))
+            return Scheduler(store=store, executor=WorkerPoolExecutor(workers))
+        logger.warning("DATASENTRY_WORKERS set but no valid entries; using local executor")
+    return Scheduler(store=store, executor=LocalScanExecutor())
 
 
 def _job_command_from(req: JobCreate, workspace: str) -> JobCommand:

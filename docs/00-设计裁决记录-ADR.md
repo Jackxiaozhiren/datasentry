@@ -2370,3 +2370,20 @@
 - **边界**：不做加权/亲和/按 job 路由/异步队列（V16 候选）。
 - **依据**：ScanExecutor Protocol 契约 + V14 远程执行语义 +
   /health 端点既有（探活复用）。
+
+## ADR-094：调度端 worker 配置面 DATASENTRY_WORKERS（V15，Step 94）
+- **背景**：WorkerPoolExecutor 就绪，但调度端无从配置 worker
+  列表；需零迁移接入既有 create_app/_build_scheduler。
+- **决策**：
+  - 配置源两级：环境变量 `DATASENTRY_WORKERS="url:token;url:token"`
+    （**末位冒号 rsplit 分隔**，兼容 `http://host:port` 形式）或
+    create_app 透传 env（api:main 自动生效，datasentry-server
+    零改动）；
+  - 非法条目跳过 + 告警（不炸启动）；全部非法/未配置 → 回退
+    LocalScanExecutor（零迁移）；
+  - worker id 由顺序生成（w0..wN），不暴露在配置面（无状态
+    worker 语义延续）。
+- **测试**：parse_workers 单元 4 例（含空白/畸形）；_build_scheduler
+  集成 3 例（默认 local / env 池 / 非法回退）；端到端 1 例
+  （真 api + 假 500 worker + 真 worker → trigger → 转移 → 落库
+    total_issues=2）。

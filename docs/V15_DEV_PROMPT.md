@@ -44,7 +44,7 @@ V14 打通"调度端 → 远端 worker"单点链路（RemoteScanExecutor）。
   试两次 b 未试）——改为"自起始游标整轮遍历全列表，游标每轮
   推进 1"，错误摘要用实际尝试数（attempted）
 
-### Step 94（ADR-094）调度端 worker 配置面 —— ⏳ 待开始
+### Step 94（ADR-094）调度端 worker 配置面 —— ✅ 完成
 
 ### Step 95（ADR-095）文档 + 发布 v0.17.0 —— ⏳ 待开始
 
@@ -55,4 +55,6 @@ V14 打通"调度端 → 远端 worker"单点链路（RemoteScanExecutor）。
 2. `ScanExecutor` Protocol 与 `Scheduler` 零改动；
    `RemoteScanExecutor`/`LocalScanExecutor` 零改动
 3. 单 worker 配置行为与 V14 一致（退化为直连语义）
-4. 未配置 workers 行为与 V13 及更早完全一致（零迁移）
+4. 未配置 workers 行为与 V13 及更早完全一致（零迁移）- Step 94 坑位：parse_workers 首冒号 partition 会切开 `://`（应
+  rsplit 末位冒号）；/jobs 创建 201、trigger 202（非 200）；run
+  的 summary 是 JSON 字符串字段（非 total_issues 平铺字段）

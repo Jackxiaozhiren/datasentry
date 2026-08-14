@@ -706,3 +706,13 @@ V15 多 worker 池与容错路由：执行面从单点升级为池化容错。
 - ScanExecutor Protocol 与 Scheduler 零改动；测试 8 例（真 HTTP
   多 worker：轮询分发/远端失败转移/不可达转移/全失败摘要/冷却
   跳过/冷却恢复/健康过滤/空池拒绝）
+
+### 新增（Step 94，调度端 worker 配置面，ADR-094）
+
+- **DATASENTRY_WORKERS** 环境变量：`url:token;url:token` 分号
+  分隔配置 worker 池（末位冒号分隔，兼容 `http://host:port`）；
+  配置后调度器自动改用 WorkerPoolExecutor
+- **零迁移**：未配置或全部非法 → 回退 LocalScanExecutor；
+  非法条目跳过 + 告警不炸启动；datasentry-server 自动透传 env
+- 测试 8 例（parse_workers 单元 / _build_scheduler 集成 / 端到端
+  失败转移真执行落库）
