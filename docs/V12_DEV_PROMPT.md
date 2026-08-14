@@ -85,6 +85,8 @@ V11（v0.13.0）已发布。V12 主题：**插件生态治理**——补齐
 
 - CHANGELOG [0.14.0] 三节 + ADR-082~084 落档 + DEVELOPMENT 路线图
   V12 完成段 + 计划书落地状态；升版 + tag + release + CI 观察
+- **落地**：✅ 完成（v0.14.0 2026-08-14；PyPI/Pages/CI 全绿；
+  release v0.14.0 已建；详见 Step 85 落地记录）
 
 ## 三、验收标准（V12）
 
@@ -143,7 +145,16 @@ V11（v0.13.0）已发布。V12 主题：**插件生态治理**——补齐
   捕获 ConnectorError；Issue 的 quality_dimensions 取自检测器
   声明维度，而非 IssueCandidate 传入值
 
-### Step 85 收尾 v0.14.0 —— ⏳ 待开始
+### Step 85 收尾 v0.14.0 —— ✅ 完成
+
+- 交付：升版 v0.14.0（根 pyproject + 双 `__init__.__version__`，
+  core pyproject 恒 0.7.0）；CHANGELOG [0.14.0] - 2026-08-14；
+  DEVELOPMENT V12 完成段；tag v0.14.0（PyPI 发布 ✓ + Pages ✓ +
+  CI ✓）；GitHub release v0.14.0（2026-08-14）；本计划书落地
+  状态回填
+- V12 收官：插件清单（Step 82）→ 完整性校验（Step 83）→ 测试
+  夹具（Step 84）→ 发布（Step 85）；插件 API v1 载荷零改动、
+  旧平铺布局零迁移；最终 CI 全绿（覆盖 95.01%，mypy --strict 通过）
 
 ## 五、勘察备忘
 
