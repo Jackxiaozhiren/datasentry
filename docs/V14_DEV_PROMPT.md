@@ -65,8 +65,14 @@ worker（另一台 DataSentry 实例 / 独立执行节点），远端执行扫�
   （5 issues）与 401 均验证
 - 坑位：orders.csv 夹具实际 5 issues（4 medium + 1 low），
   断言须写 5 而非直觉 4
-- 发布 v0.16.0 见下（升版 + tag + PyPI/Pages/CI + GitHub
-  release + uv.lock 同步）
+- 坑位（CI 竞态，fa866a0 修复）：e2e 测试 create job 时
+  next_run_at 不可用 now（立即可到期）——worker app 的
+  SchedulerWorker tick（1s）会抢先 claim，手动 trigger 返回
+  None；必须设远未来（now + timedelta(days=365)）
+- 发布 v0.16.0 完成：升版（根 pyproject + 双 __init__）、
+  CHANGELOG [0.16.0]、DEVELOPMENT V14 段、tag v0.16.0 →
+  PyPI 0.16.0 ✓ Pages ✓ CI ✓、GitHub release、uv.lock 同步；
+  误提交调试目录 p/ 已清理（git rm + 磁盘删除）
 
 ## 三、验收
 
