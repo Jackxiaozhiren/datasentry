@@ -4,6 +4,19 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+（V10 开发中：i18n 深化 + MCP 透传 + 增量画像 Step 74~77，收尾统一
+升版 v0.12.0）
+
+### 新增（Step 74，CLI 全局 --lang，ADR-074）
+
+- **全局 `--lang {en,zh}`**：scan/issues/score 等 CLI text 输出本地化
+  （`cli.*` i18n 键域：issues 计数 / 质量分 / llm cache·proposed·
+  rejected）；`report export` 报告语言由全局参数统一接管（删除
+  局部 --lang，默认 en 行为不变）
+- 边界：JSON envelope 数据面不译（机器契约）；API `?lang=` 不受影响
+
 ## [0.11.0] - 2026-08-14
 
 V9 大文件性能：抽样扫描 + 扫描管线瘦身 + 内存打磨。

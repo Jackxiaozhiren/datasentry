@@ -2035,3 +2035,19 @@
   + runner.py（指纹档）+ client.py + bench_scan.py（--sampling-size
   档 + 子进程外测量）；测试 3 例新增/3 例更新；ADR-073 + CHANGELOG
   + V9_DEV_PROMPT（验收节修正）。
+
+## ADR-074：CLI 全局 --lang（V10，Step 74）
+
+- **状态**：已确认（Step 74, V10）
+- **背景**：V8（ADR-069）`--lang` 仅挂 report export 局部；scan/
+  issues/score 等 text 输出英文硬编码。用户选定 CLI 全局 --lang。
+- **方案**：全局 `--lang {en,zh} default=en`（cli.py 全局参数区）；
+  删除 report export 局部参数（argparse 子命令局部 default 会覆盖
+  全局值）；散文输出（issues 计数 / score 三行 / llm cache·proposed·
+  rejected）经 `t(args.lang, "cli.*")`；i18n.py 增 cli.* 键域
+  （en 权威表 + zh 镜像，`{n}`/`{score}` 占位由调用侧 .format）。
+- **边界**：JSON envelope 数据面不译（机器契约）；report export
+  报告语言经全局 --lang 统一接管（API ?lang= 不受影响）；
+  ADR-069「CLI 其他命令 text 输出不动」边界更新。
+- **影响**：cli.py + i18n.py + 测试（1 例更新——局部 --lang 改全局
+  位置；3 例新增）；ADR-074 + CHANGELOG + DEVELOPMENT + 计划书。

@@ -454,6 +454,8 @@ class TestCli:
             [
                 "--project",
                 str(workspace),
+                "--lang",
+                "zh",
                 "report",
                 "export",
                 scan_id,
@@ -461,14 +463,40 @@ class TestCli:
                 "markdown",
                 "--output",
                 str(out),
-                "--lang",
-                "zh",
             ]
         )
         assert code == 0
         md = out.read_text(encoding="utf-8")
         assert "# DataSentry 数据质量报告" in md
         assert "## 可复现性" in md
+
+    def test_global_lang_zh_localizes_score_text(
+        self, sample_csv: Path, workspace: Path, capsys
+    ) -> None:
+        main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
+        scan_id = json.loads(capsys.readouterr().out)["data"]["scan_run_id"]
+        code = main(["--project", str(workspace), "--lang", "zh", "score", scan_id])
+        assert code == 0
+        out = capsys.readouterr().out
+        assert "总体质量分" in out
+
+    def test_global_lang_default_en_score_text(
+        self, sample_csv: Path, workspace: Path, capsys
+    ) -> None:
+        main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
+        scan_id = json.loads(capsys.readouterr().out)["data"]["scan_run_id"]
+        code = main(["--project", str(workspace), "score", scan_id])
+        assert code == 0
+        out = capsys.readouterr().out
+        assert "Overall quality score:" in out
+
+    def test_global_lang_zh_localizes_issues_count(
+        self, sample_csv: Path, workspace: Path, capsys
+    ) -> None:
+        main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
+        code = main(["--project", str(workspace), "--lang", "zh", "issues", "list"])
+        assert code == 0
+        assert "问题数" in capsys.readouterr().out
 
     def test_score_json(self, sample_csv: Path, workspace: Path, capsys) -> None:
         main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])

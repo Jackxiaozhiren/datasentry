@@ -2,7 +2,7 @@
 
 命令：init / scan（--fail-on 门禁）/ issues list|show / report export（--as）/
 score / contract validate
-全局选项：--project / --format text|json / --seed / --version
+全局选项：--project / --format text|json / --seed / --lang en|zh / --version
 JSON 统一 envelope（22.1）：{"ok", "command", "data", "warnings", "llm_usage"}
 退出码：0 成功；1 质量门禁失败；2 配置错误；3 执行错误；4 数据源不可用
 """
@@ -24,6 +24,7 @@ from datasentry_core.models.contract import Contract, QualityGate
 from datasentry_core.models.enums import Severity
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.scan import SamplingConfig, ScanConfig
+from datasentry_core.reporting.i18n import t
 from datasentry_core.scoring.gate import GateResult
 
 EXIT_OK = 0
@@ -36,6 +37,7 @@ _GLOBAL_EPILOG = """Global options:
   --project PATH  project workspace (default: current dir)
   --format FMT    text|json (default: text)
   --seed N        reproducibility seed
+  --lang LANG     en|zh CLI text output language (default: en)
   --version       show version
 """
 
@@ -282,7 +284,7 @@ def _cmd_issues_list(args: argparse.Namespace) -> int:
     else:
         for issue in issues:
             print("\n".join(_issue_lines(issue)))
-        print(f"\n{len(issues)} issues")
+        print("\n" + t(args.lang, "cli.issues_count").format(n=len(issues)))
     return EXIT_OK
 
 
@@ -369,12 +371,20 @@ def _cmd_score(args: argparse.Namespace) -> int:
         return EXIT_OK
     data = {"scored": True, "score": quality.model_dump(mode="json")}
     if args.format == "text":
-        print(f"Overall quality score: {quality.overall}  (score_version={quality.score_version})")
+        print(
+            t(args.lang, "cli.score_overall").format(
+                score=quality.overall, version=quality.score_version
+            )
+        )
         for dim, value in quality.dimensions.items():
             label = f"{dim:15s} {value!s:>6}"
             weight = quality.weights.get(dim)
-            print(f"  {label}  weight={weight if weight is not None else '-'}")
-        print(f"  notes: {quality.calculation_notes}")
+            print(
+                t(args.lang, "cli.score_weight").format(
+                    label=label, weight=weight if weight is not None else "-"
+                )
+            )
+        print(t(args.lang, "cli.score_notes").format(notes=quality.calculation_notes))
         return EXIT_OK
     _emit(_envelope("score", data), args.format)
     return EXIT_OK
@@ -847,7 +857,7 @@ def _cmd_rules_propose(args: argparse.Namespace) -> int:
         _emit(_envelope("rules propose", {"error": result.llm_error}), args.format)
         return EXIT_ERROR
     if result.cache_hit:
-        print("  [cache] prompt matched llm_cache; no LLM call made")
+        print(t(args.lang, "cli.llm_cache"))
     data: dict[str, Any] = {"masked_sample_count": result.masked_sample_count, "rules": []}
     for item in result.rules:
         if item.candidate is None:
@@ -881,10 +891,10 @@ def _cmd_rules_propose(args: argparse.Namespace) -> int:
             }
         data["rules"].append(entry)
     if args.format == "text":
-        print(f"proposed {len(data['rules'])} rule candidate(s) (preflight run, NOT saved)")
+        print(t(args.lang, "cli.llm_proposed").format(n=len(data["rules"])))
         for entry in data["rules"]:
             if "rejected" in entry:
-                print(f"  ✗ rejected: {entry['rejected']}")
+                print(t(args.lang, "cli.llm_rejected").format(reason=entry["rejected"]))
                 continue
             pf = entry.get("preflight") or {}
             print(
@@ -972,6 +982,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--format", type=str, default="text", choices=["text", "json"], help="output format"
     )
     parser.add_argument("--seed", type=int, default=42, help="reproducibility seed")
+    parser.add_argument(
+        "--lang",
+        type=str,
+        default="en",
+        choices=["en", "zh"],
+        help="CLI text output language (en|zh, Step 74/ADR-074; default: en)",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_init = sub.add_parser("init", help="initialize workspace (.datasentry/ + .gitignore)")
@@ -1072,13 +1089,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_export.add_argument(
         "--output", type=str, default=None, help="output path (default: .datasentry/reports/)"
-    )
-    p_export.add_argument(
-        "--lang",
-        type=str,
-        default="en",
-        choices=["en", "zh"],
-        help="report framework language (en|zh, V8 ADR-069; default: en)",
     )
     p_export.set_defaults(func=_cmd_report_export)
 
