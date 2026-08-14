@@ -1,7 +1,8 @@
 """Step 51/53（V2-D 云侧调度 + 变更感知）核心：cron 语义 + 调度器 + 执行器 + worker
 （ADR-051 / ADR-053）。
 
-- `Scheduler.tick(now)`：纯同步、可测；原子抢占到期任务 → 执行 → 落结果。
+- `Scheduler.tick(now)`：抢占到期任务并执行；`max_workers>1` 时
+  执行异步派发到线程池（并行执行，tick 不阻塞，V16/ADR-096）。
 - 重试语义：失败且 attempt <= retry_attempts → 60s 后重试；超过 → 死信（dead）。
 - 重启恢复：`recover_interrupted` 将 running 任务置回 idle，run 标记 interrupted。
 - 并发互斥：SQLite BEGIN IMMEDIATE 条件更新，同一任务同一时刻仅一个执行者。
@@ -13,6 +14,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import json
 import logging
@@ -317,26 +319,65 @@ class Scheduler:
         notifier: WebhookNotifier | None = None,
         *,
         clock: Callable[[], datetime] | None = None,
+        max_workers: int = 1,
     ) -> None:
         self.store = store
         self._executor = executor
         self._notifier = notifier or WebhookNotifier()
         self._clock = clock or utcnow
+        self._max_workers = max(1, max_workers)
+        self._pool: concurrent.futures.ThreadPoolExecutor | None = (
+            concurrent.futures.ThreadPoolExecutor(max_workers=self._max_workers)
+            if self._max_workers > 1
+            else None
+        )
 
     def tick(self) -> list[str]:
-        """一轮调度：抢占到期任务并执行；返回本轮 job_id 列表（测试/观测用）。"""
+        """一轮调度：抢占到期任务并派发；返回本轮 job_id 列表（测试/观测用）。
+
+        max_workers=1 时同步执行（与 V15 及更早一致）；>1 时提交
+        线程池立即返回（并行执行，V16/ADR-096）。
+        """
         now = self._clock()
         claimed = self.store.claim_due_jobs(now)
         for job_id, run_id, _attempt in claimed:
-            self._run_job(job_id, run_id)
+            self._submit(job_id, run_id)
         return [job_id for job_id, _run_id, _attempt in claimed]
 
     def trigger(self, job_id: str) -> str | None:
-        """手动触发立即执行；任务已在执行中返回 None（互斥）。"""
+        """手动触发执行；任务已在执行中返回 None（互斥）。
+
+        max_workers=1 时同步完成（返回时 run 已终态）；>1 时提交
+        线程池立即返回 run_id（异步推进，V16/ADR-096）。
+        """
         run_id = self.store.claim_job(job_id, self._clock())
         if run_id is not None:
-            self._run_job(job_id, run_id)
+            self._submit(job_id, run_id)
         return run_id
+
+    def shutdown(self, wait: bool = True) -> None:
+        """优雅关闭：停止接收新任务；wait=True 等待 in-flight 完成。
+
+        max_workers=1（无池）时 no-op（V16/ADR-096）。
+        """
+        if self._pool is not None:
+            self._pool.shutdown(wait=wait)
+            self._pool = None
+
+    def _submit(self, job_id: str, run_id: str) -> None:
+        """派发执行：同步（无池）或提交线程池（异步）。"""
+        if self._pool is None:
+            self._run_job(job_id, run_id)
+            return
+        future = self._pool.submit(self._run_job, job_id, run_id)
+        future.add_done_callback(self._consume)
+
+    @staticmethod
+    def _consume(future: concurrent.futures.Future[None]) -> None:
+        """消费 future 异常：_run_job 内部全路径兜底，此处仅保险。"""
+        exc = future.exception()
+        if exc is not None:
+            logger.error("scheduled job crashed: %s", exc)
 
     def recover(self) -> None:
         """服务启动时恢复：running → idle，run 标记 interrupted。"""
@@ -470,6 +511,7 @@ class SchedulerWorker:
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()
         self._thread.join(timeout)
+        self._scheduler.shutdown(wait=True)
 
     def _loop(self) -> None:
         while not self._stop.is_set():

@@ -2387,3 +2387,22 @@
   集成 3 例（默认 local / env 池 / 非法回退）；端到端 1 例
   （真 api + 假 500 worker + 真 worker → trigger → 转移 → 落库
     total_issues=2）。
+
+## ADR-096：Scheduler 线程池异步执行 max_workers（V16，Step 96）
+- **背景**：tick/trigger 同步执行——单扫描（20s+）阻塞整轮调度，
+  其余到期 job 排队；无并行。
+- **决策**：
+  - `Scheduler(..., max_workers=1)`：>1 时建
+    `ThreadPoolExecutor`，tick/trigger 提交后立即返回（异步派发，
+    tick 不阻塞、多 job 并行）；=1 保持既有同步路径（零迁移）；
+  - 互斥/重试/死信/webhook 语义不变——沿用 SQL 层原子 claim
+    （BEGIN IMMEDIATE），同 job 重入防护与既有一致；
+  - `Scheduler.shutdown(wait=True)`：优雅关闭（无池时 no-op）；
+    SchedulerWorker.stop 末尾调用；
+  - 线程安全：SchedulerStore 每操作独立连接 + busy_timeout=5s
+    已天然安全，无改造；future 回调消费异常（_run_job 内部
+    全路径兜底，回调仅保险）。
+- **测试**：7 例——同步默认回归 2（tick/trigger 终态即返回）、
+  并行 5（tick 不阻塞+并发峰值>=2、trigger 异步、互斥、shutdown
+  等待 in-flight、执行器抛错 → failed 无泄漏）。
+- **依据**：claim_due_jobs/claim_job 原子互斥 + store 连接管理。

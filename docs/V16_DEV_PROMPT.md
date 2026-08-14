@@ -35,7 +35,7 @@ SchedulerWorker.tick ──claim 到期 jobs──▶ Scheduler._run_job ──�
 
 ## 二、Step 分解
 
-### Step 96（ADR-096）Scheduler 线程池异步执行
+### Step 96（ADR-096）Scheduler 线程池异步执行 —— ✅ 完成
 
 - `Scheduler.__init__` 增 `max_workers: int = 1`：
   - `>1` → `ThreadPoolExecutor(max_workers=N)`；`tick`/`trigger`
@@ -87,3 +87,6 @@ SchedulerWorker.tick ──claim 到期 jobs──▶ Scheduler._run_job ──�
    全量既有测试不动一个断言
 3. 互斥/retry/死信/webhook 语义在并行路径下不变
 4. 优雅关闭：shutdown 等待 in-flight，无残留线程
+- Step 96 坑位：create_job 收 ScheduledJob 对象（非关键字参数）；
+  线程池提交后并发峰值需轮询观察（调度延迟）；uv 网络抖动时
+  用 `uv run --offline`（索引拉取失败不阻塞）

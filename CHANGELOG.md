@@ -716,3 +716,18 @@ V15 多 worker 池与容错路由：执行面从单点升级为池化容错。
   非法条目跳过 + 告警不炸启动；datasentry-server 自动透传 env
 - 测试 8 例（parse_workers 单元 / _build_scheduler 集成 / 端到端
   失败转移真执行落库）
+
+## [0.18.0] - 2026-08-14
+
+V16 异步任务队列与并行执行：调度循环从同步串行升级为异步派发。
+
+### 新增（Step 96，Scheduler 线程池，ADR-096）
+
+- **Scheduler max_workers**：>1 时 tick/trigger 异步派发线程池
+  （立即返回、多 job 并行执行）；=1 保持同步语义（零迁移，
+  默认行为与 V15 一致）
+- **Scheduler.shutdown(wait=True)**：优雅关闭等待 in-flight
+  完成；SchedulerWorker.stop 接入
+- 互斥/重试/死信/webhook 语义不变（SQL 层原子 claim）；线程池
+  异常由回调消化不泄漏；测试 7 例（同步回归 / 并行 tick /
+  异步 trigger / 互斥 / 优雅关闭 / 错误消化）
