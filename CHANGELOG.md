@@ -615,3 +615,16 @@ V1 收官：漂移引擎、跨表完整性、AI 修复候选、MCP 生态面、�
 - **断言语义**：仅统计命中检测器的 Issue（内置检测器命中不计）；
   dimension 未声明则放行
 - **不落库**：夹具执行不写 scan history，无副作用
+
+### 新增（Step 86，CLI job 子命令，ADR-086）
+
+- **job list [--status]**：调度任务列表（status 过滤）
+- **job create NAME PATH --cron EXPR**：注册任务（dataset-id /
+  table-name / retry-attempts / webhook-url / gate-quality-min /
+  export-report 可选）；非法 cron 报错（EXIT_CONFIG=2）
+- **job trigger ID**：立即同步执行一次（复用 Scheduler +
+  LocalScanExecutor；正在运行拒绝）
+- **job status ID**：任务视图 + 最近 5 条运行历史
+- **job remove ID**：删除任务（不存在报错）
+- 与 MCP job_create/jobs_list/job_trigger 同源同语义（同一
+  SchedulerStore），无第二套逻辑

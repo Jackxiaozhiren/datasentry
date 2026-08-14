@@ -12,9 +12,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from datasentry import __version__
 from datasentry.client import DataSentry
@@ -26,6 +27,9 @@ from datasentry_core.models.issue import Issue
 from datasentry_core.models.scan import SamplingConfig, ScanConfig
 from datasentry_core.reporting.i18n import t
 from datasentry_core.scoring.gate import GateResult
+
+if TYPE_CHECKING:
+    from datasentry.scheduler.store import SchedulerStore
 
 EXIT_OK = 0
 EXIT_GATE_FAILED = 1  # scan --fail-on 质量门禁（22 章场景 C）
@@ -673,6 +677,107 @@ def _cmd_trend_list(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _job_store(project: str | Path) -> SchedulerStore:
+    """项目调度存储（与 MCP/API 同源：<workspace>/.datasentry/metadata.db）。"""
+    from datasentry.scheduler.store import SchedulerStore
+    from datasentry_core.storage.paths import project_db_path
+
+    return SchedulerStore(project_db_path(Path(project)))
+
+
+def _cmd_job_list(args: argparse.Namespace) -> int:
+    """列出调度任务（V13，ADR-086）。"""
+    jobs = _job_store(args.project).list_jobs()
+    views = [j.view() for j in jobs]
+    if args.status is not None:
+        views = [v for v in views if v["status"] == args.status]
+    _emit(_envelope("job list", {"jobs": views, "count": len(views)}), args.format)
+    return EXIT_OK
+
+
+def _cmd_job_create(args: argparse.Namespace) -> int:
+    """注册调度任务（cron + 门禁 + webhook；与 MCP job_create 同语义）。"""
+    from datasentry.scheduler.core import InvalidCronError, next_run, validate_cron
+    from datasentry.scheduler.models import JobCommand, ScheduledJob, utcnow
+
+    try:
+        validate_cron(args.cron)
+    except InvalidCronError as exc:
+        _emit(_envelope("job create", {"error": str(exc)}), args.format)
+        return EXIT_CONFIG
+    client = DataSentry(args.project)
+    try:
+        project = str(client.workspace)
+        path = str(Path(args.path).expanduser())
+        now = utcnow()
+        job = ScheduledJob(
+            job_id=f"job_{uuid.uuid4().hex[:12]}",
+            name=args.name,
+            project=project,
+            command=JobCommand(
+                project=project,
+                path=path,
+                dataset_id=args.dataset_id,
+                table_name=args.table_name,
+                export_report=args.export_report,
+            ),
+            cron=args.cron,
+            retry_attempts=args.retry_attempts,
+            webhook_url=args.webhook_url,
+            gate_quality_min=args.gate_quality_min,
+            next_run_at=next_run(args.cron, now),
+            created_at=now,
+            updated_at=now,
+        )
+        _job_store(project).create_job(job)
+    finally:
+        client.close()
+    _emit(_envelope("job create", job.view()), args.format)
+    return EXIT_OK
+
+
+def _cmd_job_trigger(args: argparse.Namespace) -> int:
+    """立即触发一次任务（同步执行；已在运行则拒绝）。"""
+    from datasentry.scheduler.core import LocalScanExecutor, Scheduler
+
+    store = _job_store(args.project)
+    job = store.get_job(args.job_id)
+    if job is None:
+        _emit(_envelope("job trigger", {"error": f"job not found: {args.job_id}"}), args.format)
+        return EXIT_CONFIG
+    run_id = Scheduler(store=store, executor=LocalScanExecutor()).trigger(args.job_id)
+    if run_id is None:
+        _emit(
+            _envelope("job trigger", {"error": f"job {args.job_id} is already running"}),
+            args.format,
+        )
+        return EXIT_CONFIG
+    _emit(_envelope("job trigger", {"job_id": args.job_id, "run_id": run_id}), args.format)
+    return EXIT_OK
+
+
+def _cmd_job_status(args: argparse.Namespace) -> int:
+    """任务视图 + 最近运行历史。"""
+    store = _job_store(args.project)
+    job = store.get_job(args.job_id)
+    if job is None:
+        _emit(_envelope("job status", {"error": f"job not found: {args.job_id}"}), args.format)
+        return EXIT_CONFIG
+    data = job.view()
+    data["recent_runs"] = [r.view() for r in store.list_runs(args.job_id, limit=5)]
+    _emit(_envelope("job status", data), args.format)
+    return EXIT_OK
+
+
+def _cmd_job_remove(args: argparse.Namespace) -> int:
+    """删除调度任务。"""
+    if not _job_store(args.project).delete_job(args.job_id):
+        _emit(_envelope("job remove", {"error": f"job not found: {args.job_id}"}), args.format)
+        return EXIT_CONFIG
+    _emit(_envelope("job remove", {"job_id": args.job_id, "removed": True}), args.format)
+    return EXIT_OK
+
+
 def _cmd_llm_status(args: argparse.Namespace) -> int:
     """LLM 提供方状态与配置来源（13.11 审计查询入口）+ PII 加密保险库状态。"""
     from datasentry.llm_providers import load_llm_config
@@ -1216,6 +1321,44 @@ def build_parser() -> argparse.ArgumentParser:
     p_rollback.set_defaults(func=_cmd_repair_rollback)
     p_runs = repair_sub.add_parser("list", help="list repair runs")
     p_runs.set_defaults(func=_cmd_repair_list)
+
+    p_job = sub.add_parser(
+        "job", help="scheduled scan jobs (V13: list/create/trigger/status/remove, ADR-086)"
+    )
+    job_sub = p_job.add_subparsers(dest="job_cmd", required=True)
+    p_job_list = job_sub.add_parser("list", help="list scheduled jobs")
+    p_job_list.add_argument(
+        "--status", type=str, default=None, help="filter by status (idle/queued/running/dead)"
+    )
+    p_job_list.set_defaults(func=_cmd_job_list)
+    p_job_create = job_sub.add_parser("create", help="register a scheduled scan job")
+    p_job_create.add_argument("name", type=str, help="job name")
+    p_job_create.add_argument("path", type=str, help="data file/DSN/cloud URI to scan")
+    p_job_create.add_argument(
+        "--cron", type=str, required=True, help="5-field cron expression, e.g. '0 9 * * *'"
+    )
+    p_job_create.add_argument("--dataset-id", type=str, default=None, help="dataset id")
+    p_job_create.add_argument("--table-name", type=str, default=None, help="table name (remote DB)")
+    p_job_create.add_argument("--retry-attempts", type=int, default=0, help="retry attempts (0-10)")
+    p_job_create.add_argument(
+        "--webhook-url", type=str, default=None, help="notify URL (HTTP POST)"
+    )
+    p_job_create.add_argument(
+        "--gate-quality-min", type=float, default=None, help="quality gate threshold (0-100)"
+    )
+    p_job_create.add_argument(
+        "--export-report", action="store_true", help="export HTML report after scan"
+    )
+    p_job_create.set_defaults(func=_cmd_job_create)
+    p_job_trigger = job_sub.add_parser("trigger", help="run a job immediately")
+    p_job_trigger.add_argument("job_id", type=str)
+    p_job_trigger.set_defaults(func=_cmd_job_trigger)
+    p_job_status = job_sub.add_parser("status", help="job view + recent run history")
+    p_job_status.add_argument("job_id", type=str)
+    p_job_status.set_defaults(func=_cmd_job_status)
+    p_job_remove = job_sub.add_parser("remove", help="delete a scheduled job")
+    p_job_remove.add_argument("job_id", type=str)
+    p_job_remove.set_defaults(func=_cmd_job_remove)
 
     p_llm = sub.add_parser("llm", help="LLM provider status & audit (Step 27, 13.11)")
     llm_sub = p_llm.add_subparsers(dest="llm_cmd", required=True)

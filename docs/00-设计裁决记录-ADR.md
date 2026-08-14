@@ -2244,3 +2244,22 @@
     workspace 数据目录，仅存在于插件安装目录。
 - **依据**：Step 82 清单契约 + Step 31 插件 API 载荷不变
   （FixtureExpectation 仅用 Issue 模型既有字段）。
+
+## ADR-086：CLI job 子命令面（V13，Step 86）
+- **背景**：调度能力（Step 51/52）只有 MCP 管理面（jobs_list/
+  job_create/job_trigger），CLI 主入口与 HTTP API 均无法管理
+  任务；生命周期缺 remove/update。
+- **决策**：CLI 增 `job` 子命令族，全部直连 SchedulerStore
+  （<workspace>/.datasentry/metadata.db，与 MCP/API 同源）：
+  - `job list [--status]`：任务视图列表；
+  - `job create NAME PATH --cron`（可选 dataset-id/table-name/
+    retry-attempts/webhook-url/gate-quality-min/export-report）：
+    复用 validate_cron + next_run，语义与 MCP job_create 一致；
+  - `job trigger ID`：Scheduler + LocalScanExecutor 同步立即执行
+    （已在运行拒绝，退出码 2）；
+  - `job status ID`：任务视图 + 最近 5 条运行历史；
+  - `job remove ID`：delete_job。
+- **错误语义**：cron 非法 / job 不存在 / 正在运行 → EXIT_CONFIG=2
+  + error 字段；成功 → EXIT_OK。
+- **依据**：既有 CLI 惯例（_envelope/_emit + 退出码）+ MCP
+  job_create 先例；未引入新存储/新依赖。

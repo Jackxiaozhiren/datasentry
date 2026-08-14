@@ -106,7 +106,18 @@ V13 = **调度管理面三面补齐（CLI/HTTP API/MCP 同源）+ 生命周期
 
 ## 五、状态回填
 
-### Step 86（ADR-086）CLI job 子命令 —— ⏳ 待开始
+### Step 86（ADR-086）CLI job 子命令 —— ✅ 完成
+
+- 交付：`job list [--status] / create / trigger / status / remove`
+  五子命令（create 支持 dataset-id/table-name/retry-attempts/
+  webhook-url/gate-quality-min/export-report；cron 非法、job 不存在、
+  正在运行 → EXIT_CONFIG=2）；tests/test_cli_job.py 8 例全绿；
+  门禁全绿（ruff/mypy --strict/pytest 95.01%）；CLI 冒烟
+  create→trigger（真实执行）→status（run completed）→remove
+- 坑位：`_emit` text 格式只输出信封 data 层（测试断言勿加
+  envelope 层）；`SchedulerStore` 类型注解需 TYPE_CHECKING 导入
+  （函数内 import 会触发 ruff F821/UP037 冲突）
+
 ### Step 87（ADR-087）HTTP API /jobs 路由族 —— ⏳ 待开始
 ### Step 88（ADR-088）MCP 补全 + 三面对齐 + 历史保留 —— ⏳ 待开始
 ### Step 89 收尾 v0.15.0 —— ⏳ 待开始
