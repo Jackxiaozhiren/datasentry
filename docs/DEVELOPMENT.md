@@ -95,9 +95,15 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
   （Step 75：issue 标题/描述/建议 zh 镜像，en 逐字不变）、MCP scan
   配置透传（Step 76：sampling/detectors/tags 与 CLI 同源）、增量
   画像（Step 77：本地文件 SHA-256 比对复用，无基准降级全扫）；
-  CI 全绿 957 passed，mypy --strict 通过；下一阶段候选：证据级动态
-  描述翻译（计数 f-string 40+ 处）、调度任务 ScanConfig 配置、
-  增量扫描列级 diff
+  CI 全绿 957 passed，mypy --strict 通过
+- **V11 已完成（v0.13.0）**：三件套收官——证据级动态描述翻译
+  （Step 78：29 处 f-string 模板化 + zh 镜像，en 逐字不变、JSON 契约
+  面零改动）、调度任务 ScanConfig 透传（Step 79：JobCommand.config
+  落库生效，与 CLI/MCP 同源）、增量画像列级 diff（Step 80：schema
+  列签名变更时未变列复用上次 sidecar，仅新列聚合，无漏检）；
+  CI 全绿，mypy --strict 通过；下一阶段候选：云侧调度与协作、
+  PII 还原（加密存储）、插件生态治理、报告交互增强（Step 49/60/61
+  已落地，持续迭代）
 
 ---
 

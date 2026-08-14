@@ -131,7 +131,12 @@ core 包恒 0.7.0 不动；tag v0.13.0 触发 PyPI + Pages）+ GitHub release
   加列·删列·全量·无 sidecar·契约稳定）；门禁全绿
 - 提交：`424694b`
 
-### Step 81 收尾 v0.13.0 —— ⏳ 待开始
+### Step 81 收尾 v0.13.0 —— ✅ 已完成
+
+- CHANGELOG [0.13.0] 三节（Step 78/79/80）+ ADR-078~080 落档 +
+  DEVELOPMENT 路线图 V11 完成段 + 计划书落地状态
+- 升版：根 pyproject + 双 `__init__.__version__` → 0.13.0（core 包
+  pyproject 恒 0.7.0）；tag v0.13.0 + GitHub release + CI 观察
 
 ## 五、勘察备忘
 

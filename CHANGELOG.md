@@ -4,7 +4,7 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.13.0] - 2026-08-14
 
 V11 三件套：证据级描述本地化 + 调度配置透传 + 增量画像列级复用。
 
