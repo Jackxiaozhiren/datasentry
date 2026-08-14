@@ -113,7 +113,7 @@ V11（v0.13.0）已发布。V12 主题：**插件生态治理**——补齐
 
 ### Step 83（ADR-083）完整性校验与信任锚 —— ✅ 完成
 
-- 提交：`TODO_FEATURE_HASH`（docs 回填 `TODO_DOCS_HASH`）
+- 提交：``c7af998``（docs 回填 `待回填`）
 - 落地：新模块 plugin_locks.py（PluginLocks/PluginLock/build_lock/
   integrity_report/compute_sha256，锁文件 .datasentry/
   plugin_locks.json）；plugins.py 公开 plugin_units + 新增
