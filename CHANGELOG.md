@@ -6,7 +6,7 @@
 
 ## [Unreleased]
 
-（V9 开发中：抽样扫描 Step 71 已落地，Step 72/73 进行中；收尾统一
+（V9 开发中：抽样扫描 Step 71/72 已落地，Step 73 进行中；收尾统一
 升版 v0.11.0）
 
 ### 新增（Step 71，抽样扫描，ADR-071）
@@ -21,6 +21,17 @@
 - **抽样即标注**：HTML/Markdown 报告 reproducibility 节与 UI 扫描
   详情页标注抽样参数；JSON 报告经 `scan.config.sampling` 携带
 - **REST**：`POST /scans` 请求体支持 `sampling` 字段（同语义透传）
+
+### 优化（Step 72，扫描管线瘦身，ADR-072）
+
+- **count 一次注入**：扫描全程恰 1 次 `count_rows()`（原每检测器 +
+  契约 + 融合 + 画像 ≈ O(检测器数+3) 次全扫）——`DetectorRun.rows_scanned`
+  由 runner 直接计算（抽样检测器 = 抽样行数，全量 = 全量行数）
+- **anomaly_ml SQL 侧抽样**：物化前 `reservoir(max_samples) REPEATABLE
+  (seed)` 下推（行数 < max_samples 时等价全量，语义不变），消除唯一
+  全列物化点的物化浪费
+- **画像复用计数**：`Profiler.profile(row_count=...)` 复用扫描指纹
+  行数，画像不再重复全扫
 
 ## [0.10.0] - 2026-08-13
 

@@ -151,10 +151,13 @@ reservoir REPEATABLE(seed) 可复现抽样**基础设施已就绪**。真正问�
 升版 v0.11.0：pyproject + 双 `__init__.__version__` + CHANGELOG 收口
 + tag + GitHub release，参照 v0.10.0=b7ba267 惯例）
 
-- Step 71（ADR-071）✅ 已落地（待 commit）：SamplingConfig 接线 +
+- Step 71（ADR-071）✅ 已落地（commit `9cd571f`）：SamplingConfig 接线 +
   SampledDataHandle（SQL 重写 + 守卫）+ capability 调度 + SamplingInfo
   落库标注 + cli/api 参数 + 报告/UI 标注；测试 14 例
   （tests/test_sampling_scan.py），门禁全绿（覆盖 94.89%）
+- Step 72（ADR-072）✅ 已落地（待 commit）：count_rows 一次注入 +
+  anomaly_ml SQL 侧 reservoir + Profiler 复用计数；测试新增 5 例，
+  门禁全绿（覆盖 94.91%）
 
 ## 四、候选后续（未排期，供下一阶段决策）
 

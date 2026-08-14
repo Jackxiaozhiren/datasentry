@@ -1972,3 +1972,29 @@
   reporting/html.py + reporting/markdown.py；测试新增 14 例
   （test_sampling_scan.py）；ADR-071 + CHANGELOG + DEVELOPMENT +
   V9_DEV_PROMPT。
+
+## ADR-072：扫描管线瘦身（V9，Step 72）
+
+- **状态**：已确认（Step 72, V9）
+- **背景**：`count_rows()` 每检测器一次 + 契约规则一次 + 融合一次 +
+  画像一次 ≈ O(检测器数+3) 次引擎侧全扫（CSV 每次重扫文件）；anomaly_ml
+  整列物化到 numpy 后才做 Python 侧抽样（>20k 行）。
+- **方案**：
+  1. **count 一次注入**：`ScanRunner.run()` 开头一次
+     `full_count = context.handle.count_rows()`，`_run_detector` 与
+     `_run_contract_rules` 接收 `rows_scanned` 参数（抽样检测器 =
+     `min(sample_size, full_count)`，全量 = `full_count`）；融合/评分
+     复用 `full_count`。扫描全程恰 1 次全扫 count。
+  2. **anomaly_ml SQL 侧抽样**：`SELECT {q} AS v FROM data WHERE ... 
+     USING SAMPLE reservoir({max_samples} ROWS) REPEATABLE ({seed})`
+     物化前限制行数；行数 < max_samples 时 reservoir 等价全量（语义
+     不变，既有小数据测试零变化）；Python 侧 rng 兜底保留（幂等）。
+  3. **画像复用计数**：`Profiler.profile(row_count=None)` 可选参数，
+     `client._save_profile` 传 `scan_run.fingerprint.row_count`
+     （指纹已在 run_scan 内计算），画像不再重复 count。
+- **边界**：`SampledDataHandle.count_rows()` 保留（协议完整性，测试
+  用），但 runner 不再逐检测器调用；无抽样时行为与 v0.11.0-dev 一致。
+- **影响**：runner.py + anomaly_ml.py + profiler.py + client.py；
+  测试新增 5 例（count 恰 1 次×2、抽样 rows_scanned、profiler 复用
+  row_count、anomaly_ml reservoir 可复现）；ADR-072 + CHANGELOG +
+  DEVELOPMENT + V9_DEV_PROMPT。

@@ -249,6 +249,79 @@ class TestCliSampling:
         assert json.loads(out)["data"]["row_count"] == 8
 
 
+class TestPipelineSlimming:
+    class CountingHandle:
+        """记录 count_rows 调用次数的包装句柄（Step 72/ADR-072）。"""
+
+        def __init__(self, inner) -> None:
+            self._inner = inner
+            self.count_calls = 0
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        def count_rows(self) -> int:
+            self.count_calls += 1
+            return self._inner.count_rows()
+
+    def test_count_rows_called_once_per_scan(self, csv_handle) -> None:
+        runner = make_runner(FakeDetector())
+        counting = self.CountingHandle(csv_handle)
+        ctx = _ctx(counting)
+        ctx.handle = counting
+        runner.run(ctx, ScanConfig(), "scan_1")
+        assert counting.count_calls == 1
+        csv_handle.close()
+
+    def test_sampling_scan_count_rows_once(self, csv_handle) -> None:
+        runner = make_runner(FakeDetector())
+        counting = self.CountingHandle(csv_handle)
+        ctx = _ctx(counting)
+        ctx.handle = counting
+        config = ScanConfig(sampling=SamplingConfig(method="reservoir", sample_size=3))
+        runner.run(ctx, config, "scan_1")
+        assert counting.count_calls == 1
+        csv_handle.close()
+
+    def test_sampled_detector_rows_scanned_is_sample_size(self, csv_handle) -> None:
+        runner = make_runner(FakeDetector())
+        config = ScanConfig(sampling=SamplingConfig(method="reservoir", sample_size=3))
+        runs, _ = runner.run(_ctx(csv_handle), config, "scan_1")
+        assert runs[0].rows_scanned == 3
+        csv_handle.close()
+
+    def test_profiler_reuses_provided_row_count(self, sample_csv: Path) -> None:
+        from datasentry_core.engine.profiler import Profiler
+
+        spec = DataSourceSpec(source_type=DataSourceType.CSV, path=sample_csv)
+        handle = default_registry().open(spec)
+        profile = Profiler(handle, dataset_id="ds").profile(row_count=123)
+        assert profile.row_count == 123
+        handle.close()
+
+    def test_anomaly_ml_sql_side_sampling_reproducible(self, tmp_path: Path) -> None:
+        from datasentry_core.detectors.initial.anomaly_ml import ModelOutlierDetector
+
+        path = tmp_path / "big.csv"
+        lines = ["value"] + [str(1 + (i % 7)) for i in range(1000)]
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        spec = DataSourceSpec(source_type=DataSourceType.CSV, path=path)
+        handle = default_registry().open(spec)
+        ctx = DetectionContext(
+            dataset_id="ml",
+            table_name=None,
+            columns=["value"],
+            handle=handle,
+            config=ScanConfig(detector_params={"max_samples": 50}, seed=7),
+        )
+        try:
+            first = ModelOutlierDetector().detect(ctx)
+            second = ModelOutlierDetector().detect(ctx)
+            assert [c.model_dump() for c in first] == [c.model_dump() for c in second]
+        finally:
+            handle.close()
+
+
 @pytest.fixture
 def workspace(tmp_path: Path) -> Path:
     ws = tmp_path / "ws"

@@ -128,7 +128,9 @@ class DataSentry:
         from datasentry_core.engine.profiler import Profiler
 
         try:
-            profile = Profiler(handle, dataset_id=scan_run.dataset_id).profile()
+            profile = Profiler(handle, dataset_id=scan_run.dataset_id).profile(
+                row_count=scan_run.fingerprint.row_count
+            )
         except (ValueError, AssertionError):
             return
         path = self.profiles_dir / f"{scan_run.id}.json"

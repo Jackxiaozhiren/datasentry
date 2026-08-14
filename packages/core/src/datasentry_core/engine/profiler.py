@@ -67,13 +67,16 @@ class Profiler:
         self._handle = handle
         self._dataset_id = dataset_id
 
-    def profile(self) -> DatasetProfile:
+    def profile(self, row_count: int | None = None) -> DatasetProfile:
         schema = self._handle.schema()
         columns = [c.name for c in schema.columns]
         if not columns:
             raise ValueError("dataset has no columns")
         quoted = {c: _quote_ident(c) for c in columns}
-        row_count = self._handle.count_rows()
+        # Step 72/ADR-072：复用扫描期 count（如 ScanRun.fingerprint.row_count），
+        # 避免重复全扫；未提供时仍自取
+        if row_count is None:
+            row_count = self._handle.count_rows()
         exprs: list[str] = ["count(*) AS __row_count"]
         numeric: dict[str, bool] = {}
         for c in schema.columns:

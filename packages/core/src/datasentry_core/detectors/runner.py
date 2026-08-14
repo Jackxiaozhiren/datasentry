@@ -75,6 +75,7 @@ class ScanRunner:
         for detector in detectors:
             det_context = context
             sampling_info: SamplingInfo | None = None
+            rows_scanned = full_count
             if sample_size is not None and detector.metadata().capabilities.supports_sampling:
                 if sampled_handle is None:
                     sampled_handle = SampledDataHandle(
@@ -84,21 +85,24 @@ class ScanRunner:
                         method=config.sampling.method,
                     )
                 det_context = context.with_handle(sampled_handle)
+                rows_scanned = min(sample_size, full_count)
                 sampling_info = SamplingInfo(
                     sampled=True,
                     method=config.sampling.method,
-                    sample_size=min(sample_size, full_count),
+                    sample_size=rows_scanned,
                     full_size=full_count,
                     generalizable=config.sampling.generalizable,
                 )
-            run = self._run_detector(detector, det_context, scan_run_id)
+            run = self._run_detector(detector, det_context, scan_run_id, rows_scanned)
             run.sampling = sampling_info
             runs.append(run)
             if run.status == "completed":
                 candidates.extend(detector.detect(det_context))
         if config.custom_rules:
             runs.append(
-                self._run_contract_rules(context, config.custom_rules, candidates, scan_run_id)
+                self._run_contract_rules(
+                    context, config.custom_rules, candidates, scan_run_id, full_count
+                )
             )
         fused = self._fusion.fuse(candidates, scan_run_id, row_count=full_count)
         issues = [self._scoring.apply(issue) for issue in fused]
@@ -110,6 +114,7 @@ class ScanRunner:
         rules: list[Rule],
         candidates: list[IssueCandidate],
         scan_run_id: str,
+        rows_scanned: int,
     ) -> DetectorRun:
         """契约规则执行（Step 35）：逐规则 run_preflight，违规进融合。
 
@@ -168,7 +173,7 @@ class ScanRunner:
             detector_id="contract_rule",
             detector_version="1.0",
             status=status,
-            rows_scanned=context.handle.count_rows(),
+            rows_scanned=rows_scanned,
             duration_ms=int((time.monotonic() - started) * 1000),
             issues_candidates=issues_candidates,
             error=error,
@@ -224,7 +229,7 @@ class ScanRunner:
         return scan_run, runs, issues
 
     def _run_detector(
-        self, detector: Detector, context: DetectionContext, scan_run_id: str
+        self, detector: Detector, context: DetectionContext, scan_run_id: str, rows_scanned: int
     ) -> DetectorRun:
         started = time.perf_counter()
         try:
@@ -246,7 +251,7 @@ class ScanRunner:
                 detector_id=detector.detector_id,
                 detector_version=detector.detector_version,
                 status="completed",
-                rows_scanned=context.handle.count_rows(),
+                rows_scanned=rows_scanned,
                 duration_ms=int((time.perf_counter() - started) * 1000),
                 issues_candidates=len(candidates),
             )

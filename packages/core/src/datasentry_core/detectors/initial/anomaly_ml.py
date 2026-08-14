@@ -153,8 +153,11 @@ class ModelOutlierDetector(DetectorBase):
         for column in _infer_columns(context):
             q = quote_ident(column)
             try:
+                # SQL 侧 reservoir 抽样（Step 72/ADR-072）：物化前限制行数；
+                # 行数 < max_samples 时 reservoir 等价全量，语义不变
                 table = context.handle.sql_aggregate(
-                    f"SELECT {q} AS v FROM data WHERE {q} IS NOT NULL"
+                    f"SELECT {q} AS v FROM data WHERE {q} IS NOT NULL "
+                    f"USING SAMPLE reservoir({max_samples} ROWS) REPEATABLE ({seed})"
                 ).table
             except Exception:
                 continue
