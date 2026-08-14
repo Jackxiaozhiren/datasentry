@@ -122,6 +122,17 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
   三面 job 能力语义对齐，共用 SchedulerStore 无分叉；CI 全绿
   （95.01% 覆盖），mypy --strict 通过；下一阶段候选：PII 还原
   （加密存储）、报告交互增强、调度执行器分布式化
+- **V14 已完成（v0.16.0）**：调度执行器分布式化——远程执行器
+  （Step 90：RemoteScanExecutor 实现 ScanExecutor Protocol，
+  JobCommand/JobResult JSON 契约 + X-Datasentry-Token 共享密钥，
+  同步等待与 Local 语义一致）、worker 端点（Step 91：POST
+  /rpc/execute 默认禁用 503、401 常量时间比对、422 契约、500
+  仅类型名；任何 DataSentry 实例可作执行节点）、端到端与 CLI
+  （Step 92：datasentry worker 一行启动执行节点；调度端真 HTTP
+  委托 worker 执行，失败走既有 retry/死信）；ScanExecutor
+  Protocol 与 Scheduler 零改动，多 worker 路由留给未来；CI 全绿
+  （95.01% 覆盖），mypy --strict 通过；下一阶段候选：PII 还原
+  （加密存储）、报告交互增强、多 worker 路由与任务队列
 
 ---
 

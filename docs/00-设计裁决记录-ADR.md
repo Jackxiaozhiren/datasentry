@@ -2335,3 +2335,20 @@
   完整执行权——文档要求经 TLS 传输。
 - **依据**：ADT-090 契约（JobCommand/JobResult JSON）+ 既有
   FastAPI 错误映射惯例（404/400/422/500）+ 安全默认最小暴露。
+
+## ADR-092：远端执行端到端 + CLI worker 模式（V14，Step 92）
+- **背景**：Step 90/91 分别交付客户端与服务端，缺一条打通链路
+  与运维入口。
+- **决策**：
+  - 端到端语义：调度端 Scheduler + RemoteScanExecutor（真
+    HTTP）→ worker 远端执行；run completed/failed 与本地完全
+    一致（retry/死信/webhook 复用既有路径）；同一实例可同时
+    充当 API 服务（SchedulerWorker 本地调度）与远端执行节点
+    （/rpc/execute），互不冲突（扫描幂等、scan_run 独立）；
+  - CLI：`datasentry worker [--host] [--port] [--token]`——uvicorn
+    起 api 服务；token 缺省时打印警告（端点禁用、仍可作普通
+    API 服务），安全默认由 503 兜底；
+  - 拓扑文档化：单 worker 端点（多 worker 路由/任务队列明确
+    留给未来，延续 V2-D 边界）。
+- **依据**：Step 90/91 契约 + api.py main() uvicorn 先例 +
+  既有 Scheduler 失败语义。

@@ -654,7 +654,8 @@ V1 收官：漂移引擎、跨表完整性、AI 修复候选、MCP 生态面、�
 
 ## [0.16.0] - 2026-08-14
 
-V14 调度执行器分布式化：扫描任务可下发远端 worker 执行。
+V14 调度执行器分布式化：扫描任务可下发远端 worker 执行（单
+worker 端点，共享 token 鉴权；多 worker 路由留给未来）。
 
 ### 新增（Step 90，远程执行器，ADR-090）
 
@@ -679,3 +680,14 @@ V14 调度执行器分布式化：扫描任务可下发远端 worker 执行。
 - 错误映射：非法 body 422 / 执行异常 500（仅异常类型，不泄堆栈）
 - 测试 7 例（禁用/缺 token/错 token/成功落库/422/500/环境变量
   后备）
+
+### 新增（Step 92，端到端 + CLI worker，ADR-092）
+
+- **datasentry worker**：一行启动远端执行节点（uvicorn +
+  api 服务）；--host/--port/--token（或 DATASENTRY_WORKER_TOKEN
+  环境变量）；未配 token 打印警告且 /rpc/execute 禁用
+- **端到端**：调度端 Scheduler + RemoteScanExecutor（真 HTTP）
+  → worker 远端执行 → run completed + scan history 落库；远端
+  错误 → run failed（retry/死信语义不变）；同一实例可同时是
+  API 服务与执行节点
+- 测试 3 例端到端（成功/失败/服务并存）

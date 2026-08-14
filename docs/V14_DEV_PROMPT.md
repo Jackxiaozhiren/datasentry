@@ -56,21 +56,17 @@ worker（另一台 DataSentry 实例 / 独立执行节点），远端执行扫�
   JSON 字符串（FastAPI 已解析 body）；错误 detail 不含异常文本
   防泄敏
 
-### Step 92（ADR-092）端到端 + CLI/文档 + 发布 v0.16.0 —— ⏳ 待开始
+### Step 92（ADR-092）端到端 + CLI/文档 + 发布 v0.16.0 —— ✅ 完成
 
-- **端到端**（`tests/test_remote_e2e.py`）：worker app（带
-  token，uvicorn 后台线程真 HTTP）+ 调度端
-  `Scheduler(SchedulerStore(tmp), RemoteScanExecutor(worker_url,
-  token))` → job trigger → run completed + 远端真实执行扫描
-  （scan history 落库）→ webhook 通知照常。
-- **CLI**：`datasentry worker` 子命令——`--port`/`--token` 参数，
-  用 `uvicorn` 启动 worker 端点（fastapi-cli 已带 uvicorn）；
-  文档写清拓扑与安全。
-- **文档**：CHANGELOG [0.16.0] + DEVELOPMENT V14 段 + 计划书
-  收官 + ADR-090/091/092 落档。
-- **发布**：版本 0.16.0（根 pyproject + 双 __init__，core 包
-  pyproject 恒 0.7.0）+ tag v0.16.0 → PyPI/Pages/CI/GitHub
-  release。
+- 交付：tests/test_remote_e2e.py 3 例（远端 trigger 完成+落库 /
+  远端 500 → run failed / 同实例 API 服务与执行节点并存）；
+  `datasentry worker`（--host/--port/--token，token 缺省警告 +
+  端点禁用）；DEVELOPMENT V14 段；ADR-092；冒烟：真 HTTP 200
+  （5 issues）与 401 均验证
+- 坑位：orders.csv 夹具实际 5 issues（4 medium + 1 low），
+  断言须写 5 而非直觉 4
+- 发布 v0.16.0 见下（升版 + tag + PyPI/Pages/CI + GitHub
+  release + uv.lock 同步）
 
 ## 三、验收
 

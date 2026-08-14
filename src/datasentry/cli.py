@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import uuid
 from collections.abc import Callable
@@ -778,6 +779,29 @@ def _cmd_job_remove(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_worker(args: argparse.Namespace) -> int:
+    """启动远端执行节点（V14，ADR-091）：复用 api 服务，/rpc/execute
+    需 token 启用（参数或 DATASENTRY_WORKER_TOKEN 环境变量）。"""
+    import uvicorn
+
+    from datasentry.api import create_app
+
+    token = args.token or os.environ.get("DATASENTRY_WORKER_TOKEN")
+    if not token:
+        _emit(
+            _envelope(
+                "worker",
+                {
+                    "warning": "no worker token set: /rpc/execute disabled; "
+                    "pass --token or set DATASENTRY_WORKER_TOKEN"
+                },
+            ),
+            args.format,
+        )
+    uvicorn.run(create_app(args.project, worker_token=token), host=args.host, port=args.port)
+    return EXIT_OK
+
+
 def _cmd_llm_status(args: argparse.Namespace) -> int:
     """LLM 提供方状态与配置来源（13.11 审计查询入口）+ PII 加密保险库状态。"""
     from datasentry.llm_providers import load_llm_config
@@ -1359,6 +1383,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_job_remove = job_sub.add_parser("remove", help="delete a scheduled job")
     p_job_remove.add_argument("job_id", type=str)
     p_job_remove.set_defaults(func=_cmd_job_remove)
+
+    p_worker = sub.add_parser(
+        "worker", help="run as remote scan worker (V14: /rpc/execute endpoint, ADR-091)"
+    )
+    p_worker.add_argument("--host", default="127.0.0.1", help="bind host (default 127.0.0.1)")
+    p_worker.add_argument("--port", type=int, default=8000, help="bind port (default 8000)")
+    p_worker.add_argument(
+        "--token",
+        default=None,
+        help="worker token (default DATASENTRY_WORKER_TOKEN env; "
+        "unset = /rpc/execute disabled, plain API service)",
+    )
+    p_worker.set_defaults(func=_cmd_worker)
 
     p_llm = sub.add_parser("llm", help="LLM provider status & audit (Step 27, 13.11)")
     llm_sub = p_llm.add_subparsers(dest="llm_cmd", required=True)
