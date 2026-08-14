@@ -170,10 +170,17 @@ def _job_command_from(req: JobCreate, workspace: str) -> JobCommand:
 # ---------------------------------------------------------------------------
 
 
-def create_app(project: str | Path | None = None) -> FastAPI:
-    """创建绑定给定工作区的应用（默认当前目录或 DATASENTRY_PROJECT）。"""
+def create_app(project: str | Path | None = None, *, worker_token: str | None = None) -> FastAPI:
+    """创建绑定给定工作区的应用（默认当前目录或 DATASENTRY_PROJECT）。
+
+    `worker_token`：启用 POST /rpc/execute 远端执行端点（V14，
+    ADR-091）的共享密钥——未配置时端点默认禁用（503），避免
+    无鉴权执行入口。环境变量 `DATASENTRY_WORKER_TOKEN` 为后备。
+    """
     if project is None:
         project = os.environ.get("DATASENTRY_PROJECT")
+    if worker_token is None:
+        worker_token = os.environ.get("DATASENTRY_WORKER_TOKEN")
     client = sdk.DataSentry(project=project)
     scheduler = _build_scheduler(client)
     worker = SchedulerWorker(scheduler)
@@ -631,6 +638,34 @@ def create_app(project: str | Path | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"job not found: {job_id}")
         return Response(status_code=204)
 
+    @app.post("/rpc/execute", tags=["rpc"])
+    def rpc_execute(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """远端执行端点（V14，ADR-091）：接收 JobCommand，本地执行扫描并回传 JobResult。
+
+        安全：仅配置了 worker_token 时启用（503 未启用）；token 以
+        `X-Datasentry-Token` 头常量时间比对（401 拒绝）。
+        """
+        import secrets
+
+        if worker_token is None:
+            raise HTTPException(
+                status_code=503, detail="worker endpoint disabled: set DATASENTRY_WORKER_TOKEN"
+            )
+        supplied = request.headers.get("X-Datasentry-Token")
+        if not supplied or not secrets.compare_digest(supplied, worker_token):
+            raise HTTPException(status_code=401, detail="invalid worker token")
+        try:
+            command = JobCommand.model_validate(body)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"invalid job command: {exc}") from exc
+        try:
+            result = LocalScanExecutor().execute(command)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500, detail=f"scan failed: {type(exc).__name__}"
+            ) from exc
+        return result.model_dump()
+
     return app
 
 
@@ -651,6 +686,7 @@ _ENDPOINTS = frozenset(
         "POST /repairs/{run_id}/rollback",
         "GET /repairs",
         "POST /jobs",
+        "POST /rpc/execute",
         "GET /jobs",
         "GET /jobs/{job_id}",
         "POST /jobs/{job_id}/trigger",

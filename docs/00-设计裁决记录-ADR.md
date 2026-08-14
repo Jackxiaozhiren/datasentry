@@ -2318,3 +2318,20 @@
 - **边界**：不做多 worker 路由/异步回调/任务队列。
 - **依据**：ScanExecutor Protocol 既有契约 + WebhookNotifier 的
   client_factory 注入先例 + httpx 依赖已存在。
+
+## ADR-091：worker 端点 POST /rpc/execute（V14，Step 91）
+- **背景**：Step 90 的 RemoteScanExecutor 需要服务端承接——复用
+  既有 FastAPI 面（api.py）即可让任意 DataSentry 实例充当远端
+  执行节点，无需独立服务。
+- **决策**：
+  - `create_app(project, worker_token=None)`；环境变量
+    `DATASENTRY_WORKER_TOKEN` 为后备来源；
+  - `POST /rpc/execute`：未配置 token → 503 disabled（安全默认
+    关）；`X-Datasentry-Token` 缺失/不符 → 401（secrets.
+    compare_digest 常量时间）；JobCommand.model_validate 失败 →
+    422；LocalScanExecutor 执行 → 200 JobResult json；执行异常 →
+    500（detail 仅异常类型名，不回传敏感堆栈）。
+- **鉴权模型**：单共享 token（无 TLS 之外的会话机制）；token 即
+  完整执行权——文档要求经 TLS 传输。
+- **依据**：ADT-090 契约（JobCommand/JobResult JSON）+ 既有
+  FastAPI 错误映射惯例（404/400/422/500）+ 安全默认最小暴露。

@@ -45,22 +45,16 @@ worker（另一台 DataSentry 实例 / 独立执行节点），远端执行扫�
      额外字段场景不触发契约错误，须用非 JSON 形状（如字符串）
      测契约破坏
 
-### Step 91（ADR-091）worker 端点 POST /rpc/execute（服务端） —— ⏳ 待开始
+### Step 91（ADR-091）worker 端点 POST /rpc/execute（服务端） —— ✅ 完成
 
-- **方案**（api.py）：
-  - `create_app(project, worker_token=None)`：token 可配置
-    （环境变量 `DATASENTRY_WORKER_TOKEN`；未配置 → 端点禁用）
-  - `POST /rpc/execute`：
-    - 未配置 token → 503 "worker endpoint disabled"
-    - `X-Datasentry-Token` 缺失/不符（`secrets.compare_digest`）
-      → 401
-    - `JobCommand.model_validate(body)` 失败 → 422
-    - `LocalScanExecutor().execute(cmd)` → 200 `JobResult` json；
-      执行异常 → 500 `{"error": ...}`（不回传敏感堆栈）
-- **安全**：默认关闭；token 必配才启用。
-- **测试**（`tests/test_api_worker.py`）：503 disabled / 401 缺
-  token / 401 错 token / 200 执行成功（校验 scan_run 落库）/
-  422 非法 body / 500 执行异常（指向不存在文件）。
+- 交付：`create_app(project, worker_token=None)` + 环境变量
+  `DATASENTRY_WORKER_TOKEN` 后备；POST /rpc/execute（503 disabled
+  / 401 compare_digest / 422 契约 / 200 JobResult / 500 仅类型名）；
+  _ENDPOINTS 清单更新；tests/test_api_worker.py 7 例全绿；门禁
+  全绿（95.01%）
+- 坑位：JobCommand 校验用 `model_validate(body)`（dict）而非
+  JSON 字符串（FastAPI 已解析 body）；错误 detail 不含异常文本
+  防泄敏
 
 ### Step 92（ADR-092）端到端 + CLI/文档 + 发布 v0.16.0 —— ⏳ 待开始
 

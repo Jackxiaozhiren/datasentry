@@ -668,3 +668,14 @@ V14 调度执行器分布式化：扫描任务可下发远端 worker 执行。
 - 测试 9 例（uvicorn 真 HTTP 后台线程）：成功 / base_url 容错 /
   远端 422 / 契约不符 / 网络错误 / 超时 / 连接拒绝 / 跳过结果
   透传 / 多余字段忽略
+
+### 新增（Step 91，worker 远端执行端点，ADR-091）
+
+- **POST /rpc/execute**：接收 JobCommand → 本地执行扫描 → 回传
+  JobResult；任何 DataSentry 实例均可充当远端执行节点
+- **安全**：默认关闭（503）；`DATASENTRY_WORKER_TOKEN`（或
+  create_app(worker_token=)）启用；X-Datasentry-Token 头常量
+  时间比对（401）
+- 错误映射：非法 body 422 / 执行异常 500（仅异常类型，不泄堆栈）
+- 测试 7 例（禁用/缺 token/错 token/成功落库/422/500/环境变量
+  后备）
