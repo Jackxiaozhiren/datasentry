@@ -228,6 +228,7 @@ class LocalScanExecutor:
                 command.path,
                 dataset_id=command.dataset_id,
                 table_name=command.table_name,
+                config=command.config,
             )
             report_path, report_size = self._export_report(client, scan_run.id, command)
         finally:

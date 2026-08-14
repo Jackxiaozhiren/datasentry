@@ -107,7 +107,16 @@ core 包恒 0.7.0 不动；tag v0.13.0 触发 PyPI + Pages）+ GitHub release
   降级 / make_evidence 合并 / 交互行集成）；门禁全绿（覆盖 95.03%）
 - 提交：`97d8dfe`
 
-### Step 79（ADR-079）调度任务 ScanConfig 透传 —— ⏳ 待开始
+### Step 79（ADR-079）调度任务 ScanConfig 透传 —— ✅ 已完成
+
+- JobCommand 增 `config: ScanConfig | None = None`（core 包 ScanConfig，
+  model_dump_json 落库自动）；executor.execute 传 config=command.config
+  （None 与旧版等价）；JobCreate 增 config 字段（POST /jobs 嵌套解析，
+  非法 422）；跳过判定仍文件级指纹（config 不参与，ADR-079 边界）
+- tests/test_job_config.py 7 例（落库回显 / 无配置 None / 非法 422 /
+  重启持久 / trigger 生效 scan_run.config 一致 / 默认等价 /
+  指纹跳过与 config 无关）；门禁全绿
+- 提交：见 git log（Step 79 提交 hash）
 
 ### Step 80（ADR-080）增量画像列级 diff —— ⏳ 待开始
 

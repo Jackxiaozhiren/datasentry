@@ -2135,3 +2135,20 @@
   为 str 子类向后兼容）；i18n.py 增 `evidence_desc.*` 29 组 en/zh 键；
   tests/test_evidence_desc.py 13 例（en 逐字快照 / zh 同参数 /
   历史回退 / 降级 / 交互行集成）；交互 JS 证据节渲染。
+
+## ADR-079：调度任务 ScanConfig 透传（V11，Step 79）
+
+- **背景**：CLI/MCP 已支持 sampling/detectors/tags，调度任务（Step 51
+  JobCommand）仅 project/path/dataset_id/table_name/export_report，
+  计划任务不能配扫描参数。
+- **决策**：JobCommand 增 `config: ScanConfig | None = None`
+  （core 包 ScanConfig，pydantic JSON 序列化 store 落库自动）；
+  executor.execute 传 `config=command.config`（None 与旧版等价）；
+  API POST /jobs 请求体增 config 字段（JobCreate，FastAPI 嵌套解析）。
+- **边界**：跳过判定仍为文件级指纹（Step 53），config 不参与——
+  文件未变 + config 不同仍跳过（不重扫）；config 变更需文件变更或
+  手动触发不依赖增量路径（CLI 全量扫描侧不受影响）。
+- **影响**：scheduler/models.py + api.py `_job_command_from` +
+  core.py LocalScanExecutor.execute；tests/test_job_config.py 7 例
+  （落库回显 / 无配置 None / 非法 422 / 重启持久 / trigger 生效
+  scan_run.config 一致 / 默认等价 / 指纹跳过与 config 无关）。

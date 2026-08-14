@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from datasentry_core.models.scan import ScanConfig
+
 _ISO = "%Y-%m-%dT%H:%M:%S"
 
 
@@ -45,6 +47,7 @@ class JobCommand(BaseModel):
     dataset_id: str | None = None
     table_name: str | None = None
     export_report: bool = False
+    config: ScanConfig | None = None
 
     def to_storage(self) -> str:
         return self.model_dump_json()
@@ -81,6 +84,7 @@ class JobCreate(BaseModel):
     webhook_url: str | None = Field(default=None, max_length=500)
     gate_quality_min: float | None = Field(default=None, ge=0.0, le=100.0)
     export_report: bool = False
+    config: ScanConfig | None = None
 
 
 class JobUpdate(BaseModel):

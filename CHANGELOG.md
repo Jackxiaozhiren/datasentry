@@ -19,6 +19,14 @@ V11 三件套：证据级描述本地化 + 调度配置透传 + 增量画像列�
 - 历史证据（无 meta）回退原文；模板/参数缺失回退原文（诚实降级）；
   `make_evidence` 公共插件 API 向后兼容（EvText 为 str 子类）
 
+### 新增（Step 79，调度任务 ScanConfig 透传，ADR-079）
+
+- **JobCommand 增 `config` 字段**：计划任务可带 sampling/detectors/
+  scan_tags（与 CLI/MCP 同源配置），store 落库自动持久化
+- **API POST /jobs 请求体增 `config`**：FastAPI 嵌套解析（非法值 422）；
+  无 config 任务行为不变（executor 传 None 与旧版等价）
+- 跳过判定保持文件级指纹语义（config 不参与，ADR-079 记录边界）
+
 ## [0.12.0] - 2026-08-14
 
 V10 全球化与扫描管线：CLI 全局 --lang + 报告正文翻译 + MCP 透传 + 增量画像。

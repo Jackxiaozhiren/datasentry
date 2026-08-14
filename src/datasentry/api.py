@@ -160,6 +160,7 @@ def _job_command_from(req: JobCreate, workspace: str) -> JobCommand:
         dataset_id=req.dataset_id,
         table_name=req.table_name,
         export_report=req.export_report,
+        config=req.config,
     )
 
 
