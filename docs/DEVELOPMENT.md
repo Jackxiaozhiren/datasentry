@@ -133,6 +133,18 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
   Protocol 与 Scheduler 零改动，多 worker 路由留给未来；CI 全绿
   （95.01% 覆盖），mypy --strict 通过；下一阶段候选：PII 还原
   （加密存储）、报告交互增强、多 worker 路由与任务队列
+- **V15 已完成（v0.17.0）**：多 worker 池与容错路由——worker
+  池（Step 93：WorkerPoolExecutor 实现 ScanExecutor Protocol，
+  round-robin 整轮遍历 + 失败转移（节点失败/不可达 → 冷却 60s
+  防雪崩并转移下一节点）+ 可选 /health 探活过滤 + reset；
+  全部失败统一错误摘要；单 worker 退化直连语义）、配置面
+  （Step 94：DATASENTRY_WORKERS="url:token;url:token" 环境变量，
+  末位冒号 rsplit 兼容 http://host:port，非法条目跳过+告警；
+  未配置/全非法 → 回退 LocalScanExecutor 零迁移）、端到端
+  （真 api + 假 500 worker + 真 worker → trigger → 失败转移 →
+  真扫描落库）；ScanExecutor Protocol / Scheduler /
+  RemoteScanExecutor 零改动；下一阶段候选：异步任务队列与
+  多 worker 并行执行、PII 还原（加密存储）、报告交互增强
 
 ---
 

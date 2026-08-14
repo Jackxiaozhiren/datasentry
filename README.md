@@ -56,6 +56,18 @@ datasentry drift latest orders           # drift between the two latest scans
 datasentry-server                       # Web UI + REST API at http://localhost:8000
 ```
 
+Scheduled jobs on remote workers (V14/V15 — multi-worker pool with
+failover; jobs stay in the scheduler's SQLite queue, execution is
+delegated to `datasentry worker` nodes):
+
+```bash
+DATASENTRY_WORKER_TOKEN=<secret> datasentry worker --host 0.0.0.0 --port 8001   # execution node (any instance)
+DATASENTRY_WORKERS="http://worker-a:8001:secret;http://worker-b:8001:secret" datasentry-server
+# scheduler round-robins jobs across workers; a failing/unreachable worker is
+# cooled down (60s) and the next worker takes over; unset DATASENTRY_WORKERS
+# to keep running everything locally (zero migration).
+```
+
 Scan a DuckDB file (optional — any CSV/Parquet/JSONL/XLSX/SQLite works):
 
 ```bash

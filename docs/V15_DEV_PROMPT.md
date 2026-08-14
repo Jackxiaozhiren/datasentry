@@ -46,7 +46,7 @@ V14 打通"调度端 → 远端 worker"单点链路（RemoteScanExecutor）。
 
 ### Step 94（ADR-094）调度端 worker 配置面 —— ✅ 完成
 
-### Step 95（ADR-095）文档 + 发布 v0.17.0 —— ⏳ 待开始
+### Step 95（ADR-095）文档 + 发布 v0.17.0 —— ✅ 完成
 
 ## 三、验收
 
@@ -58,3 +58,8 @@ V14 打通"调度端 → 远端 worker"单点链路（RemoteScanExecutor）。
 4. 未配置 workers 行为与 V13 及更早完全一致（零迁移）- Step 94 坑位：parse_workers 首冒号 partition 会切开 `://`（应
   rsplit 末位冒号）；/jobs 创建 201、trigger 202（非 200）；run
   的 summary 是 JSON 字符串字段（非 total_issues 平铺字段）
+## 收官
+- 门禁全绿（95.01%，108 源文件 mypy --strict）；全量连跑通过
+- tag v0.17.0 → PyPI 0.17.0 ✓ / Pages ✓ / CI ✓ / GitHub release ✓；
+  uv.lock 同步；DEVELOPMENT V15 段 + README 多 worker 部署示例
+- ADR-093/094/095 落档
