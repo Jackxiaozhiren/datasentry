@@ -416,6 +416,75 @@ class McpServer:
             assert run is not None
             return {"ok": True, "run": run.view(), "summary": run.summary}
 
+        @self._tool(
+            "job_update",
+            "Update a scheduled job (Step 88, ADR-088): enabled/cron/"
+            "retry_attempts/webhook_url/gate_quality_min, partial update; "
+            "cron change recomputes next run time. Returns the updated view.",
+            {
+                "job_id": {"type": "string"},
+                "enabled": {"type": "boolean"},
+                "cron": {"type": "string", "description": "5-field cron, e.g. '0 9 * * *'"},
+                "retry_attempts": {"type": "integer"},
+                "webhook_url": {"type": "string"},
+                "gate_quality_min": {"type": "number"},
+            },
+            ["job_id"],
+        )
+        def job_update(
+            job_id: str,
+            enabled: bool | None = None,
+            cron: str | None = None,
+            retry_attempts: int | None = None,
+            webhook_url: str | None = None,
+            gate_quality_min: float | None = None,
+        ) -> dict[str, Any]:
+            from datasentry.scheduler.core import InvalidCronError, next_run, validate_cron
+            from datasentry.scheduler.models import utcnow
+            from datasentry.scheduler.store import SchedulerStore
+            from datasentry_core.storage.paths import project_db_path
+
+            store = SchedulerStore(project_db_path(self._client.workspace))
+            if store.get_job(job_id) is None:
+                return {"ok": False, "error": f"job not found: {job_id}"}
+            changes: dict[str, object] = {}
+            if enabled is not None:
+                changes["enabled"] = enabled
+                if enabled:
+                    changes["status"] = "idle"
+            if cron is not None:
+                try:
+                    validate_cron(cron)
+                except InvalidCronError as exc:
+                    return {"ok": False, "error": str(exc)}
+                changes["cron"] = cron
+                changes["next_run_at"] = next_run(cron, utcnow())
+            if retry_attempts is not None:
+                changes["retry_attempts"] = retry_attempts
+            if webhook_url is not None:
+                changes["webhook_url"] = webhook_url
+            if gate_quality_min is not None:
+                changes["gate_quality_min"] = gate_quality_min
+            store.update_job(job_id, **changes)
+            job = store.get_job(job_id)
+            assert job is not None
+            return {"ok": True, "job": job.view()}
+
+        @self._tool(
+            "job_remove",
+            "Delete a scheduled job (Step 88, ADR-088). Returns removed=true.",
+            {"job_id": {"type": "string"}},
+            ["job_id"],
+        )
+        def job_remove(job_id: str) -> dict[str, Any]:
+            from datasentry.scheduler.store import SchedulerStore
+            from datasentry_core.storage.paths import project_db_path
+
+            store = SchedulerStore(project_db_path(self._client.workspace))
+            if not store.delete_job(job_id):
+                return {"ok": False, "error": f"job not found: {job_id}"}
+            return {"ok": True, "removed": True}
+
     # ---- JSON-RPC 分发 --------------------------------------------------
 
     def _rpc_error(self, code: int, message: str, data: Any = None) -> dict[str, Any]:

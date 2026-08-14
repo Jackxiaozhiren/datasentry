@@ -637,3 +637,14 @@ V1 收官：漂移引擎、跨表完整性、AI 修复候选、MCP 生态面、�
   验证协作链路，返回远端状态码与耗时；无 webhook 422、连接失败
   502、远端 ≥400 返回 notified=false 可判读
 - 既有 /jobs CRUD/trigger/PATCH 保持兼容（Step 51 语义不变）
+
+### 新增（Step 88，MCP 生命周期补全 + 历史保留，ADR-088）
+
+- **MCP job_update**：部分更新（enabled/cron/retry_attempts/
+  webhook_url/gate_quality_min），cron 变更重算下次运行时间，
+  与 HTTP PATCH /jobs/{job_id} 同语义
+- **MCP job_remove**：删除任务（未知任务返回 ok:false）
+- **运行历史保留**：SchedulerStore.prune_runs(max_per_job=100)
+  裁剪每个任务最旧的超限运行记录（窗口函数按时间倒序分区）
+- 三面对齐：CLI / HTTP API / MCP 的 job 能力语义一致，共用
+  同一 SchedulerStore，无分叉

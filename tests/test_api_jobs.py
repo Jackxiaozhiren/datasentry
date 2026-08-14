@@ -339,6 +339,48 @@ class TestJobsV13:
     def test_webhook_test_unknown_job_404(self, client: TestClient) -> None:
         assert client.post("/jobs/nope/test-webhook").status_code == 404
 
+
+class TestPruneRuns:
+    """Step 88（ADR-088）：运行历史保留策略。"""
+
+    def test_prune_keeps_newest_per_job(self, tmp_path: Path) -> None:
+        from datasentry.scheduler.store import SchedulerStore
+        from datasentry_core.storage.paths import project_db_path
+
+        csv = _sample_csv(tmp_path)
+        app = create_app(project=tmp_path)
+        with TestClient(app) as client:
+            job_id = client.post(
+                "/jobs", json={"name": "a", "path": str(csv), "cron": "* * * * *"}
+            ).json()["job_id"]
+            for _ in range(5):
+                client.post(f"/jobs/{job_id}/trigger")
+            runs = client.get(f"/jobs/{job_id}/runs").json()
+            assert runs["count"] == 5
+
+        store = SchedulerStore(project_db_path(tmp_path))
+        deleted = store.prune_runs(max_per_job=3)
+        assert deleted == 2
+        remaining = store.list_runs(job_id, limit=100)
+        assert len(remaining) == 3
+        assert all(r.status.value == "completed" for r in remaining)
+
+    def test_prune_noop_below_limit(self, tmp_path: Path) -> None:
+        from datasentry.scheduler.store import SchedulerStore
+        from datasentry_core.storage.paths import project_db_path
+
+        csv = _sample_csv(tmp_path)
+        app = create_app(project=tmp_path)
+        with TestClient(app) as client:
+            job_id = client.post(
+                "/jobs", json={"name": "a", "path": str(csv), "cron": "* * * * *"}
+            ).json()["job_id"]
+            client.post(f"/jobs/{job_id}/trigger")
+
+        store = SchedulerStore(project_db_path(tmp_path))
+        assert store.prune_runs(max_per_job=100) == 0
+        assert len(store.list_runs(job_id)) == 1
+
     def test_worker_tick_runs_due_job_after_startup(self, tmp_path: Path) -> None:
         """startup 起 worker：到期任务自动执行（无需手动触发）。"""
         csv = _sample_csv(tmp_path)

@@ -129,5 +129,15 @@ V13 = **调度管理面三面补齐（CLI/HTTP API/MCP 同源）+ 生命周期
   tests/test_api_jobs.py 追加 8 例（共 30 例全绿）；门禁全绿
   （95.01%）
 
-### Step 88（ADR-088）MCP 补全 + 三面对齐 + 历史保留 —— ⏳ 待开始
+### Step 88（ADR-088）MCP 补全 + 三面对齐 + 历史保留 —— ✅ 完成
+
+- 交付：MCP `job_update`（部分更新 + cron 重算 + enabled 复位
+  status，与 PATCH /jobs 同语义）与 `job_remove`；SchedulerStore
+  `prune_runs(max_per_job=100)`（窗口函数按 started_at DESC 分区
+  裁剪最旧，返回删除行数，显式调用不隐式挂 finish_run）；
+  tests：MCP 5 例（更新/非法 cron/未知/删除）+ API prune 2 例；
+  门禁全绿（95.01%）
+- 坑位：MCP tools 集合被 test_tools_list_shape 严格相等断言锁定
+  ——新增工具需同步更新该断言
+
 ### Step 89 收尾 v0.15.0 —— ⏳ 待开始

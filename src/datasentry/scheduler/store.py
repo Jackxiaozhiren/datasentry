@@ -303,6 +303,30 @@ class SchedulerStore:
                 )
             conn.execute("COMMIT")
 
+    def prune_runs(self, max_per_job: int = 100) -> int:
+        """裁剪超过保留上限的最旧运行历史（V13，ADR-088）。
+
+        保留每个 job 最近 max_per_job 条 run；返回删除行数。
+        """
+        with closing(_connect(self._db_path)) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cur = conn.execute(
+                """DELETE FROM job_runs
+                   WHERE run_id IN (
+                       SELECT run_id FROM (
+                           SELECT run_id,
+                                  ROW_NUMBER() OVER (
+                                      PARTITION BY job_id ORDER BY started_at DESC, run_id DESC
+                                  ) AS rn
+                           FROM job_runs
+                       ) ranked
+                       WHERE ranked.rn > ?
+                   )""",
+                (max_per_job,),
+            )
+            conn.execute("COMMIT")
+        return cur.rowcount
+
     def recover_interrupted(self) -> None:
         """重启恢复：running 任务 → idle（run 标记 failed/interrupted），下次 tick 重调度。"""
         with closing(_connect(self._db_path)) as conn:

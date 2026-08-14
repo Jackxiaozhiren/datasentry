@@ -94,6 +94,8 @@ class TestTools:
                 "jobs_list",
                 "job_create",
                 "job_trigger",
+                "job_update",
+                "job_remove",
                 "trends_list",
                 "profiles_get",
                 "comparison_build",
@@ -495,6 +497,146 @@ class TestJobsTools:
             result = json.loads(result)
             assert result["ok"] is False
             assert "invalid cron" in result["error"]
+        finally:
+            server.close()
+
+
+class TestJobsV13:
+    """Step 88（ADR-088）：MCP job_update / job_remove。"""
+
+    def test_tools_list_includes_update_remove(self, tmp_path: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            result = _call(server, 9, "tools/list")["result"]
+            names = {t["name"] for t in result["tools"]}
+            assert {"job_update", "job_remove"} <= names
+        finally:
+            server.close()
+
+    def test_job_update_cron_and_disable(self, tmp_path: Path, sample_csv: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            text = _call(
+                server,
+                10,
+                "tools/call",
+                {
+                    "name": "job_create",
+                    "arguments": {
+                        "name": "nightly",
+                        "path": str(sample_csv),
+                        "cron": "0 9 * * *",
+                    },
+                },
+            )["result"]["content"][0]["text"]
+            job_id = json.loads(text)["job"]["job_id"]
+            updated = json.loads(
+                _call(
+                    server,
+                    11,
+                    "tools/call",
+                    {
+                        "name": "job_update",
+                        "arguments": {"job_id": job_id, "cron": "0 12 * * *", "enabled": False},
+                    },
+                )["result"]["content"][0]["text"]
+            )
+            assert updated["ok"] is True
+            assert updated["job"]["cron"] == "0 12 * * *"
+            assert updated["job"]["enabled"] is False
+            assert "12:00" in updated["job"]["next_run_at"]
+        finally:
+            server.close()
+
+    def test_job_update_invalid_cron(self, tmp_path: Path, sample_csv: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            text = _call(
+                server,
+                12,
+                "tools/call",
+                {
+                    "name": "job_create",
+                    "arguments": {
+                        "name": "nightly",
+                        "path": str(sample_csv),
+                        "cron": "0 9 * * *",
+                    },
+                },
+            )["result"]["content"][0]["text"]
+            job_id = json.loads(text)["job"]["job_id"]
+            result = json.loads(
+                _call(
+                    server,
+                    13,
+                    "tools/call",
+                    {
+                        "name": "job_update",
+                        "arguments": {"job_id": job_id, "cron": "bad"},
+                    },
+                )["result"]["content"][0]["text"]
+            )
+            assert result["ok"] is False
+            assert "invalid cron" in result["error"]
+        finally:
+            server.close()
+
+    def test_job_update_unknown_job(self, tmp_path: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            result = json.loads(
+                _call(
+                    server,
+                    14,
+                    "tools/call",
+                    {
+                        "name": "job_update",
+                        "arguments": {"job_id": "job_nope", "enabled": True},
+                    },
+                )["result"]["content"][0]["text"]
+            )
+            assert result["ok"] is False
+            assert "not found" in result["error"]
+        finally:
+            server.close()
+
+    def test_job_remove(self, tmp_path: Path, sample_csv: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            text = _call(
+                server,
+                15,
+                "tools/call",
+                {
+                    "name": "job_create",
+                    "arguments": {
+                        "name": "nightly",
+                        "path": str(sample_csv),
+                        "cron": "0 9 * * *",
+                    },
+                },
+            )["result"]["content"][0]["text"]
+            job_id = json.loads(text)["job"]["job_id"]
+            removed = json.loads(
+                _call(
+                    server,
+                    16,
+                    "tools/call",
+                    {"name": "job_remove", "arguments": {"job_id": job_id}},
+                )["result"]["content"][0]["text"]
+            )
+            assert removed["ok"] is True
+            assert removed["removed"] is True
+            gone = json.loads(
+                _call(
+                    server,
+                    17,
+                    "tools/call",
+                    {"name": "job_remove", "arguments": {"job_id": job_id}},
+                )["result"]["content"][0]["text"]
+            )
+            assert gone["ok"] is False
+            assert "not found" in gone["error"]
         finally:
             server.close()
 

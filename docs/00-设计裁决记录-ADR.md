@@ -2279,3 +2279,21 @@
 - **错误语义延续**：未知 job → 404；pydantic/业务校验 → 422。
 - **依据**：API 既有错误映射惯例（404/400/422）+ WebhookNotifier
   负载形状（JobResult 序列化），无新依赖。
+
+## ADR-088：MCP 任务生命周期补全 + 运行历史保留（V13，Step 88）
+- **背景**：MCP 管理面只有 list/create/trigger（Step 51/52），
+  与 CLI（Step 86）、HTTP API（Step 51 PATCH/DELETE）不对齐；
+  job_runs 表只增不裁，长期膨胀。
+- **决策**：
+  - MCP 增 `job_update`（job_id + enabled/cron/retry_attempts/
+    webhook_url/gate_quality_min 部分更新；cron 变更重算
+    next_run_at；enabled=true 复位 status=idle；语义与 PATCH
+    /jobs/{job_id} 完全一致）与 `job_remove`（delete_job，
+    未知 job 返回 ok:false）；
+  - SchedulerStore 增 `prune_runs(max_per_job=100)`：按
+    started_at DESC（同秒按 run_id DESC 破平）ROW_NUMBER 分区
+    裁剪最旧 run，返回删除行数；作为可调用策略暴露，不隐式
+    挂在 finish_run（显式调用，测试/运维可控）；
+  - 三面命令对齐表（CLI/API/MCP 同语义同 store，无第三套逻辑）。
+- **依据**：API PATCH 先例 + SQLite 窗口函数；保留策略阈值默认
+  100/任务（单任务 5 年每日 1 跑 ≈ 1825 条，运维可按需调用裁剪）。
