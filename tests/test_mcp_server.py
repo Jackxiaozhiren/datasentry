@@ -170,6 +170,86 @@ class TestTools:
         finally:
             server.close()
 
+    def test_scan_file_sampling_passthrough(self, tmp_path: Path, sample_csv: Path) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            response = _call(
+                server,
+                30,
+                "tools/call",
+                {
+                    "name": "scan_file",
+                    "arguments": {
+                        "path": str(sample_csv),
+                        "sampling_size": 3,
+                        "sampling_method": "reservoir",
+                        "sampling_seed": 7,
+                    },
+                },
+            )
+            payload = json.loads(response["result"]["content"][0]["text"])
+            assert payload["status"] == "completed"
+            assert payload["row_count"] == 4
+            assert "scan_run_id" in payload
+        finally:
+            server.close()
+
+    def test_scan_file_detectors_and_tags_passthrough(
+        self, tmp_path: Path, sample_csv: Path
+    ) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            response = _call(
+                server,
+                31,
+                "tools/call",
+                {
+                    "name": "scan_file",
+                    "arguments": {
+                        "path": str(sample_csv),
+                        "detectors": ["uniqueness_violation"],
+                        "tags": {"team": "data"},
+                    },
+                },
+            )
+            payload = json.loads(response["result"]["content"][0]["text"])
+            assert payload["status"] == "completed"
+            assert payload["total_issues"] >= 1
+        finally:
+            server.close()
+
+    def test_scan_file_sampling_parity_with_cli(self, tmp_path: Path, sample_csv: Path) -> None:
+        from datasentry.client import DataSentry
+
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            mcp_scan = json.loads(
+                _call(
+                    server,
+                    32,
+                    "tools/call",
+                    {
+                        "name": "scan_file",
+                        "arguments": {
+                            "path": str(sample_csv),
+                            "sampling_size": 3,
+                            "sampling_method": "reservoir",
+                            "sampling_seed": 7,
+                        },
+                    },
+                )["result"]["content"][0]["text"]
+            )
+        finally:
+            server.close()
+        cli = DataSentry(project=tmp_path / "ws")
+        mcp_runs = cli.get_detector_runs(mcp_scan["scan_run_id"])
+        sampled = [r for r in mcp_runs if r.sampling is not None and r.sampling.sampled]
+        assert sampled
+        assert all(r.sampling.method == "reservoir" for r in sampled)
+        assert all(r.sampling.sample_size == 3 for r in sampled)
+        assert all(r.sampling.full_size == 4 for r in sampled)
+        cli.close()
+
 
 class TestDataSurfaceTools:
     def test_trends_list_empty(self, tmp_path: Path) -> None:

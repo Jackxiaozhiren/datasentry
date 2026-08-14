@@ -28,6 +28,15 @@
   issue 模板 2；en 逐字不变（短路原文），键缺失回退英文原文
 - 边界：证据级动态描述、JUnit XML / JSON 机器面不译（候选 V11）
 
+### 新增（Step 76，MCP scan 配置透传，ADR-076）
+
+- **`scan_file` 工具透传**：sampling_size / sampling_ratio /
+  sampling_method（random|reservoir|none，默认 reservoir）/
+  sampling_seed / detectors（白名单数组）/ tags（对象）——与 CLI
+  构造逻辑同源；无参数行为不变（全量扫描）
+- 等价性：MCP 落库 detector run 的 SamplingInfo 与 CLI 扫描一致
+  （method/sample_size/full_size 断言）
+
 ## [0.11.0] - 2026-08-14
 
 V9 大文件性能：抽样扫描 + 扫描管线瘦身 + 内存打磨。

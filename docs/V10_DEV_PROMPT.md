@@ -143,3 +143,6 @@
   渲染层映射（title/description/suggestion）+ families.*/issue_types.*/
   suggestions.* 键域 + interactive/markdown/html/ui 4 处接线 +
   en 逐字不变测试；门禁绿（覆盖 94.99%）
+- Step 76（ADR-076）✅ 已落地（待 commit）：scan_file 透传 sampling
+  （size/ratio/method/seed）+ detectors + tags，与 CLI 构造同源；
+  测试 3 新增（含 SamplingInfo 等价性），门禁绿

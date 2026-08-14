@@ -2075,3 +2075,21 @@
 - **影响**：i18n.py（en 权威 + zh 镜像共 ~120 键）、translate.py 新增、
   interactive/markdown/html/ui 4 处接线、tests/test_reporting_translate.py
   （9 函数 + 6 渲染，含 en 逐字不变断言）、pyproject RUF001 豁免 1 条。
+
+## ADR-076：MCP scan 配置透传（V10，Step 76）
+
+- **状态**：已确认（Step 76, V10）
+- **背景**：MCP scan_file 仅透传 seed；REST /scans 已支持
+  sampling/detectors/seed/tags。用户选定 MCP 透传。
+- **方案**：scan_file 工具 schema 增 sampling_size / sampling_ratio /
+  sampling_method（random|reservoir|none，默认 reservoir，与 CLI
+  同源）/ sampling_seed / detectors（array）/ tags（object）；
+  handler 构造 ScanConfig(seed, detectors, scan_tags) + 条件构造
+  SamplingConfig（size 或 ratio 非空时启用，镜像 CLI _cmd_scan
+  逻辑）；无参数行为不变（sampling=None，全量）。
+- **边界**：method choices 校验由 pydantic Literal 承担（无效值
+  → -32603）；SamplingInfo 不落 seed（与 CLI 落库一致，等价性
+  按 method/sample_size/full_size 断言）。
+- **影响**：mcp_server.py scan_file + 测试 3 新增（透传采样 /
+  detectors+tags / 与 CLI 等价性：MCP 落库 run 的 SamplingInfo
+  经 client.get_detector_runs 校验）。

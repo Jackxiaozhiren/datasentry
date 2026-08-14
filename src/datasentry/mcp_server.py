@@ -97,7 +97,10 @@ class McpServer:
             "(postgresql://DSN, Step 55), a MySQL table (mysql://DSN, Step 56) or "
             "a cloud storage file (s3:// gs:// az:// CSV/Parquet/JSONL, Step 57) "
             "and persist the quality report. Returns scan id, status, row count, "
-            "quality score and issue counts.",
+            "quality score and issue counts. Optional sampling (sampling_size or "
+            "sampling_ratio; sampling_method random|reservoir|none, default "
+            "reservoir; sampling_seed, default 42), detector whitelist and tags "
+            "mirror the CLI (Step 76, ADR-076).",
             {
                 "path": {
                     "type": "string",
@@ -107,6 +110,12 @@ class McpServer:
                 "dataset_id": {"type": "string"},
                 "table_name": {"type": "string"},
                 "seed": {"type": "integer"},
+                "sampling_size": {"type": "integer"},
+                "sampling_ratio": {"type": "number"},
+                "sampling_method": {"type": "string"},
+                "sampling_seed": {"type": "integer"},
+                "detectors": {"type": "array", "items": {"type": "string"}},
+                "tags": {"type": "object"},
             },
             ["path"],
         )
@@ -115,14 +124,28 @@ class McpServer:
             dataset_id: str | None = None,
             table_name: str | None = None,
             seed: int = 42,
+            sampling_size: int | None = None,
+            sampling_ratio: float | None = None,
+            sampling_method: str = "reservoir",
+            sampling_seed: int = 42,
+            detectors: list[str] | None = None,
+            tags: dict[str, str] | None = None,
         ) -> dict[str, Any]:
-            from datasentry_core.models.scan import ScanConfig
+            from datasentry_core.models.scan import SamplingConfig, ScanConfig
 
+            config = ScanConfig(seed=seed, detectors=detectors, scan_tags=tags or {})
+            if sampling_size is not None or sampling_ratio is not None:
+                config.sampling = SamplingConfig(
+                    method=sampling_method,
+                    sample_size=sampling_size,
+                    ratio=sampling_ratio,
+                    seed=sampling_seed,
+                )
             scan, _, issues = client.scan_file(
                 path,
                 dataset_id=dataset_id,
                 table_name=table_name,
-                config=ScanConfig(seed=seed),
+                config=config,
             )
             return _json_safe(
                 {
