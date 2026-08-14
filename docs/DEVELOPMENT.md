@@ -90,14 +90,14 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
 
 - **V1 已完成（0.1.0）**：MVP M1–M9 全达成 —— 36+ 检测器 / 融合评分 / 门禁 / 修复闭环 / 报告 / 契约 / API+UI / Docker+CI / M9 Demo / LLM 辅助规则（脱敏+审批） / 插件 API v1 / 发布工程
 - **V2 方向**：云侧调度与协作、报告 HTML 交互增强（已落地：Step 49 交互表 / Step 60 联动导航 / Step 61 列画像节）、加密存储的 PII 还原、插件生态治理
-- **V9 已完成（v0.11.0）**：大文件性能——抽样扫描（Step 71：显式
-  `--sampling-size/--sampling-ratio`，reservoir REPEATABLE(seed) 可复现，
-  capability 调度 + 报告/UI 标注）、扫描管线瘦身（Step 72：count 一次
-  注入 + anomaly_ml SQL 侧抽样 + 画像复用计数）、内存打磨（Step 73：
-  抽样物化表 52.2s→3.0s、xlsx 行预算、CSV 非 utf-8 提示、抽样指纹档、
-  fuzzy_duplicate 支持抽样）；基准 1e6 行抽样 3.0s / 漂移 3.7 / 全量
-  档保持 PASS；下一阶段候选：报告正文翻译、CLI 全局 --lang、MCP
-  scan 配置透传、增量画像
+- **V10 已完成（v0.12.0）**：全球化与扫描管线——CLI 全局 --lang
+  （Step 74：`cli.*` 键域，report export 全局接管）、报告正文翻译
+  （Step 75：issue 标题/描述/建议 zh 镜像，en 逐字不变）、MCP scan
+  配置透传（Step 76：sampling/detectors/tags 与 CLI 同源）、增量
+  画像（Step 77：本地文件 SHA-256 比对复用，无基准降级全扫）；
+  CI 全绿 957 passed，mypy --strict 通过；下一阶段候选：证据级动态
+  描述翻译（计数 f-string 40+ 处）、调度任务 ScanConfig 配置、
+  增量扫描列级 diff
 
 ---
 

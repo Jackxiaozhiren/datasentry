@@ -137,17 +137,21 @@
 
 ## 四、落地状态
 
-- Step 74（ADR-074）✅ 已落地（待 commit）：全局 --lang + cli.*
+- Step 74（ADR-074）✅ 已落地：全局 --lang + cli.*
   i18n 键域 + report export 全局接管；测试 3 新增/1 更新，门禁绿
-- Step 75（ADR-075）✅ 已落地（待 commit）：reporting/translate.py
+- Step 75（ADR-075）✅ 已落地：reporting/translate.py
   渲染层映射（title/description/suggestion）+ families.*/issue_types.*/
   suggestions.* 键域 + interactive/markdown/html/ui 4 处接线 +
   en 逐字不变测试；门禁绿（覆盖 94.99%）
-- Step 76（ADR-076）✅ 已落地（待 commit）：scan_file 透传 sampling
+- Step 76（ADR-076）✅ 已落地：scan_file 透传 sampling
   （size/ratio/method/seed）+ detectors + tags，与 CLI 构造同源；
   测试 3 新增（含 SamplingInfo 等价性），门禁绿
-- Step 77（ADR-077）✅ 已落地（待 commit）：client.scan_file
+- Step 77（ADR-077）✅ 已落地：client.scan_file
   incremental 参数 + _incremental_cached（复用 scheduler
   _source_fingerprint，本地文件 SHA-256 比对最近 completed 扫描）；
   未变更复用不建 run，无基准/远程/sampled 档降级全扫；测试 6 新增，
   门禁绿（覆盖 94.99%）
+- **收尾**：✅ v0.12.0 已发布（2026-08-14）：根 pyproject + 双
+  __init__.__version__ 升版，tag v0.12.0 触发 PyPI + Pages；
+  CHANGELOG [0.12.0] 四节新增 + ADR-074~077；CI 全绿
+  （957 passed，mypy --strict 通过）

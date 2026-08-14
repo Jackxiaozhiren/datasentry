@@ -4,10 +4,9 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.12.0] - 2026-08-14
 
-（V10 开发中：i18n 深化 + MCP 透传 + 增量画像 Step 74~77，收尾统一
-升版 v0.12.0）
+V10 全球化与扫描管线：CLI 全局 --lang + 报告正文翻译 + MCP 透传 + 增量画像。
 
 ### 新增（Step 74，CLI 全局 --lang，ADR-074）
 
