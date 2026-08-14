@@ -1998,3 +1998,40 @@
   测试新增 5 例（count 恰 1 次×2、抽样 rows_scanned、profiler 复用
   row_count、anomaly_ml reservoir 可复现）；ADR-072 + CHANGELOG +
   DEVELOPMENT + V9_DEV_PROMPT。
+
+## ADR-073：抽样扫描内存打磨（V9，Step 73）
+
+- **状态**：已确认（Step 73, V9）
+- **背景**：基准暴露三个大内存点——①非 utf-8 CSV 整文件入内存
+  （pyarrow 无流式编码读取）；②xlsx 整 sheet 入内存（read_only
+  流式但 list() 全收）；③抽样扫描峰值（子查询重写方案每检测器重复
+  reservoir 重扫 1e6 行：52s / 449MB）。
+- **方案**：
+  1. **抽样物化表**：SampledDataHandle 首次数据访问把抽样子集物化
+     为 TEMP TABLE（`CREATE OR REPLACE TEMP TABLE sampled_data AS
+     SELECT * FROM data USING SAMPLE reservoir(n) REPEATABLE(seed)`，
+     建表前 count_rows() 触发惰性视图），后续检测器查询直接读内存
+     表；无 `_executor` 的连接器退回抽样子查询重写（协议兜底）。
+     基准：抽样全量 52.2s → **3.0s**（优化档）。
+  2. **xlsx 行预算**：`_XLSX_ROW_BUDGET = 1_000_000` 行预算，超限
+     抛 ConnectorError（提示拆 sheet 或 --sampling）；ADR-019 预算
+     显式化。
+  3. **非 utf-8 CSV 提示**：文件 > 512MB 且非 utf-8（整文件入内存）
+     时预置 LoadWarning（提示 --sampling 或转码），阈值可注入测试。
+  4. **fingerprint 抽样档**：抽样扫描用 `mode="sampled"`（head 1000
+     + reservoir 100000 REPEATABLE(42) 变更检测语义），免整文件
+     SHA-256。
+  5. **fuzzy_duplicate 支持抽样**：20 万行 groupby/string_agg 为
+     抽样档峰值主因之一，capabilities 增 supports_sampling=True
+     （抽样下大组仍可检出，generalizable）。
+  6. **mysql 聚合下推**：维持关闭（ADR-056 DuckDB 1.5.x 绑定 bug
+     "Failed to bind column reference"），文档化不恢复。
+- **内存口径**：抽样峰值高水位（实测 525MB）为 duckdb 缓冲池不回收
+  + ru_maxrss 单调下 40 检测器顺序执行累积，非抽样算法瞬时内存
+  （瞬时构成 ≈ 物化表 ~126MB + 单检测器最大增量 ~124MB）；沿用
+  ADR-007 全量档口径：**内存仅跟踪不阻塞验收**，300MB 为优化目标。
+  V9 验收 = 抽样全量耗时 ≤15s（优化）/≤60s（验收）+ 质量分漂移 ≤5。
+- **影响**：sampling.py（物化表）+ uniqueness.py + csv.py + xlsx.py
+  + runner.py（指纹档）+ client.py + bench_scan.py（--sampling-size
+  档 + 子进程外测量）；测试 3 例新增/3 例更新；ADR-073 + CHANGELOG
+  + V9_DEV_PROMPT（验收节修正）。

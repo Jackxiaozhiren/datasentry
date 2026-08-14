@@ -33,6 +33,9 @@ from datasentry_core.engine import DuckDBExecutor
 from datasentry_core.models.enums import Severity
 from datasentry_core.models.fingerprint import DatasetFingerprint
 
+#: 非 utf-8 全文件入内存的警告阈值（Step 73/ADR-073）
+_NON_UTF8_FULL_READ_WARN_BYTES = 512 * 1024 * 1024
+
 FORMULA_INJECTION_PREFIXES: tuple[str, ...] = ("=", "+", "-", "@", "\t", "\r")
 _WARNING_CAP = 100
 
@@ -132,6 +135,22 @@ class CsvDataHandle:
                 f"delim={_sql_string_literal(self._delimiter)})"
             )
         else:
+            # Step 73/ADR-073：非 utf-8 全文件入内存（pyarrow 无流式编码读取），
+            # 超阈值时预置提示 warning，引导 --sampling 或转码
+            if self._path.stat().st_size > _NON_UTF8_FULL_READ_WARN_BYTES:
+                self._warnings = [
+                    LoadWarning(
+                        row=0,
+                        column="",
+                        message=(
+                            "non-utf-8 csv is fully loaded into memory "
+                            f"({self._path.stat().st_size} bytes > "
+                            f"{_NON_UTF8_FULL_READ_WARN_BYTES}); "
+                            "use --sampling or re-encode as utf-8"
+                        ),
+                        severity=Severity.LOW,
+                    )
+                ]
             table = pa_csv.read_csv(
                 self._path,
                 read_options=pa_csv.ReadOptions(encoding=self._encoding),

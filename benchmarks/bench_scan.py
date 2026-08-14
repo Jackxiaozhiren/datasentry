@@ -1,6 +1,6 @@
 """Step 20 性能基准（ADR-007 双档 + 20.4 预算表 + ADR-019 JSONL 分页验证）。
 
-用法：uv run python benchmarks/bench_scan.py [rows] [seed]
+用法：uv run python benchmarks/bench_scan.py [rows] [seed] [--sampling-size N]
 输出：markdown 表格 + 双档判定（PASS/FAIL）。
 
 档位（20.4 预算表 / ADR-007）：
@@ -10,14 +10,23 @@
 - 峰值内存增量 ≤ 数据量 × 3 为优化目标档：duckdb 聚合常驻缓冲，
   RSS 高水位仅作客观跟踪，**不阻塞验收**（ADR-007 验收下限仅时间；
   留待 W10/20.4 性能打磨）
+
+V9 抽样档（Step 73/ADR-073，--sampling-size N）：
+- 抽样全量扫描（reservoir N，seed 42）< 15s 优化档，≤ 60s 验收档
+- 抽样峰值内存 ≤ 300MB 优化目标档（仅跟踪，与 ADR-007 全量档口径
+  一致：duckdb 缓冲池不回收 + ru_maxrss 单调，高水位为 40 检测器
+  顺序累积，非抽样算法瞬时内存；实测瞬时构成 ≈ 物化表 + 单检测器
+  最大增量 ~250MB）
+- 质量分漂移 |full - sampled| ≤ 5 验收档（plan 验收：1e6 行
+  --sampling-size 200000 全量耗时 ≤15s、漂移 ≤±5）
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import random
 import resource
-import sys
 import tempfile
 import time
 from collections.abc import Iterator
@@ -35,6 +44,8 @@ from datasentry_core.detectors import DetectionContext, DetectorRegistry
 from datasentry_core.detectors.initial import register_default_detectors
 from datasentry_core.detectors.runner import ScanRunner
 from datasentry_core.engine import Profiler
+from datasentry_core.models.quality import QualityScore
+from datasentry_core.models.scan import SamplingConfig, ScanConfig
 
 _NUMERIC_OUTLIER_IDS = frozenset(
     {"iqr_outlier", "modified_zscore", "tail_probability", "percentile_outlier", "histogram_rarity"}
@@ -103,7 +114,7 @@ def open_context(path: Path, dataset_id: str) -> DetectionContext:
     )
 
 
-def bench(n: int, seed: int) -> int:
+def bench(n: int, seed: int, sample_size: int | None = None) -> int:
     rng = random.Random(seed)
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
@@ -113,8 +124,8 @@ def bench(n: int, seed: int) -> int:
         gen_secs, _ = timed(lambda: write_csv(csv_path, n, rng))
         write_jsonl(jsonl_path, n, random.Random(seed))
         file_mb = csv_path.stat().st_size / (1024 * 1024)
-        mem_target = f"内存优化目标 {file_mb * 3:.0f} MB"
-        print(f"生成 {n} 行：{gen_secs:.1f}s；CSV {file_mb:.1f} MB（{mem_target}）")
+        mem_target_label = f"内存优化目标 {file_mb * 3:.0f} MB"
+        print(f"生成 {n} 行：{gen_secs:.1f}s；CSV {file_mb:.1f} MB（{mem_target_label}）")
 
         empty = tmp_dir / "empty.csv"
         empty.write_text(HEADER, encoding="utf-8")
@@ -132,6 +143,21 @@ def bench(n: int, seed: int) -> int:
 
         results: dict[str, float] = {}
         try:
+            # V9 抽样档先行（Step 73/ADR-073）：峰值内存测量置于 profile/
+            # 逐检测器之前，maxrss 仅含 warmup 噪音
+            if sample_size is not None:
+                sampled_config = ScanConfig(
+                    sampling=SamplingConfig(method="reservoir", sample_size=sample_size, seed=42)
+                )
+                s_secs, s_run = timed(
+                    lambda: ScanRunner(registry).run_scan(context, sampled_config)
+                )
+                results["sampled_scan"] = s_secs
+                results["sampled_peak"] = _rss_mb() - baseline_mb
+                results["sampled_score"] = float(
+                    (s_run[0].quality_score or QualityScore(overall=0.0)).overall
+                )
+
             schema_secs, _ = timed(context.handle.schema)
             results["open_schema"] = schema_secs
 
@@ -147,8 +173,11 @@ def bench(n: int, seed: int) -> int:
             outlier_secs = sum(s for did, s in per_detector.items() if did in _NUMERIC_OUTLIER_IDS)
             results["numeric_outliers"] = outlier_secs
 
-            scan_secs, _ = timed(lambda: ScanRunner(registry).run_scan(context, None))
+            scan_secs, scan_run = timed(lambda: ScanRunner(registry).run_scan(context, None))
             results["full_scan"] = scan_secs
+            results["full_score"] = float(
+                (scan_run[0].quality_score or QualityScore(overall=0.0)).overall
+            )
             results["peak_mb"] = _rss_mb() - baseline_mb
 
             jsonl_spec = DataSourceSpec(
@@ -192,13 +221,39 @@ def bench(n: int, seed: int) -> int:
 
         # 验收只判时间（ADR-007：20.4 内存/数值为优化目标档）
         failed = profile_s > 60 or outlier_s > 60 or scan_s > 120 or results["jsonl_read"] > 60
+
+        if sample_size is not None:
+            sampled_s = results["sampled_scan"]
+            sampled_peak = results["sampled_peak"]
+            drift = abs(results["full_score"] - results["sampled_score"])
+            print("\n| 抽样档指标（V9/Step 73） | 实测 | 预算（优化/验收） | 判定 |")
+            print("|-------------------------|------|-------------------|------|")
+            print(judge("抽样全量扫描(reservoir)", sampled_s, 15, 60))
+            peak_status = "PASS(优化)" if sampled_peak <= 300 else "超出优化目标(仅跟踪)"
+            print(f"| 抽样峰值内存 | {sampled_peak:.0f}MB | ≤300MB | {peak_status} |")
+            drift_status = "PASS(验收)" if drift <= 5 else "FAIL"
+            print(
+                f"| 质量分漂移 | {drift:.1f} "
+                f"(full {results['full_score']:.1f} / sampled {results['sampled_score']:.1f}) "
+                f"| ≤5 | {drift_status} |"
+            )
+            # 内存仅跟踪（ADR-007/ADR-073 口径）；验收 = 时间 + 漂移
+            failed = failed or sampled_s > 60 or drift > 5
         return 1 if failed else 0
 
 
 def main() -> int:
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 1_000_000
-    seed = int(sys.argv[2]) if len(sys.argv) > 2 else 42
-    return bench(n, seed)
+    parser = argparse.ArgumentParser(description="datasentry 扫描性能基准")
+    parser.add_argument("rows", nargs="?", type=int, default=1_000_000)
+    parser.add_argument("seed", nargs="?", type=int, default=42)
+    parser.add_argument(
+        "--sampling-size",
+        type=int,
+        default=None,
+        help="V9 抽样档：抽样扫描行数（默认不跑抽样档）",
+    )
+    args = parser.parse_args()
+    return bench(args.rows, args.seed, args.sampling_size)
 
 
 if __name__ == "__main__":

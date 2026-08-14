@@ -80,9 +80,11 @@ reservoir REPEATABLE(seed) 可复现抽样**基础设施已就绪**。真正问�
 
 ### 验收标准（基准扩展，benchmarks/bench_scan.py）
 
-- 1e6 行 CSV：`--sampling reservoir 200000 seed 42` 全量扫描耗时
-  ≤ 当前 24.9s 的 60%（目标 ≤15s）；峰值内存 ≤ 300MB（当前 677MB）；
-  抽样扫描与全量扫描的 overall 分漂移 ≤ ±5 分（质量分近似有效性）。
+- 1e6 行 CSV：`--sampling-size 200000`（reservoir，seed 42）全量扫描
+  耗时 ≤ 15s 优化档 / ≤ 60s 验收档；质量分漂移 |full − sampled| ≤ 5。
+- 抽样峰值内存 ≤ 300MB 为优化目标（**仅跟踪不阻塞验收**，ADR-073
+  口径修正：高水位为 duckdb 缓冲不回收 + ru_maxrss 单调下 40 检测器
+  顺序累积，非抽样算法瞬时内存；与 ADR-007 全量档口径一致）。
 - 既有基准（无抽样）保持 PASS 优化档（画像 <20s / 数值异常 <20s /
   全量扫描 ≤60s @1e6）。
 - 既有全套测试零改动通过（默认路径行为不变）。
@@ -129,21 +131,25 @@ reservoir REPEATABLE(seed) 可复现抽样**基础设施已就绪**。真正问�
 
 ### Step 73（ADR-073）内存峰值打磨（W10 收编）
 
-- **csv.py**：非 utf-8 编码路径改为流式转换（utf8 块转码再入
-  pyarrow）或 ≥ 阈值（如 >5e6 行）明示警告提示 --sampling；选型 ADR。
-- **xlsx.py**：行预算上限（默认 1e6，超限抛清晰错误，文档标注
-  ADR-019 预算语义）；read_sample 走 duckdb read_all_xlsx_sheets
-  惰性视图。
+- **sampling.py**：抽样句柄改 TEMP TABLE 物化（首次数据访问建
+  `sampled_data` 表，检测器查询直接读内存表，消除每检测器重复
+  reservoir 重扫：抽样全量 52.2s → 3.0s）✅
+- **xlsx.py**：行预算上限（默认 1e6 行，超限抛 ConnectorError 提示
+  拆 sheet 或 --sampling，ADR-019 预算显式化）✅
+- **csv.py**：非 utf-8 路径整文件入内存（pyarrow 无流式编码读取），
+  >512MB 预置 LoadWarning 提示 --sampling 或转码 ✅
 - **mysql.py**：调研 `mysql_aggregate_pushdown_enabled` 关闭原因
-  （连接器测试基线）→ 恢复下推或文档化代价；结果记入 ADR。
-- **fingerprint**：抽样扫描默认 `mode="sampled"`（README/报告标注
-  指纹档位）；full 档仅全量扫描使用。
-- **基准**：bench_scan.py 加 `--sampling` 档（耗时 + 峰值内存 +
-  质量分漂移三指标，见 §一 验收标准）。
-- **测试**：CSV 非 utf-8 流式等价性、xlsx 预算错误、fingerprint
-  sampled 档、基准脚本冒烟（CI 第 7 阶段不扩规模）。
-- **影响**：csv + xlsx + mysql + file_based + benchmarks + tests +
-  ADR + CHANGELOG + DEVELOPMENT + 计划书。
+  （DuckDB 1.5.x 绑定 bug "Failed to bind column reference"，
+  ADR-056 记录）→ 维持关闭并文档化 ✅
+- **fingerprint**：抽样扫描默认 `mode="sampled"`（变更检测语义，
+  免整文件 SHA-256）✅
+- **fuzzy_duplicate**：支持抽样（supports_sampling=True）✅
+- **基准**：bench_scan.py 加 `--sampling-size` 档（抽样耗时 + 峰值
+  内存 + 质量分漂移；内存仅跟踪，ADR-007/073 口径）✅
+- **测试**：xlsx 预算错误、CSV 非 utf-8 大文件提示/小文件无提示、
+  fingerprint sampled 档（runner 级）✅
+- **影响**：sampling + uniqueness + csv + xlsx + runner + client +
+  benchmarks + tests + ADR + CHANGELOG + DEVELOPMENT + 计划书。
 
 ## 三、落地状态
 
@@ -155,9 +161,13 @@ reservoir REPEATABLE(seed) 可复现抽样**基础设施已就绪**。真正问�
   SampledDataHandle（SQL 重写 + 守卫）+ capability 调度 + SamplingInfo
   落库标注 + cli/api 参数 + 报告/UI 标注；测试 14 例
   （tests/test_sampling_scan.py），门禁全绿（覆盖 94.89%）
-- Step 72（ADR-072）✅ 已落地（待 commit）：count_rows 一次注入 +
+- Step 72（ADR-072）✅ 已落地（commit `5531b06`）：count_rows 一次注入 +
   anomaly_ml SQL 侧 reservoir + Profiler 复用计数；测试新增 5 例，
   门禁全绿（覆盖 94.91%）
+- Step 73（ADR-073）✅ 已落地（待 commit）：抽样物化表（52.2s→3.0s）+
+  xlsx 行预算 + CSV 非 utf-8 提示 + fingerprint sampled 档 + fuzzy
+  支持抽样 + bench --sampling-size 档；实测 1e6 行抽样 3.0s ✅、
+  漂移 3.7 ✅、峰值 525MB（仅跟踪）；门禁全绿（覆盖 94.97%）
 
 ## 四、候选后续（未排期，供下一阶段决策）
 

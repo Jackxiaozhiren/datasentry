@@ -12,8 +12,12 @@ import pyarrow as pa
 from openpyxl import load_workbook
 
 from datasentry_core.connectors.base import FrameBatch
+from datasentry_core.connectors.errors import ConnectorError
 from datasentry_core.connectors.file_based import FileDataHandle
 from datasentry_core.connectors.spec import DataSourceSpec, DataSourceType
+
+#: 整 sheet 入内存的行预算（ADR-019 MVP 语义，Step 73/ADR-073 显式化）
+_XLSX_ROW_BUDGET = 1_000_000
 
 
 def _rows_to_table(names: list[str], rows: list[list[object]]) -> pa.Table:
@@ -51,7 +55,14 @@ class XlsxDataHandle(FileDataHandle):
                 sheet = workbook.worksheets[sheet_ref]
             else:
                 sheet = workbook[str(sheet_ref)]
-            rows = list(sheet.iter_rows(values_only=True))
+            rows: list[tuple[object, ...]] = []
+            for row in sheet.iter_rows(values_only=True):
+                if len(rows) >= _XLSX_ROW_BUDGET:
+                    raise ConnectorError(
+                        f"xlsx sheet exceeds row budget {_XLSX_ROW_BUDGET} "
+                        "(ADR-019/ADR-073); split the sheet or use --sampling"
+                    )
+                rows.append(row)
         finally:
             workbook.close()
         if header_row >= len(rows):

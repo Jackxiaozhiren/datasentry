@@ -6,8 +6,7 @@
 
 ## [Unreleased]
 
-（V9 开发中：抽样扫描 Step 71/72 已落地，Step 73 进行中；收尾统一
-升版 v0.11.0）
+（V9 开发中：抽样扫描 Step 71~73 已落地，收尾统一升版 v0.11.0）
 
 ### 新增（Step 71，抽样扫描，ADR-071）
 
@@ -32,6 +31,22 @@
   全列物化点的物化浪费
 - **画像复用计数**：`Profiler.profile(row_count=...)` 复用扫描指纹
   行数，画像不再重复全扫
+
+### 优化（Step 73，内存打磨 + 抽样物化，ADR-073）
+
+- **抽样物化表**：抽样句柄首次数据访问把 reservoir 子集物化为
+  TEMP TABLE（`sampled_data`），检测器查询直接读内存表——1e6 行
+  抽样全量扫描 52.2s → **3.0s**（优化档 <15s）
+- **xlsx 行预算**：整 sheet 行数 > 1e6 抛清晰 ConnectorError（拆
+  sheet 或 --sampling），ADR-019 预算显式化
+- **CSV 非 utf-8 提示**：整文件入内存路径（非 utf-8）文件 >512MB
+  时预置 LoadWarning（提示 --sampling 或转码）
+- **抽样指纹档**：抽样扫描默认 `mode="sampled"`（变更检测语义），
+  免整文件 SHA-256
+- **fuzzy_duplicate 支持抽样**：capability 增补，抽样下大组仍可检出
+  （generalizable）
+- **基准**：bench_scan.py 新增 `--sampling-size` 抽样档（耗时 +
+  峰值内存 + 质量分漂移；内存沿用 ADR-007 仅跟踪口径）
 
 ## [0.10.0] - 2026-08-13
 

@@ -96,7 +96,11 @@ class FuzzyDuplicateDetector(DetectorBase):
         "or punctuation after normalization."
     )
     quality_dimension = QualityDimension.UNIQUENESS
-    capabilities: ClassVar[DetectorCapabilities] = DetectorCapabilities(supports_sql_pushdown=True)
+    # Step 73/ADR-073：支持抽样——20 万行 groupby/string_agg 是大内存点
+    # （bench 抽样档峰值主因），抽样下大组仍可检出（generalizable 语义）
+    capabilities: ClassVar[DetectorCapabilities] = DetectorCapabilities(
+        supports_sql_pushdown=True, supports_sampling=True
+    )
     default_thresholds: ClassVar[dict[str, float | int | str]] = {
         "min_group_size": 2,
         "min_norm_length": 2,

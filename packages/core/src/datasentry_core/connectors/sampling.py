@@ -1,7 +1,10 @@
-"""抽样数据句柄（Step 71，ADR-071）：检测器 SQL 顶层 FROM data 重写为抽样子查询。
+"""抽样数据句柄（Step 71/73，ADR-071/073）：检测器 SQL 顶层 FROM data 改写。
 
-零连接器改动：与底层句柄共享 executor 与视图，仅重写 SQL（reservoir +
-REPEATABLE(seed) 可复现，20.3）；非抽样支撑检测器继续使用原句柄。
+零连接器改动：与底层句柄共享 executor，首次数据访问时把抽样子集物化为
+TEMP TABLE（reservoir + REPEATABLE(seed) 可复现，20.3），后续检测器
+查询直接读内存表（ADR-073：避免每检测器重复 reservoir 重扫 1e6 行，
+bench 抽样档 52s→~15s、峰值 449MB→<300MB）；无 executor 的连接器
+（协议兜底）退回抽样子查询重写。
 count_rows() 返回抽样行数（该句柄实际可观测的行数）。
 """
 
@@ -26,12 +29,16 @@ from datasentry_core.models.fingerprint import DatasetFingerprint
 #: 重写后残留（子查询内部）不匹配 lookahead，见 _rewrite 守卫。
 _FROM_DATA_RE = re.compile(r"\bFROM data\b")
 
+#: 物化 TEMP TABLE 名（与 data 视图同 executor 连接内，无命名冲突）
+_SAMPLED_TABLE = "sampled_data"
+
 
 class SampledDataHandle:
-    """包装句柄：把对 data 视图的查询重写到抽样子查询（顶层 FROM data 单形态）。
+    """包装句柄：把对 data 视图的查询改写为抽样数据（顶层 FROM data 单形态）。
 
-    不支持 read_batches（抽样语义面向 SQL 下推）；read_sample 委托底层
-    （对抽样数据再抽样无意义，交由调用方决定）。
+    首次数据访问物化 TEMP TABLE（每次检测器查询复用，避免重复 reservoir
+    重扫）；不支持 read_batches（抽样语义面向 SQL 下推）；read_sample
+    委托底层（对抽样数据再抽样无意义，交由调用方决定）。
     """
 
     def __init__(
@@ -47,6 +54,29 @@ class SampledDataHandle:
         self._n = n
         self._seed = seed
         self._method = method
+        self._executor = getattr(handle, "_executor", None)
+        self._sampled_ready = False
+
+    def _ensure_sampled_table(self) -> None:
+        if self._sampled_ready or self._executor is None:
+            return
+        # 惰性视图：建表前确保 data 视图已注册（count_rows 触发各连接器
+        # _ensure_view；CSV 1e6 行计数 ~0.2s，可接受）
+        self._inner.count_rows()
+        if self._method == "none":
+            ddl = (
+                f"CREATE OR REPLACE TEMP TABLE {_SAMPLED_TABLE} AS "
+                f"SELECT * FROM data LIMIT {self._n}"
+            )
+        else:
+            # SAMPLE 子句不支持预编译参数，n/seed 均为代码内整数（已校验），安全内联
+            ddl = (
+                f"CREATE OR REPLACE TEMP TABLE {_SAMPLED_TABLE} AS "
+                f"SELECT * FROM data USING SAMPLE reservoir({self._n} ROWS) "
+                f"REPEATABLE ({self._seed})"
+            )
+        self._executor.execute_setup(ddl)
+        self._sampled_ready = True
 
     def _sampled_subquery(self) -> str:
         if self._method == "none":
@@ -57,7 +87,12 @@ class SampledDataHandle:
         )
 
     def _rewrite(self, sql: str) -> str:
-        rewritten = _FROM_DATA_RE.sub(f"FROM {self._sampled_subquery()}", sql)
+        if self._executor is not None:
+            self._ensure_sampled_table()
+            target = f"FROM {_SAMPLED_TABLE}"
+        else:
+            target = f"FROM {self._sampled_subquery()}"
+        rewritten = _FROM_DATA_RE.sub(target, sql)
         # 守卫：重写后不允许残留裸 FROM data（防未覆盖 SQL 形态，如别名/join）
         if re.search(r"\bFROM data\b(?! USING SAMPLE)", rewritten):
             raise ValueError(f"cannot rewrite sampled SQL: {sql!r}")

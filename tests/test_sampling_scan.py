@@ -1,4 +1,5 @@
-"""Step 71（ADR-071）抽样扫描测试：SampledDataHandle + runner 调度 + 报告标注。"""
+"""Step 71（ADR-071）抽样扫描测试：SampledDataHandle + runner 调度 + 报告标注；
+Step 72/73 管线瘦身与内存打磨回归。"""
 
 from __future__ import annotations
 
@@ -7,9 +8,11 @@ from pathlib import Path
 
 import pytest
 
+import datasentry_core.connectors.csv as csv_mod
 from datasentry import DataSentry
 from datasentry.cli import main
 from datasentry_core.connectors import DataSourceSpec, DataSourceType, default_registry
+from datasentry_core.connectors.errors import ConnectorError
 from datasentry_core.connectors.sampling import SampledDataHandle
 from datasentry_core.detectors import DetectionContext, DetectorRegistry
 from datasentry_core.detectors.runner import ScanRunner
@@ -109,14 +112,14 @@ class TestSampledDataHandle:
     def test_rewrite_top_level_from_data(self, csv_handle) -> None:
         sampled = SampledDataHandle(csv_handle, n=3, seed=7)
         rewritten = sampled._rewrite("SELECT count(*) FROM data WHERE amount IS NULL")
-        assert "reservoir(3 ROWS)" in rewritten
-        assert "REPEATABLE (7)" in rewritten
-        assert rewritten.startswith("SELECT count(*) FROM (SELECT * FROM data USING SAMPLE")
+        assert "FROM sampled_data" in rewritten
+        assert rewritten.startswith("SELECT count(*) FROM sampled_data WHERE")
 
     def test_rewrite_nested_from_data_also_rewritten(self, csv_handle) -> None:
         sampled = SampledDataHandle(csv_handle, n=3)
         rewritten = sampled._rewrite("SELECT * FROM (SELECT * FROM data) t")
-        assert rewritten.count("reservoir(3 ROWS)") == 1
+        assert "sampled_data" in rewritten
+        assert rewritten.count("FROM sampled_data") == 1
 
     def test_sql_aggregate_returns_sampled_rows(self, csv_handle) -> None:
         sampled = SampledDataHandle(csv_handle, n=3, seed=7)
@@ -273,14 +276,15 @@ class TestPipelineSlimming:
         assert counting.count_calls == 1
         csv_handle.close()
 
-    def test_sampling_scan_count_rows_once(self, csv_handle) -> None:
+    def test_sampling_scan_count_rows_bounded(self, csv_handle) -> None:
         runner = make_runner(FakeDetector())
         counting = self.CountingHandle(csv_handle)
         ctx = _ctx(counting)
         ctx.handle = counting
         config = ScanConfig(sampling=SamplingConfig(method="reservoir", sample_size=3))
         runner.run(ctx, config, "scan_1")
-        assert counting.count_calls == 1
+        # 全量 count 1 次 + 物化前视图触发 1 次（ADR-073 物化表方案）
+        assert counting.count_calls == 2
         csv_handle.close()
 
     def test_sampled_detector_rows_scanned_is_sample_size(self, csv_handle) -> None:
@@ -318,6 +322,75 @@ class TestPipelineSlimming:
             first = ModelOutlierDetector().detect(ctx)
             second = ModelOutlierDetector().detect(ctx)
             assert [c.model_dump() for c in first] == [c.model_dump() for c in second]
+        finally:
+            handle.close()
+
+
+class TestMemoryPolish:
+    def test_xlsx_row_budget_enforced(self, tmp_path: Path) -> None:
+        from openpyxl import Workbook
+
+        path = tmp_path / "big.xlsx"
+        wb = Workbook()
+        ws = wb.active
+        for i in range(1200):
+            ws.append([i, f"row_{i}"])
+        wb.save(path)
+
+        import datasentry_core.connectors.xlsx as xlsx_mod
+
+        old = xlsx_mod._XLSX_ROW_BUDGET
+        xlsx_mod._XLSX_ROW_BUDGET = 1000
+        try:
+            spec = DataSourceSpec(source_type=DataSourceType.XLSX, path=path)
+            handle = default_registry().open(spec)
+            with pytest.raises(ConnectorError, match="row budget"):
+                handle.schema()
+        finally:
+            xlsx_mod._XLSX_ROW_BUDGET = old
+
+    def test_non_utf8_csv_warns_on_large_file(self, tmp_path: Path, monkeypatch) -> None:
+        path = tmp_path / "latin.csv"
+        path.write_bytes("name,note\nkarl,caf\xe9\n".encode("latin-1"))
+        monkeypatch.setattr(csv_mod, "_NON_UTF8_FULL_READ_WARN_BYTES", 4)
+        spec = DataSourceSpec(source_type=DataSourceType.CSV, path=path)
+        handle = default_registry().open(spec)
+        try:
+            handle.count_rows()
+            warnings = handle.warnings()
+            assert any("fully loaded into memory" in w.message for w in warnings)
+        finally:
+            handle.close()
+
+    def test_non_utf8_csv_small_file_no_warning(self, tmp_path: Path, monkeypatch) -> None:
+        path = tmp_path / "latin_small.csv"
+        path.write_bytes("name,note\nkarl,caf\xe9\n".encode("latin-1"))
+        monkeypatch.setattr(csv_mod, "_NON_UTF8_FULL_READ_WARN_BYTES", 4096)
+        spec = DataSourceSpec(source_type=DataSourceType.CSV, path=path)
+        handle = default_registry().open(spec)
+        try:
+            handle.count_rows()
+            assert handle.warnings() == []
+        finally:
+            handle.close()
+
+    def test_sampled_scan_uses_sampled_fingerprint(self, sample_csv: Path) -> None:
+        runner = ScanRunner(DetectorRegistry())
+        config = ScanConfig(sampling=SamplingConfig(method="reservoir", sample_size=3))
+        spec = DataSourceSpec(source_type=DataSourceType.CSV, path=sample_csv)
+        handle = default_registry().open(spec)
+        ctx = DetectionContext(
+            dataset_id="fp", table_name=None, columns=["id", "amount", "email"], handle=handle
+        )
+        try:
+            scan_run, _, _ = runner.run_scan(ctx, config)
+            full_fp = handle.fingerprint(mode="full")
+            assert scan_run.fingerprint.fingerprint_type == "sampled"
+            assert scan_run.fingerprint.content_sample_hash != full_fp.content_sample_hash
+            assert scan_run.fingerprint.file_sha256 is None
+            assert full_fp.file_sha256 is not None
+            scan_full, _, _ = runner.run_scan(ctx, ScanConfig())
+            assert scan_full.fingerprint.fingerprint_type == "full"
         finally:
             handle.close()
 

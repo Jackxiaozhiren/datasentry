@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from datasentry_core import __version__
+from datasentry_core.connectors.base import FingerprintMode
 from datasentry_core.connectors.sampling import SampledDataHandle
 from datasentry_core.detectors.base import (
     DetectionContext,
@@ -192,6 +193,15 @@ class ScanRunner:
         scan_run_id = f"scan_{uuid.uuid4().hex[:12]}"
         started_at = datetime.now(UTC)
         runs, issues = self.run(context, config, scan_run_id)
+        # Step 73/ADR-073：抽样扫描用 sampled 档指纹（变更检测语义），
+        # 避免整文件 SHA-256（原 full 档在 1e6 行 CSV 上 ~1s 量级）
+        fp_mode: FingerprintMode = (
+            "sampled"
+            if config.sampling.method != "none"
+            and (config.sampling.sample_size is not None or config.sampling.ratio is not None)
+            else "full"
+        )
+        fingerprint = context.handle.fingerprint(mode=fp_mode)
         failed = [r for r in runs if r.status == "failed"]
         status: Literal["completed", "failed"] = "failed" if failed else "completed"
         error = "; ".join(f"{r.detector_id}: {r.error}" for r in failed) if failed else None
@@ -213,7 +223,7 @@ class ScanRunner:
             dataset_id=context.dataset_id,
             status=status,
             config=config,
-            fingerprint=context.handle.fingerprint(),
+            fingerprint=fingerprint,
             issues_count=_count_by_severity(issues),
             started_at=started_at,
             finished_at=datetime.now(UTC),
