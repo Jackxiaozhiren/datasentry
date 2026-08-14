@@ -651,3 +651,20 @@ V1 收官：漂移引擎、跨表完整性、AI 修复候选、MCP 生态面、�
 - Python >= 3.12，DuckDB 执行引擎（ADR-005/007）
 - 门禁：ruff + mypy --strict + pytest 覆盖率 >= 85%
   （当前 522 例，95%）
+
+## [0.16.0] - 2026-08-14
+
+V14 调度执行器分布式化：扫描任务可下发远端 worker 执行。
+
+### 新增（Step 90，远程执行器，ADR-090）
+
+- **RemoteScanExecutor**：实现 ScanExecutor Protocol——把
+  JobCommand 序列化 POST 到远端 worker 的 /rpc/execute（共享
+  token 鉴权），同步等待 JobResult 回传；失败（网络/鉴权/远端
+  错误/超时/契约不符）统一 ScanExecutionError，按既有
+  retry/死信语义落库，Scheduler 零改动
+- **契约宽松**：远端返回多余字段忽略；非 JobResult 形状判为
+  契约错误
+- 测试 9 例（uvicorn 真 HTTP 后台线程）：成功 / base_url 容错 /
+  远端 422 / 契约不符 / 网络错误 / 超时 / 连接拒绝 / 跳过结果
+  透传 / 多余字段忽略

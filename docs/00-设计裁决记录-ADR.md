@@ -2297,3 +2297,24 @@
   - 三面命令对齐表（CLI/API/MCP 同语义同 store，无第三套逻辑）。
 - **依据**：API PATCH 先例 + SQLite 窗口函数；保留策略阈值默认
   100/任务（单任务 5 年每日 1 跑 ≈ 1825 条，运维可按需调用裁剪）。
+
+## ADR-090：远程执行器 RemoteScanExecutor（V14，Step 90）
+- **背景**：V13 管理面三面补齐后，执行面仍锁死本地
+  （LocalScanExecutor）；core 注释自 V2-D 起预留
+  `ScanExecutor` Protocol 扩展点（"未来可换云函数/SSH 远端
+  执行"）。
+- **决策**：
+  - `RemoteScanExecutor(base_url, token, timeout=120)`：实现
+    ScanExecutor Protocol；`POST {base}/rpc/execute` +
+    `X-Datasentry-Token` 头，body=JobCommand JSON，回传
+    JobResult JSON；同步等待，与 Local 语义一致（失败统一
+    ScanExecutionError，Scheduler 零改动走 retry/死信）；
+  - 契约宽松：JobResult 全字段有默认值 + extra 忽略——远端
+    多余字段不炸；非 JobResult 形状（JSON 解析失败/类型不符）
+    → 契约错误；
+  - 可测性：`client_factory` 注入 httpx.Client——生产默认真
+    socket；测试用 uvicorn 后台线程起真 HTTP 服务
+    （httpx.ASGITransport 是 async-only，同步 Client 不可用）。
+- **边界**：不做多 worker 路由/异步回调/任务队列。
+- **依据**：ScanExecutor Protocol 既有契约 + WebhookNotifier 的
+  client_factory 注入先例 + httpx 依赖已存在。

@@ -29,31 +29,23 @@ worker（另一台 DataSentry 实例 / 独立执行节点），远端执行扫�
 
 ## 二、Step 分解
 
-### Step 90（ADR-090）RemoteScanExecutor（客户端）
+### Step 90（ADR-090）RemoteScanExecutor（客户端） —— ✅ 完成
 
-- **现状**：`ScanExecutor` Protocol（core.py:201）已定义
-  `execute(command: JobCommand) -> JobResult`；`Scheduler` 构造
-  可注入（core.py:316）；`WebhookNotifier` 已有 httpx 用法可参照。
-- **方案**：新文件 `src/datasentry/scheduler/remote.py`：
-  - `ScanExecutionError(Exception)`：执行失败（网络/鉴权/远端
-    错误/超时/契约不符）
-  - `RemoteScanExecutor(base_url, token, timeout=120.0)`
-    - `execute(command)`：`POST {base_url}/rpc/execute`，头
-      `X-Datasentry-Token`，body=`command.model_dump(mode="json")`
-    - 2xx → `JobResult.model_validate(data)`（契约不符 → raise）
-    - 4xx/5xx/网络异常/超时 → `raise ScanExecutionError`
-  - **可测性**：构造接受 `client_factory: Callable[[], httpx.Client]`
-    ——生产默认 `httpx.Client(timeout=...)`；测试注入
-    `ASGITransport`（FastAPI app 直连）或 `MockTransport`（不可达
-    场景）
-- **语义**：与 Local 完全一致——同步等待；异常由
-  `Scheduler._run_job` 统一落 failed + 重试（零改动 scheduler
-  core）。
-- **测试**（`tests/test_remote_executor.py`）：成功回传 / 500 →
-  error / 401 → error / 契约不符（非 JobResult 形状）→ error /
-  网络异常（MockTransport raise）→ error。
+- 交付：`src/datasentry/scheduler/remote.py`（ScanExecutionError +
+  RemoteScanExecutor，client_factory 注入 + base_url 尾斜杠容错）；
+  tests/test_remote_executor.py 9 例全绿；门禁全绿
+- 坑位：
+  1. **httpx.ASGITransport 是 async-only**——同步 Client 调用报
+     "async request with sync Client"；测试改用 uvicorn 后台线程
+     起真 HTTP 服务（server.started 轮询 + port=0 随机端口，
+     servers[0].sockets[0] 取端口），生产拓扑一致，Step 92 端到端
+     直接复用
+  2. **JobResult 全字段有默认值 + extra 忽略**——远端返回多余
+     字段不炸（宽松契约，已固化测试）；"totally": "wrong" 这类
+     额外字段场景不触发契约错误，须用非 JSON 形状（如字符串）
+     测契约破坏
 
-### Step 91（ADR-091）worker 端点 POST /rpc/execute（服务端）
+### Step 91（ADR-091）worker 端点 POST /rpc/execute（服务端） —— ⏳ 待开始
 
 - **方案**（api.py）：
   - `create_app(project, worker_token=None)`：token 可配置
@@ -70,13 +62,13 @@ worker（另一台 DataSentry 实例 / 独立执行节点），远端执行扫�
   token / 401 错 token / 200 执行成功（校验 scan_run 落库）/
   422 非法 body / 500 执行异常（指向不存在文件）。
 
-### Step 92（ADR-092）端到端 + CLI/文档 + 发布 v0.16.0
+### Step 92（ADR-092）端到端 + CLI/文档 + 发布 v0.16.0 —— ⏳ 待开始
 
 - **端到端**（`tests/test_remote_e2e.py`）：worker app（带
-  token，ASGITransport 直连）+ 调度端
-  `Scheduler(SchedulerStore(tmp), RemoteScanExecutor(...,
-  client_factory=...))` → job trigger → run completed + 远端
-  真实执行扫描（scan history 落库）→ webhook 通知照常。
+  token，uvicorn 后台线程真 HTTP）+ 调度端
+  `Scheduler(SchedulerStore(tmp), RemoteScanExecutor(worker_url,
+  token))` → job trigger → run completed + 远端真实执行扫描
+  （scan history 落库）→ webhook 通知照常。
 - **CLI**：`datasentry worker` 子命令——`--port`/`--token` 参数，
   用 `uvicorn` 启动 worker 端点（fastapi-cli 已带 uvicorn）；
   文档写清拓扑与安全。
