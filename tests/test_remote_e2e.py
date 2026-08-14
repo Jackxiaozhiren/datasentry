@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import threading
 import time
+from datetime import timedelta
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -55,7 +56,7 @@ def test_remote_job_trigger_end_to_end(tmp_path: Path) -> None:
                     "datasentry.scheduler.models", fromlist=["JobCommand"]
                 ).JobCommand(project=str(tmp_path), path=str(csv), dataset_id="orders"),
                 cron="0 0 1 1 *",
-                next_run_at=now,
+                next_run_at=now + timedelta(days=365),
                 created_at=now,
                 updated_at=now,
             )
@@ -87,7 +88,7 @@ def test_remote_job_trigger_worker_error_marks_failed(tmp_path: Path) -> None:
                 project=str(tmp_path), path=str(tmp_path / "nope.csv")
             ),
             cron="0 0 1 1 *",
-            next_run_at=now,
+            next_run_at=now + timedelta(days=365),
             created_at=now,
             updated_at=now,
         )
