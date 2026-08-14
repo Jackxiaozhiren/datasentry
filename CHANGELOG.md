@@ -4,6 +4,23 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+V12 插件生态治理：清单 + 安装管理 + 完整性校验 + 测试夹具。
+
+### 新增（Step 82，插件清单与安装管理，ADR-082）
+
+- **插件清单（plugin.yaml）**：目录插件可携带 name/version/author/
+  license/description 元数据；`plugin list` 展示清单级视图
+  （manifests 字段，与检测器级列表并存）
+- **安装管理**：`plugin install <path|dir>` 复制到
+  workspace/plugins/<name>/（目录整体复制、单 .py 生成占位清单、
+  同名已存在拒绝）；`plugin uninstall <name>` 删除
+- **零迁移兼容**：旧平铺 `plugins/*.py` 布局照常加载（ADR-031
+  fail-fast 语义不变）；无清单子目录忽略，避免误加载任意嵌套；
+  清单非法不中断 list（记入 errors）
+- 安全边界不变：插件=本机可信代码，无沙箱（ADR-031/050 延续）
+
 ## [0.13.0] - 2026-08-14
 
 V11 三件套：证据级描述本地化 + 调度配置透传 + 增量画像列级复用。

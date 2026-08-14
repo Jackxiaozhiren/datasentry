@@ -216,13 +216,117 @@ class DataSentry:
         return result
 
     def list_plugins(self) -> dict[str, Any]:
-        """插件清单（Step 50，V2-C）：已加载插件 + 失败项（entry points 优雅降级）。"""
+        """插件清单（Step 50/82）：已加载插件 + 清单字段 + 失败项。
+
+        Step 82（ADR-082）：`manifests` 为目录插件的清单级视图
+        （name/version/author/license/description）；检测器级列表保持
+        Step 50 结构（source: dir/entrypoint）。清单非法时记录错误，
+        不中断列表。
+        """
+        from datasentry_core.plugins import read_plugin_manifests
+
+        manifests = {}
+        try:
+            manifests = read_plugin_manifests([self._workspace / "plugins"])
+        except ValueError as exc:
+            self._plugin_errors.append({"name": "manifest", "error": str(exc)})
         plugins = [d for d in self.list_detectors() if d["source"] in ("dir", "entrypoint")]
         return {
             "plugins": plugins,
+            "manifests": [
+                {
+                    "name": m.name,
+                    "version": m.version,
+                    "author": m.author,
+                    "license": m.license,
+                    "description": m.description,
+                }
+                for m in manifests.values()
+            ],
             "errors": self._plugin_errors,
             "workspace_plugins_dir": str(self._workspace / "plugins"),
         }
+
+    def plugins_dir(self) -> Path:
+        """工作区插件目录（ADR-031）：<workspace>/plugins（不存在时创建）。"""
+        path = self._workspace / "plugins"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def install_plugin(self, source: str | Path) -> dict[str, Any]:
+        """安装插件（Step 82，ADR-082）：文件或目录 → workspace/plugins/<name>/。
+
+        - 目录：复制整个目录（含 plugin.yaml 清单，无清单生成占位）
+        - 单 .py 文件：安装为 <name>/<file>.py + 生成占位清单
+        - 同名已存在 → PluginManifestError（需先 uninstall）
+        返回 {"name", "version", "installed_to", "files"}。
+        """
+        import shutil
+
+        from datasentry_core.plugins import (
+            PLUGIN_MANIFEST_FILE,
+            PluginManifest,
+            PluginManifestError,
+        )
+
+        src = Path(source).expanduser()
+        if not src.exists():
+            raise FileNotFoundError(f"plugin source not found: {src}")
+        if src.is_dir():
+            manifest_path = src / PLUGIN_MANIFEST_FILE
+            if manifest_path.is_file():
+                manifest = PluginManifest.from_file(manifest_path)
+            else:
+                manifest = PluginManifest(
+                    name=src.name,
+                    version="0.1.0",
+                    description=f"installed from {src}",
+                )
+            target = self.plugins_dir() / manifest.name
+            if target.exists():
+                raise PluginManifestError(
+                    f"plugin {manifest.name!r} already installed at {target} (uninstall first)"
+                )
+            files = [p for p in src.rglob("*") if p.is_file()]
+            shutil.copytree(src, target)
+            if not (target / PLUGIN_MANIFEST_FILE).is_file():
+                _write_placeholder_manifest(target, manifest)
+        else:
+            if src.suffix != ".py":
+                raise PluginManifestError(f"plugin file must be .py: {src}")
+            manifest = PluginManifest(
+                name=src.stem,
+                version="0.1.0",
+                description=f"installed from {src}",
+            )
+            target = self.plugins_dir() / manifest.name
+            if target.exists():
+                raise PluginManifestError(
+                    f"plugin {manifest.name!r} already installed at {target} (uninstall first)"
+                )
+            target.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, target / src.name)
+            files = [target / src.name]
+            _write_placeholder_manifest(target, manifest)
+        return {
+            "name": manifest.name,
+            "version": manifest.version,
+            "installed_to": str(target),
+            "files": [str(f) for f in files],
+        }
+
+    def uninstall_plugin(self, name: str) -> dict[str, Any]:
+        """卸载插件（Step 82，ADR-082）：删除 <workspace>/plugins/<name>/。
+
+        未知插件抛 FileNotFoundError（未安装）。
+        """
+        import shutil
+
+        target = self._workspace / "plugins" / name
+        if not target.is_dir():
+            raise FileNotFoundError(f"plugin {name!r} not installed at {target}")
+        shutil.rmtree(target)
+        return {"name": name, "removed": str(target)}
 
     # ---- 扫描 ----------------------------------------------------------
 
@@ -662,3 +766,17 @@ class DataSentry:
     def get_issue(self, issue_id: str) -> Issue | None:
         """按 ID 取 Issue（修复工作台等 UI 用途）。"""
         return self._store.get_issue_by_id(issue_id)
+
+
+def _write_placeholder_manifest(target: Path, manifest: Any) -> None:
+    """写入占位 plugin.yaml（Step 82，ADR-082）：安装无清单来源时生成。"""
+    from datasentry_core.plugins import PLUGIN_MANIFEST_FILE
+
+    content = (
+        f"name: {manifest.name}\n"
+        f"version: {manifest.version}\n"
+        f"author: {manifest.author}\n"
+        f"license: {manifest.license}\n"
+        f"description: {manifest.description}\n"
+    )
+    (target / PLUGIN_MANIFEST_FILE).write_text(content, encoding="utf-8")

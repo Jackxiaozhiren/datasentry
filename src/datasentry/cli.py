@@ -833,13 +833,41 @@ def _cmd_detectors_list(args: argparse.Namespace) -> int:
 
 
 def _cmd_plugin_list(args: argparse.Namespace) -> int:
-    """列出已发现插件（Step 50，V2-C，ADR-050）：目录 + entry points，含失败项。"""
+    """列出已发现插件（Step 50/82）：目录 + entry points，含失败项与清单。"""
     client = DataSentry(args.project)
     try:
         result = client.list_plugins()
     finally:
         client.close()
     _emit(_envelope("plugin list", result), args.format)
+    return EXIT_OK
+
+
+def _cmd_plugin_install(args: argparse.Namespace) -> int:
+    """安装插件（Step 82，ADR-082）：文件或目录 → workspace/plugins/<name>/。"""
+    client = DataSentry(args.project)
+    try:
+        result = client.install_plugin(args.source)
+    except (FileNotFoundError, ValueError) as exc:
+        _emit(_envelope("plugin install", {"error": str(exc)}), args.format)
+        return EXIT_SOURCE_UNAVAILABLE
+    finally:
+        client.close()
+    _emit(_envelope("plugin install", result), args.format)
+    return EXIT_OK
+
+
+def _cmd_plugin_uninstall(args: argparse.Namespace) -> int:
+    """卸载插件（Step 82，ADR-082）：删除 workspace/plugins/<name>/。"""
+    client = DataSentry(args.project)
+    try:
+        result = client.uninstall_plugin(args.name)
+    except FileNotFoundError as exc:
+        _emit(_envelope("plugin uninstall", {"error": str(exc)}), args.format)
+        return EXIT_SOURCE_UNAVAILABLE
+    finally:
+        client.close()
+    _emit(_envelope("plugin uninstall", result), args.format)
     return EXIT_OK
 
 
@@ -1183,10 +1211,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_detectors = sub.add_parser("detectors", help="list registered detectors (built-in + plugins)")
     p_detectors.set_defaults(func=_cmd_detectors_list)
 
-    p_plugin = sub.add_parser("plugin", help="list discovered plugins (dir + entry points, V2-C)")
+    p_plugin = sub.add_parser("plugin", help="manage plugins (list/install/uninstall, V12)")
     plugin_sub = p_plugin.add_subparsers(dest="plugin_cmd", required=True)
-    p_plugin_list = plugin_sub.add_parser("list", help="list plugins & load failures")
+    p_plugin_list = plugin_sub.add_parser("list", help="list plugins, manifests & load failures")
     p_plugin_list.set_defaults(func=_cmd_plugin_list)
+    p_plugin_install = plugin_sub.add_parser(
+        "install", help="install plugin from file or directory (Step 82, ADR-082)"
+    )
+    p_plugin_install.add_argument("source", help="plugin .py file or directory (with plugin.yaml)")
+    p_plugin_install.set_defaults(func=_cmd_plugin_install)
+    p_plugin_uninstall = plugin_sub.add_parser(
+        "uninstall", help="remove installed plugin by name (Step 82, ADR-082)"
+    )
+    p_plugin_uninstall.add_argument("name", help="plugin name (manifest name / directory name)")
+    p_plugin_uninstall.set_defaults(func=_cmd_plugin_uninstall)
 
     p_secrets = sub.add_parser(
         "secrets",

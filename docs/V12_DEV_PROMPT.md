@@ -100,7 +100,16 @@ V11（v0.13.0）已发布。V12 主题：**插件生态治理**——补齐
 
 ## 四、落地状态
 
-### Step 82（ADR-082）插件清单与安装管理 —— ⏳ 待开始
+### Step 82（ADR-082）插件清单与安装管理 —— ✅ 完成
+
+- 提交：`TODO_FEATURE_HASH`（docs 回填 `TODO_DOCS_HASH`）
+- 落地：plugins.py 增 PluginManifest/read_plugin_manifests（plugin.yaml
+  协议，name/version 必填、name 限 `[a-zA-Z0-9_-]`）+ 目录加载兼容
+  （平铺 .py 与清单目录并存，无清单子目录忽略）；client.py 增
+  install_plugin/uninstall_plugin/plugins_dir，list_plugins 增
+  manifests 视图；cli.py 增 plugin install/uninstall；tests/
+  test_plugin_manifest.py 17 例全绿；CLI 冒烟（install→list→uninstall）
+  通过；门禁全绿（覆盖 95.02%）
 
 ### Step 83（ADR-083）完整性校验与信任锚 —— ⏳ 待开始
 

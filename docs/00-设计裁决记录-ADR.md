@@ -2170,3 +2170,29 @@
   tests/test_profile_reuse.py 12 例（复用同一性 / 仅新列重算 /
   删列剔除 / 类型变更重算 / dataset_id 重建 / 行数最新 / client
   加列·删列·全量·无 sidecar·契约稳定）。
+
+## ADR-081：插件清单与安装管理（V12，Step 82）
+
+- **背景**：插件 API v1（Step 31 目录版 / Step 50 entry points 版）
+  只有"加载"能力，无清单元数据（作者/版本/许可）、无安装/卸载
+  管理、无自测设施；plugins/ 目录只能手动平铺 .py。
+- **决策**：清单化 + 管理面补齐：
+  - `plugin.yaml` 清单（name/version 必填、author/license/description
+    可选，name 限 `[a-zA-Z0-9_-]`）；清单非法抛 `PluginManifestError`
+    （含文件与原因）
+  - 目录加载兼容：顶层平铺 `*.py`（旧布局零迁移）与清单目录
+    `<dir>/<name>/*.py` 均加载；无 plugin.yaml 的子目录忽略（避免
+    误加载任意嵌套）；加载顺序确定性（目录序 + 文件名序）
+  - `plugin install <path|dir>` → `workspace/plugins/<name>/`（目录
+    整体复制、单 .py 生成占位清单；同名已存在拒绝）；`plugin
+    uninstall <name>` 删除；`plugin list` 增 manifests 字段
+    （清单级视图，与检测器级列表并存）
+- **边界**：清单与检测器无强制绑定（一个插件目录可含多个检测器
+  模块）；list_plugins 不因清单非法中断（记入 errors）；
+  entry points 插件无清单（包管理面）；安全模型不变
+  （本机可信代码，ADR-031/050 延续）。
+- **影响**：plugins.py（PluginManifest/read_plugin_manifests/加载扩展）
+  + client.py（install_plugin/uninstall_plugin/plugins_dir/list_plugins
+  增 manifests）+ cli.py（plugin install/uninstall）+ tests/
+  test_plugin_manifest.py 17 例（清单解析 5 / 扫描加载 4 /
+  安装卸载列表 8）。
