@@ -102,7 +102,7 @@ V11（v0.13.0）已发布。V12 主题：**插件生态治理**——补齐
 
 ### Step 82（ADR-082）插件清单与安装管理 —— ✅ 完成
 
-- 提交：`TODO_FEATURE_HASH`（docs 回填 `TODO_DOCS_HASH`）
+- 提交：``90ddac2``（docs 回填 `待回填`）
 - 落地：plugins.py 增 PluginManifest/read_plugin_manifests（plugin.yaml
   协议，name/version 必填、name 限 `[a-zA-Z0-9_-]`）+ 目录加载兼容
   （平铺 .py 与清单目录并存，无清单子目录忽略）；client.py 增
