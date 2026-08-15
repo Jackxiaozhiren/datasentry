@@ -14,7 +14,7 @@ import sqlite3
 import time
 
 #: 当前 schema 版本（PRAGMA user_version）
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 _SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -321,7 +321,7 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
 CREATE TABLE IF NOT EXISTS job_runs (
     run_id      TEXT PRIMARY KEY,
     job_id      TEXT NOT NULL REFERENCES scheduled_jobs(job_id) ON DELETE CASCADE,
-    status      TEXT NOT NULL CHECK (status IN ('running','completed','failed')),
+    status      TEXT NOT NULL CHECK (status IN ('running','completed','failed','cancelled')),
     attempt     INTEGER NOT NULL DEFAULT 0,
     started_at  TEXT NOT NULL,
     finished_at TEXT,
@@ -362,10 +362,50 @@ PLACEHOLDER_TABLES = (
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
-    """幂等补列：存在则跳过（调用方负责保证 ddl 不含 NOT NULL 且默认兼容）。"""
+    """幂等补列：存在则跳过（调用方保证 ddl 不含 NOT NULL 且默认兼容）。"""
     exists = any(row[1] == column for row in conn.execute(f"PRAGMA table_info({table})").fetchall())
     if not exists:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+
+def _rebuild_job_runs_cancelled(conn: sqlite3.Connection) -> None:
+    """v8：重建 job_runs 表（status CHECK 增 'cancelled'），数据原样迁移。
+
+    新表定义与 `_SCHEMA_DDL` 同源（新增库直接建含 cancelled 的表，
+    CREATE TABLE IF NOT EXISTS 对旧库不生效，故显式重建）。
+    并发防护：BEGIN IMMEDIATE 独占写锁——多进程同时首次打开旧库时
+    后到者阻塞到先到者完成（busy_timeout 内），此时 user_version
+    已提升，其 rebuild 分支被跳过；若已读到旧 version 再重入，重建
+    也幂等（job_runs_new 已不存在或重建结果一致）。
+    """
+    conn.execute("BEGIN IMMEDIATE")
+    conn.execute(
+        """CREATE TABLE job_runs_new (
+    run_id      TEXT PRIMARY KEY,
+    job_id      TEXT NOT NULL REFERENCES scheduled_jobs(job_id) ON DELETE CASCADE,
+    status      TEXT NOT NULL CHECK (status IN ('running','completed','failed','cancelled')),
+    attempt     INTEGER NOT NULL DEFAULT 0,
+    started_at  TEXT NOT NULL,
+    finished_at TEXT,
+    scan_run_id TEXT,
+    summary     TEXT,
+    error       TEXT,
+    webhook_at  TEXT,
+    file_hash   TEXT,
+    skipped     INTEGER NOT NULL DEFAULT 0
+)"""
+    )
+    conn.execute(
+        """INSERT INTO job_runs_new
+           (run_id, job_id, status, attempt, started_at, finished_at, scan_run_id,
+            summary, error, webhook_at, file_hash, skipped)
+           SELECT run_id, job_id, status, attempt, started_at, finished_at, scan_run_id,
+                  summary, error, webhook_at, file_hash, skipped
+           FROM job_runs"""
+    )
+    conn.execute("DROP TABLE job_runs")
+    conn.execute("ALTER TABLE job_runs_new RENAME TO job_runs")
+    conn.execute("COMMIT")
 
 
 def _enable_wal(conn: sqlite3.Connection) -> None:
@@ -417,5 +457,10 @@ def migrate(conn: sqlite3.Connection) -> None:
         _ensure_column(
             conn, "scheduled_jobs", "export_report", "export_report INTEGER NOT NULL DEFAULT 0"
         )
+    # v7 → v8：job_runs.status 增 cancelled（V22，Step 114，ADR-114）——
+    # SQLite 无法 ALTER CHECK，重建表放宽约束（数据原样保留；无表引用
+    # job_runs，DROP 安全；外键到 scheduled_jobs 由 RENAME 保留）。
+    if version < 8:
+        _rebuild_job_runs_cancelled(conn)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()

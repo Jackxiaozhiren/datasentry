@@ -4,6 +4,23 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.24.0] - 2026-08-15
+
+### 变更（Step 114，调度端 cancel 语义闭环，ADR-114）
+
+- 新增 `RunStatus.CANCELLED` + `Scheduler.cancel(job_id)` +
+  `SchedulerStore.cancel_run`：事务内原子判定 running run → run
+  cancelled + job idle；未运行无操作
+- 新增 CLI `job cancel job_id [--remote-url] [--remote-token]`：
+  未运行 EXIT_CONFIG；成功 {job_id, run_id, status: "cancelled"}
+- **结果丢弃语义**：执行器同步阻塞无法强杀，`finish_run` 事务内
+  检查 run 状态——已 cancelled 则丢弃结果（run 保持 cancelled、
+  job 状态不动），竞态由 BEGIN IMMEDIATE 串行化
+- schema v7→v8：重建 job_runs 表放宽 status CHECK（数据原样迁移，
+  并发迁移防竞态）
+- 测试 +7（cancel running / 非运行 / 结果丢弃 / 完成后无操作 /
+  json 信封 / recover 不受影响 / Scheduler API）
+
 ## [0.23.0] - 2026-08-15
 
 ### 变更（Step 113，跨 workspace 物理隔离语义，ADR-113）

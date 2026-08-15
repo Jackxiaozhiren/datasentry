@@ -355,6 +355,15 @@ class Scheduler:
             self._submit(job_id, run_id)
         return run_id
 
+    def cancel(self, job_id: str) -> str | None:
+        """取消正在运行的任务（V22，ADR-114）；未在运行返回 None。
+
+        语义：run → cancelled + job → idle；执行器结果最终到达时被
+        `finish_run` 的 cancelled 分支丢弃（尽力而为——扫描线程无法
+        强杀，状态作废即可）。
+        """
+        return self.store.cancel_run(job_id)
+
     def shutdown(self, wait: bool = True) -> None:
         """优雅关闭：停止接收新任务；wait=True 等待 in-flight 完成。
 

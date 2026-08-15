@@ -783,6 +783,45 @@ def _cmd_job_trigger(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_job_cancel(args: argparse.Namespace) -> int:
+    """取消正在运行的任务（run → cancelled，job → idle）。
+
+    `--remote-url`（V22，ADR-115）时尽力而为通知远端 worker（网络
+    失败仅警告，调度端取消语义不受影响）。
+    """
+    from datasentry.scheduler.core import LocalScanExecutor, Scheduler
+
+    store = _job_store(args.project)
+    run_id = Scheduler(store=store, executor=LocalScanExecutor()).cancel(args.job_id)
+    if run_id is None:
+        _emit(
+            _envelope("job cancel", {"job_id": args.job_id, "error": "job is not running"}),
+            args.format,
+        )
+        return EXIT_CONFIG
+    data: dict[str, object] = {"job_id": args.job_id, "run_id": run_id, "status": "cancelled"}
+    if args.remote_url:
+        if not args.remote_token:
+            _emit(
+                _envelope(
+                    "job cancel",
+                    {"job_id": args.job_id, "error": "remote notify requires --remote-token"},
+                ),
+                args.format,
+            )
+            return EXIT_CONFIG
+        try:
+            from datasentry.scheduler.remote import RemoteScanExecutor
+
+            RemoteScanExecutor(args.remote_url, args.remote_token).cancel(run_id)
+            data["remote_notified"] = True
+        except Exception as exc:  # 尽力而为：失败仅警告
+            data["remote_notified"] = False
+            data["remote_warning"] = str(exc)
+    _emit(_envelope("job cancel", data), args.format)
+    return EXIT_OK
+
+
 def _cmd_job_status(args: argparse.Namespace) -> int:
     """任务视图 + 最近运行历史。"""
     store = _job_store(args.project)
@@ -1481,6 +1520,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="health-probe the worker before remote execution (fast fail)",
     )
     p_job_trigger.set_defaults(func=_cmd_job_trigger)
+    p_job_cancel = job_sub.add_parser("cancel", help="cancel a running job (V22, ADR-114)")
+    p_job_cancel.add_argument("job_id", type=str)
+    p_job_cancel.add_argument(
+        "--remote-url",
+        type=str,
+        default=None,
+        help="worker base URL to notify (best-effort, V22/ADR-115)",
+    )
+    p_job_cancel.add_argument(
+        "--remote-token",
+        type=str,
+        default=None,
+        help="worker token (required with --remote-url)",
+    )
+    p_job_cancel.set_defaults(func=_cmd_job_cancel)
     p_job_status = job_sub.add_parser("status", help="job view + recent run history")
     p_job_status.add_argument("job_id", type=str)
     p_job_status.set_defaults(func=_cmd_job_status)

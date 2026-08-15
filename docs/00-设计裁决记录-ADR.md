@@ -2755,3 +2755,27 @@
   未回归。
 - **依据**：ADR-091 远端执行 + ADR-010 工作区数据目录 + ADR-070
   报告落点。
+
+## ADR-114：调度端 cancel 语义闭环（V22，Step 114）
+- **背景**：V21 完成远程执行配置化后，用户手动误触发长扫描无法
+  停止；`job_runs.status` CHECK 仅 ('running','completed','failed')，
+  Scheduler 无取消路径。
+- **决策**：
+  - `RunStatus.CANCELLED`；`SchedulerStore.cancel_run(job_id)`——
+    BEGIN IMMEDIATE 事务内原子判定 running run → run cancelled +
+    job idle；无 running 返回 None（无操作）；
+  - `Scheduler.cancel` 代理 store；CLI `job cancel job_id
+    [--remote-url] [--remote-token]`（未运行 EXIT_CONFIG；成功
+    {job_id, run_id, status:"cancelled"}）；
+  - **结果丢弃语义**：执行器同步阻塞无法强杀，`finish_run` 事务
+    内读 run 状态——已 cancelled 则跳过全部更新（结果作废、job
+    状态不动、未提交自动回滚）；竞态由 BEGIN IMMEDIATE 串行化，
+    无锁；
+  - **schema v7→v8**：SQLite 无法 ALTER CHECK，重建 job_runs 表
+    放宽 CHECK（数据原样迁移；BEGIN IMMEDIATE 防并发迁移竞态——
+    多进程首次打开旧库时后到者阻塞，幂等）。
+- **测试**：+7（cancel running / 非运行 EXIT_CONFIG / 结果丢弃 /
+  完成后无操作 / json 信封 / recover_interrupted 不受影响 /
+  Scheduler API cancel）。
+- **依据**：ADR-012 迁移策略 + ADR-096 任务级错误语义 + V19
+  并发教训（Step 105）。

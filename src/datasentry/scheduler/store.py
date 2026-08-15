@@ -269,38 +269,45 @@ class SchedulerStore:
         """落执行结果并推进任务状态（成功 → idle + 下次计划；失败 → 重试或死信）。"""
         with closing(_connect(self._db_path)) as conn:
             conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("SELECT job_id FROM job_runs WHERE run_id = ?", (run_id,)).fetchone()
-            if row is not None:
-                conn.execute(
-                    """UPDATE job_runs
-                       SET status = ?, finished_at = ?, scan_run_id = ?, summary = ?,
-                           error = ?, file_hash = ?, skipped = ?
-                       WHERE run_id = ?""",
-                    (
-                        "completed" if success else "failed",
-                        iso(utcnow()),
-                        scan_run_id,
-                        summary,
-                        error,
-                        file_hash,
-                        1 if skipped else 0,
-                        run_id,
-                    ),
-                )
-                conn.execute(
-                    """UPDATE scheduled_jobs
-                       SET status = ?, next_run_at = ?, last_run_at = ?,
-                           last_result = ?, updated_at = ?
-                       WHERE job_id = ?""",
-                    (
-                        job_status.value,
-                        iso(next_run_at),  # type: ignore[arg-type]
-                        iso(utcnow()),
-                        summary if success else error,
-                        iso(utcnow()),
-                        row["job_id"],
-                    ),
-                )
+            row = conn.execute(
+                "SELECT job_id, status FROM job_runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if row is None:
+                return
+            if row["status"] == "cancelled":
+                # V22（ADR-114）：run 已被取消——执行器结果作废，丢弃（job 状态
+                # 也不动）；未提交自动回滚，不影响既有数据。
+                return
+            conn.execute(
+                """UPDATE job_runs
+                   SET status = ?, finished_at = ?, scan_run_id = ?, summary = ?,
+                       error = ?, file_hash = ?, skipped = ?
+                   WHERE run_id = ?""",
+                (
+                    "completed" if success else "failed",
+                    iso(utcnow()),
+                    scan_run_id,
+                    summary,
+                    error,
+                    file_hash,
+                    1 if skipped else 0,
+                    run_id,
+                ),
+            )
+            conn.execute(
+                """UPDATE scheduled_jobs
+                   SET status = ?, next_run_at = ?, last_run_at = ?,
+                       last_result = ?, updated_at = ?
+                   WHERE job_id = ?""",
+                (
+                    job_status.value,
+                    iso(next_run_at),  # type: ignore[arg-type]
+                    iso(utcnow()),
+                    summary if success else error,
+                    iso(utcnow()),
+                    row["job_id"],
+                ),
+            )
             conn.execute("COMMIT")
 
     def prune_runs(self, max_per_job: int = 100) -> int:
@@ -345,6 +352,34 @@ class SchedulerStore:
                 (iso(utcnow()),),
             )
             conn.execute("COMMIT")
+
+    def cancel_run(self, job_id: str, *, error: str = "cancelled by user") -> str | None:
+        """取消正在运行的任务（V22，ADR-114）：run → cancelled，job → idle。
+
+        事务内原子判定：无 running run 返回 None（无操作）。执行器最终
+        结果到达时由 `finish_run` 的 cancelled 分支丢弃——竞态靠单事务
+        串行化，无锁。
+        """
+        with closing(_connect(self._db_path)) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT run_id FROM job_runs WHERE job_id = ? AND status = 'running'",
+                (job_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            conn.execute(
+                """UPDATE job_runs SET status = 'cancelled', finished_at = ?,
+                   error = ? WHERE run_id = ?""",
+                (iso(utcnow()), error, row["run_id"]),
+            )
+            conn.execute(
+                """UPDATE scheduled_jobs SET status = 'idle', updated_at = ?
+                   WHERE job_id = ?""",
+                (iso(utcnow()), job_id),
+            )
+            conn.execute("COMMIT")
+        return str(row["run_id"])
 
     # ---- 查询 ------------------------------------------------------------
 

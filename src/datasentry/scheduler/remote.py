@@ -193,6 +193,31 @@ class RemoteScanExecutor:
         except Exception as exc:
             logger.warning("report pull failed for %s: %s", result.scan_run_id, exc)
 
+    def cancel(self, run_token: str) -> bool:
+        """远端取消（V22，Step 115，ADR-115）：尽力而为。
+
+        POST /rpc/cancel {run_token}；成功返回 True。401/503/404 与
+        网络失败**仅警告**（调度端取消语义不依赖远端回执——run 已在
+        调度端标 cancelled，远端只是结果作废标记）。
+        """
+        try:
+            client = self._client()
+            try:
+                response = client.post(
+                    f"{self._base_url}/rpc/cancel",
+                    headers={self._TOKEN_HEADER: self._token},
+                    json={"run_token": run_token},
+                )
+            finally:
+                client.close()
+        except Exception as exc:
+            logger.warning("remote cancel for %s failed: %s", run_token, exc)
+            return False
+        if response.status_code != 200:
+            logger.warning("remote cancel for %s failed: HTTP %s", run_token, response.status_code)
+            return False
+        return True
+
     def execute(self, command: JobCommand, *, preflight: bool | None = None) -> JobResult:
         """下发任务并同步等待远端结果；失败抛 `ScanExecutionError`。
 
