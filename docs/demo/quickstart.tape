@@ -11,9 +11,9 @@
 Output ../docs/demo/quickstart.gif
 
 Set Shell bash
-Set FontSize 18
-Set Width 96
-Set Height 26
+Set FontSize 16
+Set Width 1150
+Set Height 700
 Set Framerate 60
 Set PlaybackSpeed 1.6
 Set Padding 16
