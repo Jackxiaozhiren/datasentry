@@ -2824,3 +2824,20 @@
     丢弃承担（ADR-114 事务内检查）。
 - **测试**：+1 全链路 e2e。
 - **依据**：ADR-114 + ADR-115 + Step 113 物理隔离。
+
+## ADR-117：CLI 可用性——score latest 与 issues list --limit（V23，Step 117）
+- **背景**：增长期 demo/巡检流程中两处真实摩擦：`score` 必须手输
+  run_id（demo 场景想快速看重扫分数）；`issues list` 无截断参数
+  （问题多时终端刷屏）。均为可用性而非语义变更。
+- **决策**：
+  - `score` 的 run_id 接受字面量 `latest`：解析为
+    `list_scan_runs()`（started_at DESC）首条；空库 → error 信封 +
+    EXIT_CONFIG（与缺失 run 语义一致，不新增退出码）；
+  - score JSON 信封补 `scan_run_id` 字段（与 scan 信封命名对齐，
+    便于脚本消费）；
+  - `issues list --limit N`：fetch 后截断展示与计数（count 反映
+    展示数，语义为"列出前 N 条"）。
+- **测试**：+3（score latest 解析到最近一次扫描 / 空库 EXIT_CONFIG /
+  issues list --limit 截断）。
+- **依据**：V23 增长计划实测摩擦（demo 录制）；契约向后兼容
+  （仅新增参数与信封字段，无既有行为变更）。

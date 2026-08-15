@@ -509,6 +509,34 @@ class TestCli:
         assert payload["data"]["score"]["score_version"] == "1"
         assert payload["data"]["score"]["dimensions"]["consistency"] is None
 
+    def test_score_latest_resolves_most_recent_scan(
+        self, sample_csv: Path, workspace: Path, capsys
+    ) -> None:
+        main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
+        first_id = json.loads(capsys.readouterr().out)["data"]["scan_run_id"]
+        main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
+        second_id = json.loads(capsys.readouterr().out)["data"]["scan_run_id"]
+        assert first_id != second_id
+        code = main(["--project", str(workspace), "--format", "json", "score", "latest"])
+        assert code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["command"] == "score"
+        assert payload["data"]["scored"] is True
+        assert payload["data"]["scan_run_id"] == second_id
+
+    def test_score_latest_empty_workspace_exit_2(self, workspace: Path, capsys) -> None:
+        code = main(["--project", str(workspace), "score", "latest"])
+        assert code == 2
+
+    def test_issues_list_limit_truncates(self, sample_csv: Path, workspace: Path, capsys) -> None:
+        main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
+        capsys.readouterr()
+        code = main(["--project", str(workspace), "issues", "list", "--limit", "2"])
+        assert code == 0
+        out = capsys.readouterr().out
+        assert "issues: 2" in out
+        assert out.count("[") < 10  # 截断后不会列出全部问题
+
     def test_score_missing_exit_2(self, workspace: Path, capsys) -> None:
         code = main(["--project", str(workspace), "score", "nope"])
         assert code == 2

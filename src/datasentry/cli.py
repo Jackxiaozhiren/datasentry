@@ -280,9 +280,11 @@ def _evaluate_gate(
 
 
 def _cmd_issues_list(args: argparse.Namespace) -> int:
-    """22.1 issues list：Issue 列表（--severity 过滤）。"""
+    """22.1 issues list：Issue 列表（--severity 过滤，--limit 截断）。"""
     client = DataSentry(args.project)
     issues = client.list_issues(severity_at_least=args.severity, scan_run_id=args.scan_run)
+    if args.limit is not None:
+        issues = issues[: args.limit]
     data = {"issues": [i.model_dump(mode="json") for i in issues], "count": len(issues)}
     if args.format == "json":
         _emit(_envelope("issues list", data), args.format)
@@ -366,15 +368,22 @@ def _report_output_path(client: DataSentry, args: argparse.Namespace, fmt: str) 
 def _cmd_score(args: argparse.Namespace) -> int:
     """27 章：质量总分展示（维度构成 + 权重 + 计算说明，27.3 可解释性）。"""
     client = DataSentry(args.project)
+    run_id = args.run_id
+    if run_id == "latest":
+        runs = client._store.list_scan_runs()
+        if not runs:
+            _emit(_envelope("score", {"error": "no scan runs yet"}), args.format)
+            return EXIT_CONFIG
+        run_id = runs[0].id
     try:
-        quality = client.quality_score(args.run_id)
+        quality = client.quality_score(run_id)
     except KeyError as exc:
         _emit(_envelope("score", {"error": str(exc)}), args.format)
         return EXIT_CONFIG
     if quality is None:
         _emit(_envelope("score", {"scored": False}), args.format)
         return EXIT_OK
-    data = {"scored": True, "score": quality.model_dump(mode="json")}
+    data = {"scored": True, "scan_run_id": run_id, "score": quality.model_dump(mode="json")}
     if args.format == "text":
         print(
             t(args.lang, "cli.score_overall").format(
@@ -1375,6 +1384,7 @@ def build_parser() -> argparse.ArgumentParser:
     issues_sub = p_issues.add_subparsers(dest="issues_cmd", required=True)
     p_list = issues_sub.add_parser("list", help="list issues")
     p_list.add_argument("--severity", type=str, default=None, help="minimum severity filter")
+    p_list.add_argument("--limit", type=int, default=None, help="max issues to show")
     p_list.add_argument("--scan-run", type=str, default=None, help="restrict to scan run")
     p_list.set_defaults(func=_cmd_issues_list)
     p_show = issues_sub.add_parser("show", help="issue detail")
@@ -1399,7 +1409,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.set_defaults(func=_cmd_report_export)
 
     p_score = sub.add_parser("score", help="quality score (27 章)")
-    p_score.add_argument("run_id", type=str)
+    p_score.add_argument(
+        "run_id", type=str, help="scan run id, or `latest` for the most recent scan"
+    )
     p_score.set_defaults(func=_cmd_score)
 
     p_trend = sub.add_parser("trend", help="cross-scan quality trends (V7, ADR-065)")

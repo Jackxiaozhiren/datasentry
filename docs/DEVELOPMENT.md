@@ -237,6 +237,12 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
   （94.94% 覆盖，1226 测试），mypy --strict 通过；下一阶段候选：
   异步触发协议（异步化 cancel/状态查询）、报告交互增强、webhook
   事件去重
+- **V23 已完成（v0.25.0）**：CLI 可用性——score `latest` 解析为
+  最近一次扫描（started_at 倒序首条，空库 EXIT_CONFIG）+ score
+  信封补 `scan_run_id` 字段（与 scan 信封命名对齐）+ `issues list
+  --limit N` 截断（ADR-117）；本轮由增长期 demo 实测摩擦驱动
+  （录制 demo 时无法快速取最近评分）；CI 全绿（94.94% 覆盖，
+  1229 测试），mypy --strict 通过
 
 ---
 

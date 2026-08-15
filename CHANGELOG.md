@@ -4,6 +4,17 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.25.0] - 2026-08-15
+
+### 变更（Step 117，CLI 可用性：score latest + issues list --limit，ADR-117）
+
+- `score` 的 run_id 支持字面量 `latest`：解析为最近一次扫描
+  （started_at 倒序首条）；空库 → error 信封 + EXIT_CONFIG，
+  语义与缺失 run 一致
+- score JSON 信封补 `scan_run_id` 字段（与 scan 信封命名对齐）
+- `issues list` 新增 `--limit N`：截断展示与计数
+- 测试 +3（score latest 最近一次 / 空库 EXIT_CONFIG / --limit 截断）
+
 ## [0.24.0] - 2026-08-15
 
 ### 变更（Step 116，跨 workspace 远程 cancel 全链路，ADR-116）
