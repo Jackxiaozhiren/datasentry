@@ -303,3 +303,38 @@ class TestCrossWorkspaceE2EV21:
                 "SELECT id FROM scan_runs WHERE id = ?", (run.scan_run_id,)
             ).fetchone()
         assert row is None, "scan_run must NOT be recorded in scheduler metadata.db"
+
+
+class TestCancelRemoteV22:
+    """Step 115（ADR-115）：/rpc/cancel 端点 + 回执语义。"""
+
+    def test_cancel_requires_token(self, tmp_path: Path) -> None:
+        """未启用 token 的 worker：/rpc/cancel 503。"""
+        worker_app = create_worker_app(project=tmp_path)
+        base_url, _server, _thread = _serve(worker_app)
+        from datasentry.scheduler.remote import RemoteScanExecutor
+
+        executor = RemoteScanExecutor(base_url, "s3cret")
+        assert executor.cancel("run_x") is False  # 503 → 尽力而为 false
+
+    def test_cancel_wrong_token(self, tmp_path: Path) -> None:
+        worker_app = create_worker_app(project=tmp_path, worker_token="s3cret")
+        base_url, _server, _thread = _serve(worker_app)
+        from datasentry.scheduler.remote import RemoteScanExecutor
+
+        executor = RemoteScanExecutor(base_url, "wrong")
+        assert executor.cancel("run_x") is False
+
+    def test_cancel_unknown_token_404(self, tmp_path: Path) -> None:
+        worker_app = create_worker_app(project=tmp_path, worker_token="s3cret")
+        base_url, _server, _thread = _serve(worker_app)
+        from datasentry.scheduler.remote import RemoteScanExecutor
+
+        executor = RemoteScanExecutor(base_url, "s3cret")
+        assert executor.cancel("run_unknown") is False
+
+    def test_cancel_network_failure_quiet(self) -> None:
+        from datasentry.scheduler.remote import RemoteScanExecutor
+
+        executor = RemoteScanExecutor("http://127.0.0.1:1", "t", timeout=2.0)
+        assert executor.cancel("run_x") is False

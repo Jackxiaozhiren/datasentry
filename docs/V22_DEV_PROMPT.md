@@ -59,7 +59,7 @@ cancelled）。
   time.sleep + threading.Thread 触发）——同步 trigger 阻塞，线程
   cancel
 
-### Step 115（ADR-115）：远程 cancel 协议（尽力而为）
+### Step 115（ADR-115）：远程 cancel 协议（尽力而为） —— ✅ 完成（JobCommand.run_token + /rpc/cancel + JobResult.cancelled 回执；回执链路由 Step 116 e2e 覆盖）
 
 - worker app 级 in-flight registry（线程安全 dict + Lock：
   run_token → cancelled 标志）

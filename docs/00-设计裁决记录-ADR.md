@@ -2779,3 +2779,29 @@
   Scheduler API cancel）。
 - **依据**：ADR-012 迁移策略 + ADR-096 任务级错误语义 + V19
   并发教训（Step 105）。
+
+## ADR-115：远程 cancel 协议（尽力而为，V22，Step 115）
+- **背景**：调度端 cancel 只解决本地语义；远程执行中取消需要通知
+  worker，否则结果回传后调度端只能靠 finish_run 丢弃（成立但信息
+  面缺失）。
+- **决策**：
+  - `JobCommand` 增 optional `run_token`（= 调度端 run_id）——
+    Scheduler 每次触发注入（内部实现细节，语义不变）；worker 无
+    job 概念，run_token 作取消标记键；
+  - worker app 级 in-flight registry（threading.Lock + dict：
+    run_token → cancelled 标志）：rpc_execute 登记、扫描完成弹出；
+    `POST /rpc/cancel` {run_token}——鉴权语义与 /rpc/execute 一致
+    （503 未启用 / 401 错 token），未知 token 404 无操作，已知 →
+    打标 200 {cancelled: true}；`_ENDPOINTS` 28→29；
+  - **回执语义**：扫描完成后若已打标，JobResult 增 optional
+    `cancelled: bool=False` 置 true 回传（契约向后兼容）；扫描线程
+    无法强杀，scan 已落 worker 库不可回收——文档化边界，调度端
+    丢弃结果（ADR-114 不变）；
+  - `RemoteScanExecutor.cancel(run_token)`：客户端尽力而为——网络/
+    401/503/404 全部仅警告返回 False，调度端取消语义不依赖远端
+    回执；CLI `job cancel --remote-url` 顺带通知（失败仅警告）。
+- **测试**：+4（未启用 token 503 / 错 token 401 / 未知 token 404 /
+  网络失败静默 false）；cancelled 回执链路由 Step 116 跨 workspace
+  e2e 覆盖。
+- **依据**：ADR-091 数据面鉴权 + ADR-114 结果丢弃 + V21 坑 9
+  （远程失败仅警告）。

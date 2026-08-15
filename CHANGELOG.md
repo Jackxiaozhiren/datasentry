@@ -6,6 +6,21 @@
 
 ## [0.24.0] - 2026-08-15
 
+### 变更（Step 115，远程 cancel 协议，ADR-115）
+
+- JobCommand 增 optional `run_token`（调度端 run_id，Scheduler 每次
+  触发注入，语义不变）；worker app 级 in-flight registry（Lock +
+  dict）
+- 新增 `POST /rpc/cancel` {run_token}：鉴权语义与 /rpc/execute 一致
+  （503 未启用 / 401 错 token / 404 未知 token），已知打标 200
+  {cancelled: true}；`_ENDPOINTS` 28 → 29
+- 回执语义：扫描完成后已打标 → JobResult optional `cancelled` 置
+  true 回传（契约向后兼容；scan 已落 worker 库不可回收——边界
+  文档化，调度端丢弃结果）
+- `RemoteScanExecutor.cancel(run_token)` 尽力而为：网络/401/503/404
+  仅警告返回 False；CLI `job cancel --remote-url` 顺带通知
+- 测试 +4（503 / 401 / 404 / 网络失败静默）
+
 ### 变更（Step 114，调度端 cancel 语义闭环，ADR-114）
 
 - 新增 `RunStatus.CANCELLED` + `Scheduler.cancel(job_id)` +

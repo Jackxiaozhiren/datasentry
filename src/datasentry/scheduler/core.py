@@ -405,7 +405,9 @@ class Scheduler:
             self._finish_skipped(job, run_id, current_hash)
             return
         try:
-            result = self._executor.execute(job.command)
+            # V22（Step 115，ADR-115）：注入本次 run_id 作 run_token——
+            # 远端 worker 可据此 cancel 标记；内部实现细节，语义不变。
+            result = self._executor.execute(job.command.model_copy(update={"run_token": run_id}))
         except Exception as exc:
             self._finish_failure(job, run_id, exc)
             return

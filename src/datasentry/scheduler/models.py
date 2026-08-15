@@ -49,6 +49,10 @@ class JobCommand(BaseModel):
     table_name: str | None = None
     export_report: bool = False
     config: ScanConfig | None = None
+    # V22（Step 115，ADR-115）：本次执行的调度端 run_id——Scheduler 每次
+    # 触发注入（内部实现细节，不持久化；旧命令 JSON 缺省 None 向后兼容）。
+    # worker 用它作 cancel 标记的 run_token（worker 无 job 概念）。
+    run_token: str | None = None
 
     def to_storage(self) -> str:
         return self.model_dump_json()
@@ -70,6 +74,9 @@ class JobResult(BaseModel):
     skipped: bool = False
     report_path: str | None = None
     report_size: int | None = None
+    # V22（Step 115，ADR-115）：远端执行期间被调度端取消 → 结果作废回执
+    # （可选字段，本地路径与旧契约零变化）。
+    cancelled: bool = False
 
 
 class JobCreate(BaseModel):

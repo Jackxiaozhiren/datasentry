@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -282,6 +283,12 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
     client = sdk.DataSentry(project=project)
     scheduler = _build_scheduler(client)
     worker = SchedulerWorker(scheduler)
+    # V22（Step 115，ADR-115）：in-flight run 取消标记 registry（线程安全）。
+    # run_token = 调度端 run_id（worker 无 job 概念）；rpc_execute 登记，
+    # /rpc/cancel 打标，扫描完成后回执 cancelled:true（结果由调度端丢弃，
+    # worker 无法强杀扫描线程——尽力而为语义）。
+    inflight_lock = threading.Lock()
+    inflight_cancelled: dict[str, bool] = {}
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -894,6 +901,9 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             command = JobCommand.model_validate(body)
         except Exception as exc:
             raise HTTPException(status_code=422, detail=f"invalid job command: {exc}") from exc
+        run_token = command.run_token or ""
+        with inflight_lock:
+            inflight_cancelled[run_token] = False
         try:
             # V21（Step 113，ADR-113）：worker 用自身 project 执行——扫描历史
             # 落 worker 库（物理隔离语义），命令中的调度端 project 仅作契约
@@ -902,10 +912,44 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             worker_command = command.model_copy(update={"project": str(project)})
             result = LocalScanExecutor().execute(worker_command)
         except Exception as exc:
+            with inflight_lock:
+                inflight_cancelled.pop(run_token, None)
             raise HTTPException(
                 status_code=500, detail=f"scan failed: {type(exc).__name__}"
             ) from exc
+        with inflight_lock:
+            cancelled = inflight_cancelled.pop(run_token, False)
+        if cancelled:
+            # V22（ADR-115）：已被调度端取消——结果作废回执（扫描已落 worker
+            # 库无法回收，由调度端丢弃结果；文档化边界）。
+            result = result.model_copy(update={"cancelled": True})
         return result.model_dump()
+
+    @app.post("/rpc/cancel", tags=["rpc"])
+    def rpc_cancel(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """远端取消标记端点（V22，Step 115，ADR-115）。
+
+        安全语义与 /rpc/execute 一致（503 未启用 / 401 错 token）。
+        已知 run_token 打 cancelled 标记（200）；未知 token 404 无
+        操作（调度端已标 cancelled，回执仅信息面）。
+        """
+        import secrets
+
+        if worker_token is None:
+            raise HTTPException(
+                status_code=503, detail="worker endpoint disabled: set DATASENTRY_WORKER_TOKEN"
+            )
+        supplied = request.headers.get("X-Datasentry-Token")
+        if not supplied or not secrets.compare_digest(supplied, worker_token):
+            raise HTTPException(status_code=401, detail="invalid worker token")
+        run_token = str(body.get("run_token", ""))
+        if not run_token:
+            raise HTTPException(status_code=422, detail="run_token required")
+        with inflight_lock:
+            if run_token not in inflight_cancelled:
+                raise HTTPException(status_code=404, detail="unknown run token")
+            inflight_cancelled[run_token] = True
+        return {"cancelled": True}
 
     @app.get("/rpc/health", tags=["rpc"])
     def rpc_health() -> dict[str, Any]:
@@ -1060,6 +1104,7 @@ _ENDPOINTS = frozenset(
         "DELETE /jobs/{job_id}",
         "GET /rpc/health",
         "GET /rpc/reports/{scan_run_id}",
+        "POST /rpc/cancel",
         "GET /pii/sessions",
         "GET /pii/sessions/{session_id}",
         "POST /pii/sessions/{session_id}/restore",
