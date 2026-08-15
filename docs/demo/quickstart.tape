@@ -15,7 +15,7 @@ Set FontSize 16
 Set Width 1150
 Set Height 700
 Set Framerate 60
-Set PlaybackSpeed 1.6
+Set PlaybackSpeed 1.8
 Set Padding 16
 Set Margin 2
 
@@ -23,22 +23,28 @@ Set Margin 2
 Type "datasentry scan orders.csv"
 Sleep 300ms
 Enter
-Sleep 4s
+Sleep 2s
 
 # ---- step 2: what did it find? ------------------------------------------
 Type "datasentry issues list --severity high"
 Sleep 300ms
 Enter
-Sleep 3s
+Sleep 1.5s
 
-# ---- step 3: propose a repair for the top issue --------------------------
-Type "datasentry repair propose \$(datasentry issues list --severity high | sed -n '1p' | awk '{print \$1}') --file orders.csv"
+# ---- step 3: grab the top issue id once, then propose + apply it ----------
+Type "iid=$(datasentry issues list --severity high | sed -n '1p' | awk '{print $1}')"
 Sleep 300ms
 Enter
-Sleep 4s
+Sleep 1.5s
 
-# ---- step 4: apply it (fingerprinted copy + rollback artifact) ----------
-Type "datasentry repair apply \$(datasentry issues list --severity high | sed -n '1p' | awk '{print \$1}') --file orders.csv"
+# ---- step 4: propose a repair for it --------------------------------------
+Type "datasentry repair propose $iid --file orders.csv"
 Sleep 300ms
 Enter
-Sleep 4s
+Sleep 2.5s
+
+# ---- step 5: apply it (fingerprinted copy + rollback artifact) ------------
+Type "datasentry repair apply $iid --file orders.csv"
+Sleep 300ms
+Enter
+Sleep 2.5s

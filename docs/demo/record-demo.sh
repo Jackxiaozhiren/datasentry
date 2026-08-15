@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
-# DataSentry quickstart demo data generator — creates a deterministic dirty
-# orders.csv so the demo GIF always shows the same story.
+# DataSentry quickstart demo generator — creates a deterministic dirty
+# orders.csv and records the docs/demo/quickstart.gif with vhs.
 #
 # Usage:
-#   ./docs/demo/record-demo.sh          # create orders.csv in ./demo-data
-#   cd demo-data && vhs ../quickstart.tape   # record docs/demo/quickstart.gif
+#   ./docs/demo/record-demo.sh            # one-shot: CSV + GIF
+#   ./docs/demo/record-demo.sh --csv      # only (re)create demo-data/orders.csv
 #
 # Requires: vhs (https://github.com/charmbracelet/vhs) — brew install vhs
+# The repo venv must be synced (uv sync); the script puts .venv/bin on PATH
+# so the recorded shell resolves the `datasentry` CLI.
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 OUT="demo-data/orders.csv"
 mkdir -p demo-data
+
+# fresh workspace: every recording starts from the same clean state
+rm -rf demo-data/.datasentry
 
 python3 - "$OUT" <<'EOF'
 import csv, random, sys
@@ -47,3 +55,17 @@ with open(path, "w", newline="") as f:
 
 print(f"wrote {len(rows)} rows -> {path}")
 EOF
+
+if [[ "${1:-}" == "--csv" ]]; then
+  exit 0
+fi
+
+export PATH="$REPO_DIR/.venv/bin:$PATH"
+command -v datasentry >/dev/null || {
+  echo "error: datasentry not found in $REPO_DIR/.venv/bin — run: uv sync" >&2
+  exit 1
+}
+
+cd "$REPO_DIR/demo-data"
+vhs "$SCRIPT_DIR/quickstart.tape"
+echo "recorded $REPO_DIR/docs/demo/quickstart.gif"
