@@ -4,6 +4,25 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.21.0] - 2026-08-15
+
+V19 跨进程/多调度端一致性：元数据存储并发加固 + vault 密钥原子写 +
+会话冲突检测 + 调度端互斥跨进程证明。
+
+### 变更（Step 105，元数据存储跨进程加固 + 会话顺序化，ADR-105）
+
+- **MetadataStore**：显式 `PRAGMA busy_timeout = 5000`——跨进程并发
+  写（调度端 daemon 与 CLI 并存）从"5s 后 database is locked 炸裂"
+  变为忙等
+- **WAL 启用重试**：`PRAGMA journal_mode = WAL` 从 DDL 脚本移出，改为
+  `_enable_wal()` 显式重试（最多 5s）——根治两进程并发首次打开新库
+  时 migrate 立即 BUSY（该 pragma 独占锁、不调用 busy handler）
+- **会话顺序化**：`list_pii_mappings` 排序 `created_at DESC, rowid DESC`
+  二级——同秒并发写入顺序跨进程稳定（purge 遍历同源受益）
+- 测试 +6 例（`tests/test_store_concurrency.py`，subprocess 真实子进程）：
+  并发写无 BUSY 无丢失、并发 save_scan 全事务、busy_timeout/WAL 断言、
+  并发写+删交叉计数守恒、同秒顺序稳定
+
 ## [0.20.0] - 2026-08-15
 
 V18 PII vault 密钥与会话生命周期管理：密钥轮换/设置完整透传 + 会话按龄清理（purge）。

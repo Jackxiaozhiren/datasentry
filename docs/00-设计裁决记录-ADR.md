@@ -2561,3 +2561,26 @@
 - **测试**：无新增代码测试；门禁四连 + CI 全绿验证。
 - **依据**：Keep-a-Changelog 惯例 + 历史"最新在底部"异常
   （V17 坑位记录）。
+
+## ADR-105：元数据存储跨进程加固 + 会话顺序化（V19，Step 105）
+- **背景**：MetadataStore 单连接 + RLock 只保证线程安全；跨进程并发
+  写（调度端 daemon 与 CLI 并存）依赖 connect 隐式 timeout=5.0，且
+  migrate 的 `PRAGMA journal_mode = WAL` 不调用 busy handler——两进
+  程并发首次打开新库会立刻 "database is locked"（subprocess 实测
+  复现）。
+- **决策**：
+  - 保持单连接 + RLock（不加连接池，YAGNI）；`__init__` 显式
+    `PRAGMA busy_timeout = 5000`（跨进程写改为忙等而非立刻炸）；
+  - **WAL 启用移出 DDL 脚本**：`migrate` 前 `_enable_wal()` 显式
+    重试（最多 5s，仍失败抛错）——根治并发首开新库的 BUSY；
+    foreign_keys 同步改为独立 execute；
+  - `list_pii_mappings` 排序加 rowid 二级：`ORDER BY created_at
+    DESC, rowid DESC`——同秒并发写入顺序跨进程稳定（会话顺序化，
+    purge 遍历同源受益）。
+- **测试**：新增 `tests/test_store_concurrency.py` 6 例（subprocess
+  起真实子进程，不用 multiprocessing——pytest spawn 递归陷阱）：
+  两进程并发写 pii 40×2 无 BUSY 无丢失、并发 save_scan 全事务、
+  busy_timeout=5000 断言、WAL 保持断言、并发写+删交叉计数守恒、
+  同秒三行 rowid 倒序。
+- **依据**：SQLite 官方语义（busy_timeout 覆盖普通 DML/DDL；
+  journal_mode pragma 独占锁不重试）+ ADR-012 迁移策略。

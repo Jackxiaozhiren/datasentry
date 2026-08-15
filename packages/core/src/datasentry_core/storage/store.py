@@ -62,6 +62,9 @@ class MetadataStore:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        # 跨进程并发写（V19，Step 105，ADR-105）：SQLite 文件锁忙等 5s
+        # 而不是立刻抛 "database is locked"（WAL 由 migrate 设置）
+        self._conn.execute("PRAGMA busy_timeout = 5000")
         migrate(self._conn)
 
     @classmethod
@@ -686,7 +689,7 @@ class MetadataStore:
         with self._lock:
             rows = self._conn.execute(
                 "SELECT session_id, key_version, created_at "
-                "FROM pii_mappings ORDER BY created_at DESC LIMIT ?",
+                "FROM pii_mappings ORDER BY created_at DESC, rowid DESC LIMIT ?",
                 (limit,),
             ).fetchall()
         return [

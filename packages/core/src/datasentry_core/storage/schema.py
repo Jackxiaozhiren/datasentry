@@ -11,14 +11,12 @@ Alembic 归 V1（草案注明"Step 后续"建立基线，MVP 阶段以模型单�
 from __future__ import annotations
 
 import sqlite3
+import time
 
 #: 当前 schema 版本（PRAGMA user_version）
 SCHEMA_VERSION = 7
 
 _SCHEMA_DDL = """
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
-
 CREATE TABLE IF NOT EXISTS projects (
     id              TEXT PRIMARY KEY,
     name            TEXT NOT NULL,
@@ -370,8 +368,28 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) 
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
 
+def _enable_wal(conn: sqlite3.Connection) -> None:
+    """启用 WAL（V19，Step 105，ADR-105）。
+
+    PRAGMA journal_mode = WAL 需要独占锁，且**不调用 busy handler**——
+    两进程并发首次打开同一新库时抢锁失败会立刻报 "database is locked"
+    （实测复现）。这里显式重试：最多等 5s，仍失败才抛错。
+    """
+    for _ in range(50):
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+            return
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower():
+                raise
+            time.sleep(0.1)
+    raise RuntimeError("cannot enable WAL: database is locked by another process")
+
+
 def migrate(conn: sqlite3.Connection) -> None:
     """幂等迁移到 SCHEMA_VERSION；高于当前版本抛异常（防止旧代码打开新库）。"""
+    _enable_wal(conn)
+    conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(_SCHEMA_DDL)
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version > SCHEMA_VERSION:
