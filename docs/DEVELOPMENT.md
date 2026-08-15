@@ -220,6 +220,23 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
   run completed）；CI 全绿（94.94% 覆盖，1214 测试），mypy
   --strict 通过；下一阶段候选：cancel/异步协议、报告交互增强、
   webhook 事件去重
+- **V22 已完成（v0.24.0）**：调度端 cancel 语义闭环 + 远程 cancel
+  协议——调度端 cancel（Step 114：RunStatus.CANCELLED +
+  SchedulerStore.cancel_run 事务内原子判定 running run → cancelled +
+  job idle；Scheduler.cancel + CLI `job cancel`；**结果丢弃语义**——
+  finish_run 事务内读 run 状态，已 cancelled 则跳过全部更新，
+  竞态由 BEGIN IMMEDIATE 串行化；schema v7→v8 重建 job_runs 放宽
+  status CHECK（数据原样迁移 + 并发迁移防竞态））、远程 cancel 协议
+  （Step 115：JobCommand.run_token=调度端 run_id 每次触发注入；
+  worker 端 in-flight registry（Lock+dict）+ POST /rpc/cancel
+  （503/401/404/200 打标）；扫描完成已打标 → JobResult.cancelled:true
+  作废回执；RemoteScanExecutor.cancel 尽力而为仅警告；_ENDPOINTS 29）、
+  跨 workspace 全链路证明（Step 116：触发中 cancel → run cancelled +
+  远端通知 + worker 跑完 + 作废回执 + 调度端结果丢弃；边界文档化——
+  worker 扫描线程无法强杀，落 worker 库记录不可回收）；CI 全绿
+  （94.94% 覆盖，1226 测试），mypy --strict 通过；下一阶段候选：
+  异步触发协议（异步化 cancel/状态查询）、报告交互增强、webhook
+  事件去重
 
 ---
 

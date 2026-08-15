@@ -133,3 +133,24 @@ cancelled）。
 V22 报告五段式中文：目标与完成情况 / 决策记录（ADR 108→111）/
 测试与质量 / 关键技术点 / 版本与发布 + 遗留与 V23 候选（异步触发
 协议、报告交互增强、webhook 去重）。
+
+## V22 实际新增坑（Step 114-116 实践记录）
+
+16. **CHECK 约束核实错误**：任务书预埋「job_runs.status 无 CHECK」是
+    错的——实际 `CHECK (status IN ('running','completed','failed'))`
+    存在，需 v8 重建表迁移（SQLite 无法 ALTER CHECK）；预埋阶段必须
+    grep 实际 DDL，不能凭印象
+17. **并发迁移竞态**：多进程同时首次打开旧库会同时执行重建——
+    必须在迁移内 BEGIN IMMEDIATE 独占写锁（V19 WAL 教训同源）；
+    busy_timeout 内后到者阻塞、user_version 提升后跳过，重入也幂等
+18. **Scheduler 构造强制 executor**：`Scheduler(store=store)` 会
+    TypeError——cancel 路径也必须传 executor（LocalScanExecutor
+    即可，cancel 不执行任务）
+19. **get_run 返回值**：`store.get_run(...)` 返回 JobRun 对象，
+    赋值给变量后 `.run_id` 才是 str——别把 JobRun 当 run_id 传
+    （sqlite bind 报 type JobRun not supported）
+20. **monkeypatch 注入执行器不落库**：注入的慢执行器只模拟扫描，
+    不会写 worker 库——「scan 落 worker 库」断言不能与注入执行器
+    同测（Step 113 真执行器已证）；本版改为调用计数证明执行发生
+21. **RUF001 全角标点**：断言消息里的中文标点（，（））触发 ruff
+    RUF001——断言消息保持 ASCII，中文只放文档
