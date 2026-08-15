@@ -33,3 +33,6 @@ workspace/
 
 # Debug scratch (agent sessions)
 p/
+
+# 开发任务书（prompt）——本地保留，不进仓库（V22 起约定）
+docs/V*_DEV_PROMPT.md
