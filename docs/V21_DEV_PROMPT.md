@@ -48,7 +48,7 @@ CLI 无配置入口——`job trigger` 硬编码 `LocalScanExecutor`，库级远
   job create --export-report 远程触发后报告回传落点文件存在 /
   --format json 信封结构 {ok,command,data:{job_id,run_id}}
 
-### Step 112（ADR-112）：`ping` 顶层命令（远端 worker 健康可见性）
+### Step 112（ADR-112）：`ping` 顶层命令（远端 worker 健康可见性） —— ✅ 完成
 
 - 新增顶层命令 `ping URL [--token TOKEN] [--timeout S]`：
   `RemoteScanExecutor(url, token or "").health()`——health 公开

@@ -2719,3 +2719,19 @@
   run failed / export-report 报告回传落点）。
 - **依据**：ADR-091 token 数据面 + ADR-070 报告落点 + ADR-096
   Scheduler 任务级错误语义。
+
+## ADR-112：ping 命令（远端 worker 健康可见性，V21，Step 112）
+- **背景**：worker 命令是叶子命令（--host/--port/--token），不能加
+  子命令（破坏兼容）；调度端命令行无任何方式感知远端 worker 存活。
+- **决策**：
+  - 新增顶层命令 `ping URL [--token TOKEN] [--timeout S]`——探
+    `GET /rpc/health`（公开信息面，token 可选）；输出 {url,
+    service, version, worker, ok}；失败（网络/HTTP/契约）→
+    {url, error} 信封 + EXIT_ERROR；
+  - 与 `worker` 命令解耦：信息面公开无鉴权，token 仅数据面需要
+    （ADR-109 分层沿用）；
+  - 默认超时 10s（探测是快速诊断，不与执行超时混用）。
+- **测试**：+3（启用 token 的 worker ping 含 version/worker=true /
+  未启用 token 的 worker ping worker=false / 不可达 → EXIT_ERROR
+  且 data.error 存在）。
+- **依据**：ADR-109 信息面/数据面分离。

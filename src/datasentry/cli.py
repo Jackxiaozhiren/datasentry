@@ -828,6 +828,36 @@ def _cmd_worker(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_ping(args: argparse.Namespace) -> int:
+    """探测远端 worker 健康（`GET /rpc/health` 公开信息面，无需 token）。"""
+    from datasentry.scheduler.remote import RemoteScanExecutor
+
+    executor = RemoteScanExecutor(
+        args.url,
+        args.token or "",
+        timeout=args.timeout,
+    )
+    try:
+        info = executor.health()
+    except Exception as exc:  # 网络/HTTP/契约失败统一 EXIT_ERROR
+        _emit(_envelope("ping", {"url": args.url, "error": str(exc)}), args.format)
+        return EXIT_ERROR
+    _emit(
+        _envelope(
+            "ping",
+            {
+                "url": args.url,
+                "service": info.get("service"),
+                "version": info.get("version"),
+                "worker": info.get("worker"),
+                "ok": True,
+            },
+        ),
+        args.format,
+    )
+    return EXIT_OK
+
+
 def _cmd_llm_status(args: argparse.Namespace) -> int:
     """LLM 提供方状态与配置来源（13.11 审计查询入口）+ PII 加密保险库状态。"""
     from datasentry.llm_providers import load_llm_config
@@ -1470,6 +1500,25 @@ def build_parser() -> argparse.ArgumentParser:
         "unset = /rpc/execute disabled, plain API service)",
     )
     p_worker.set_defaults(func=_cmd_worker)
+
+    p_ping = sub.add_parser(
+        "ping",
+        help="probe a remote worker health (V21: GET /rpc/health, ADR-112)",
+    )
+    p_ping.add_argument("url", type=str, help="worker base URL, e.g. http://127.0.0.1:8000")
+    p_ping.add_argument(
+        "--token",
+        type=str,
+        default=None,
+        help="worker token (optional: /rpc/health is public info plane)",
+    )
+    p_ping.add_argument(
+        "--timeout",
+        type=float,
+        default=10.0,
+        help="probe timeout in seconds (default 10)",
+    )
+    p_ping.set_defaults(func=_cmd_ping)
 
     p_llm = sub.add_parser("llm", help="LLM provider status & audit (Step 27, 13.11)")
     llm_sub = p_llm.add_subparsers(dest="llm_cmd", required=True)

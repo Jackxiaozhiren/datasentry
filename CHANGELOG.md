@@ -6,6 +6,14 @@
 
 ## [0.23.0] - 2026-08-15
 
+### 变更（Step 112，ping 命令，ADR-112）
+
+- 新增顶层命令 `ping URL [--token TOKEN] [--timeout S]`：探测远端
+  worker 健康（GET /rpc/health 公开信息面，token 可选），输出
+  {url, service, version, worker, ok}；失败 → error 信封 +
+  EXIT_ERROR；默认超时 10s
+- 测试 +3（worker 启用标志 / 未启用 / 不可达）
+
 ### 变更（Step 111，job trigger 远程执行器 CLI 配置化，ADR-111）
 
 - `job trigger job_id --remote-url URL --remote-token TOKEN

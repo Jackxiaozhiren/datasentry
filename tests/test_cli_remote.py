@@ -10,6 +10,7 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from uvicorn import Config, Server
 
@@ -194,3 +195,49 @@ class TestJobTriggerRemoteV21:
         assert run.status.value == "completed"
         reports = list((tmp_path / ".datasentry" / "reports").glob("*.html"))
         assert reports, "report not pulled back to scheduler workspace"
+
+
+class TestPingV21:
+    """Step 112（ADR-112）：ping 远端 worker 健康探测。"""
+
+    @staticmethod
+    def _ping_json(
+        capsys: pytest.CaptureFixture[str], tmp_path: Path, *, token: bool
+    ) -> dict[str, object]:
+        worker_app = create_worker_app(project=tmp_path, worker_token="s3cret" if token else None)
+        base_url, _server, _thread = _serve(worker_app)
+        code = main(["--format", "json", "ping", base_url])
+        assert code == 0
+        out = capsys.readouterr().out
+        import json
+
+        body = json.loads(out)
+        assert body["ok"] is True
+        return dict(body["data"])
+
+    def test_ping_ok_worker_enabled_flag(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        body = self._ping_json(capsys, tmp_path, token=True)
+        assert body["ok"] is True
+        assert body["service"] == "datasentry-worker"
+        assert body["version"]
+        assert body["worker"] is True
+        assert body["url"].startswith("http://127.0.0.1:")
+
+    def test_ping_worker_disabled_flag(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        body = self._ping_json(capsys, tmp_path, token=False)
+        assert body["ok"] is True
+        assert body["worker"] is False
+
+    def test_ping_unreachable_error(self, capsys: pytest.CaptureFixture[str]) -> None:
+        code = main(["--format", "json", "ping", "http://127.0.0.1:1", "--timeout", "2"])
+        assert code == 3
+        out = capsys.readouterr().out
+        import json
+
+        body = json.loads(out)
+        assert body["ok"] is True  # envelope 恒 ok；错误在 data.error
+        assert "error" in body["data"]
