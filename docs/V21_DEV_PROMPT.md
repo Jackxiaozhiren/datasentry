@@ -110,3 +110,27 @@ CLI 无配置入口——`job trigger` 硬编码 `LocalScanExecutor`，库级远
 
 五段式中文汇报：完成概述 / 新增能力 / 测试与门禁数据 / 发布状态 /
 遗留问题（V22 候选：取消协议、报告交互增强、webhook 事件去重等）。
+
+## V21 实际新增坑（Step 111-113 实践记录）
+
+11. **失败语义测试陷阱**：`job trigger --remote-url` 远程执行失败
+    （401/503/网络）时 CLI 退出码是 **0**（Scheduler 落库 run
+    failed，任务级错误处理在 core）——测试断言应查 run.status==
+    "failed"，不是 EXIT_ERROR；EXIT_ERROR 只留给 CLI 自身错误
+    （缺 token EXIT_CONFIG、ping 探测失败 EXIT_ERROR）
+12. **CLI envelope 断言层级**：`--format json` 打印完整信封
+    {ok, command, data, warnings, llm_usage}，业务字段在
+    data 里（body["data"]["service"]），顶层只有 ok/command——
+    断言别拿错层级
+13. **物理隔离语义修正**：RemoteScanExecutor 原样下发
+    JobCommand.project（调度端路径）→ worker 端扫描落调度端库，
+    「远端执行」不成立；需 worker 端 `model_copy(update=
+    {project: worker_project})` 覆盖——scan 历史落 worker 库，
+    JobCommand.project 降级为契约信息字段
+14. **同 workspace 兼容性**：worker 覆盖 project 后，单机/同路径
+    部署（本地 e2e）行为零变化——覆盖后 project 相同，避免
+    回归测试误报
+15. **scan 历史库即 metadata.db**：core 无独立 scan.db——扫描历史
+    （scan_runs 表）与调度元数据同库；「落 worker 库」的断言是
+    worker metadata.db 的 scan_runs 表含 scan_run_id、调度端库
+    不含

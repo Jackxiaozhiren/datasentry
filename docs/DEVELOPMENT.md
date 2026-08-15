@@ -204,6 +204,22 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
   ADR-070 一致，未配置零请求）；CI 全绿（94.94% 覆盖，1204 测试），
   mypy --strict 通过；下一阶段候选：报告交互增强、调度端
   cancel/异步协议、worker 远程执行器 CLI 配置化
+- **V21 已完成（v0.23.0）**：worker 远程执行器 CLI 配置化——
+  job trigger 远程选项（Step 111：--remote-url/--remote-token/
+  --remote-retries/--remote-preflight，无 --remote-url 本地行为
+  零变化、缺 token EXIT_CONFIG；注入 RemoteScanExecutor + 报告
+  自动回传本工作区 .datasentry/reports；RemoteScanExecutor 增
+  构造 preflight 参数向后兼容；失败语义不变——Scheduler 落库
+  run failed）、ping 健康可见性（Step 112：顶层 ping URL
+  [--token] [--timeout] 探公开 /rpc/health 信息面，输出
+  {url,service,version,worker,ok}，与 worker 叶子命令解耦）、
+  跨 workspace 物理隔离（Step 113：/rpc/execute worker 改用
+  自身 project 执行——scan 历史落 worker 库，JobCommand.project
+  保留为契约信息字段，同 workspace 部署零变化；跨 workspace
+  e2e 证明 scan 落 worker 库 + 调度端库无该记录 + 报告回传 +
+  run completed）；CI 全绿（94.94% 覆盖，1214 测试），mypy
+  --strict 通过；下一阶段候选：cancel/异步协议、报告交互增强、
+  webhook 事件去重
 
 ---
 
