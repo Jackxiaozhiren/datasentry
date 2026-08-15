@@ -26,6 +26,18 @@
 > 数据不出机器（LLM 可接本地 Ollama），DuckDB 执行引擎，百万行 10 秒级。
 > 调度体系已就绪：cron 任务队列 → 分布式执行节点 → 多 worker 容错路由 → 并行派发。
 
+## Try it in 3 commands
+
+```bash
+pip install datasentry-ai
+datasentry scan orders.csv                      # detect → fuse → score → persist
+datasentry issues list --severity high          # each issue with samples + ratios + confidence
+```
+
+<p align="center">
+  <img src="docs/demo/quickstart.gif" alt="DataSentry quickstart: scan → issues → repair" width="760">
+</p>
+
 ## What is DataSentry?
 
 DataSentry scans your data (CSV / Parquet / JSONL / XLSX / DuckDB / SQLite / PostgreSQL / MySQL / cloud objects on s3:// gs:// az://) and produces:
@@ -39,13 +51,29 @@ DataSentry scans your data (CSV / Parquet / JSONL / XLSX / DuckDB / SQLite / Pos
 - **Cron scheduling** — persistent SQLite job queue: cron jobs, manual triggers, run history, webhooks, per-job quality gates and change-aware skip (no re-scan when the source is unchanged).
 - **Distributed execution** — any instance runs as a worker (`datasentry worker`); a worker pool gives round-robin routing, failover, cooldown and optional health checks, plus parallel dispatch (`DATASENTRY_MAX_WORKERS`).
 - **Plugin ecosystem** — `plugin.yaml` metadata, install/uninstall lifecycle, and SHA-256 integrity locks (tamper-resistant loading, `plugin test` sandbox).
-- **Multiple surfaces** — CLI, REST API, server-rendered Web UI with cross-scan trends, and an MCP stdio server (15 tools) so LLM agents can use the tools directly.
+- **Multiple surfaces** — CLI, REST API, server-rendered Web UI with cross-scan trends, and an MCP stdio server (20 tools) so LLM agents can use the tools directly.
 
 <p align="center">
   <img src="docs/demo/orders-report.html.png" alt="Sample quality report" width="720">
 </p>
 
 > **Live demo report** — [orders-report.html](docs/demo/orders-report.html) (200 rows with 15 injected quality issues)
+
+## See it work: find duplicates and outliers in 5 lines
+
+```python
+from datasentry import DataSentry
+
+sentry = DataSentry()
+run, runs, issues = sentry.scan_file("orders.csv")          # 39 detectors + six-dimension score
+dupes = [i for i in issues if i.issue_type == "uniqueness"]
+outliers = [i for i in issues if i.issue_type in ("numeric_outlier", "distribution_anomaly")]
+print(run.id, "—", len(dupes), "duplicate", len(outliers), "outlier issues, all with evidence")
+```
+
+Every issue carries its statistical evidence chain — samples, affected ratio, and confidence —
+not just a row in a log. `datasentry repair propose <issue_id>` then shows you a rule re-run
+before/after so a human decides what gets applied.
 
 ## Quick start
 
@@ -180,7 +208,7 @@ flowchart LR
 | Scheduling | cron jobs, manual triggers, run history (pruned), webhooks, quality gates, change-aware skip — CLI / REST / MCP 三面同语义 |
 | Distributed | `datasentry worker` nodes; pool routing with failover + cooldown + health checks; parallel dispatch (`DATASENTRY_MAX_WORKERS`) |
 | Plugins | `plugin.yaml` metadata, install/uninstall, integrity locks, test sandbox (three-state exit codes) |
-| Interfaces | CLI · REST API · Web UI (`/ui`, `/ui/trends`) · MCP stdio (15 tools) |
+| Interfaces | CLI · REST API · Web UI (`/ui`, `/ui/trends`) · MCP stdio (20 tools) |
 | Engineering | 11-stage CI, wheel build + isolated install smoke, 1e6-row benchmark gate |
 
 ## Documentation
@@ -188,7 +216,7 @@ flowchart LR
 | Doc | Content |
 |-----|---------|
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Full development notes, per-step decisions and conventions |
-| [docs/00-设计裁决记录-ADR.md](docs/00-设计裁决记录-ADR.md) | 93 architecture decision records (design rationale) |
+| [docs/00-设计裁决记录-ADR.md](docs/00-设计裁决记录-ADR.md) | 110+ architecture decision records (design rationale) |
 | [docs/01-一致性检查.md](docs/01-设计材料-一致性检查.md) | Spec consistency checks |
 | [docs/03-MVP-V1-划分.md](docs/03-设计材料-MVP-V1-划分.md) | MVP vs V1 feature scoping |
 
