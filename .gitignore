@@ -36,3 +36,7 @@ p/
 
 # 开发任务书（prompt）——本地保留，不进仓库（V22 起约定）
 docs/V*_DEV_PROMPT.md
+
+# 完整产品设计与开发 Prompt（本地保留，不进仓库）
+DataSentry AI 产品设计与开发 Prompt*.md
+DataSentry AI 产品设计与开发 Prompt*.docx
