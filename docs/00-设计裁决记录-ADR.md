@@ -2696,3 +2696,26 @@
   无 report_path 不拉 / 未配置 report_dir 不拉 / 404 尽力而为不
   抛 / 真 uvicorn 端到端回传内容一致）。
 - **依据**：ADR-091 token 鉴权 + ADR-070 报告导出尽力而为语义。
+
+## ADR-111：job trigger 远程执行器 CLI 配置化（V21，Step 111）
+- **背景**：V20 完成 RemoteScanExecutor 能力（重试/探测/回传），但
+  CLI `job trigger` 硬编码 LocalScanExecutor——远程能力只在库级
+  可用，调度端命令行无法使用。
+- **决策**：
+  - `job trigger job_id [--remote-url URL] [--remote-token TOKEN]
+    [--remote-retries N] [--remote-preflight]`：无 `--remote-url`
+    时行为零变化（本地执行）；远程时注入
+    `RemoteScanExecutor(url, token, retries, report_dir=
+    project_reports_dir(project), preflight)`；
+  - `--remote-token` 必填（与 --remote-url 成对）：worker 数据面
+    必须 token，缺失 EXIT_CONFIG 明确报错防误用；
+  - 报告自动回传本工作区 `.datasentry/reports`（与本地导出统一
+    落点）；`RemoteScanExecutor` 增构造参数 `preflight`（execute
+    参数为 None 时用构造默认——向后兼容红线，既有调用不变）；
+  - **失败语义不变**：远程执行失败（401/503/网络）由 Scheduler
+    落库 run failed（任务级错误处理在 core），CLI 不炸、退出码 0。
+- **测试**：+6（本地行为回归 / 缺 token EXIT_CONFIG / 真 worker
+  远程触发 completed / 错 token run failed / preflight 快速失败
+  run failed / export-report 报告回传落点）。
+- **依据**：ADR-091 token 数据面 + ADR-070 报告落点 + ADR-096
+  Scheduler 任务级错误语义。

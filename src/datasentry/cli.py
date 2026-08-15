@@ -738,15 +738,41 @@ def _cmd_job_create(args: argparse.Namespace) -> int:
 
 
 def _cmd_job_trigger(args: argparse.Namespace) -> int:
-    """立即触发一次任务（同步执行；已在运行则拒绝）。"""
-    from datasentry.scheduler.core import LocalScanExecutor, Scheduler
+    """立即触发一次任务（同步执行；已在运行则拒绝）。
+
+    `--remote-url`（V21，ADR-111）时委托远端 worker 执行：
+    `RemoteScanExecutor`（token 必填、传输层重试、可选 preflight），
+    报告自动回传本工作区 `.datasentry/reports`（尽力而为）。
+    """
+    from datasentry.scheduler.core import LocalScanExecutor, ScanExecutor, Scheduler
+    from datasentry.scheduler.remote import RemoteScanExecutor
+    from datasentry_core.storage.paths import project_reports_dir
 
     store = _job_store(args.project)
     job = store.get_job(args.job_id)
     if job is None:
         _emit(_envelope("job trigger", {"error": f"job not found: {args.job_id}"}), args.format)
         return EXIT_CONFIG
-    run_id = Scheduler(store=store, executor=LocalScanExecutor()).trigger(args.job_id)
+    if args.remote_url:
+        if not args.remote_token:
+            _emit(
+                _envelope(
+                    "job trigger",
+                    {"error": "remote execution requires --remote-token (worker data plane)"},
+                ),
+                args.format,
+            )
+            return EXIT_CONFIG
+        executor: ScanExecutor = RemoteScanExecutor(
+            args.remote_url,
+            args.remote_token,
+            retries=args.remote_retries,
+            report_dir=project_reports_dir(Path(args.project)),
+            preflight=args.remote_preflight,
+        )
+    else:
+        executor = LocalScanExecutor()
+    run_id = Scheduler(store=store, executor=executor).trigger(args.job_id)
     if run_id is None:
         _emit(
             _envelope("job trigger", {"error": f"job {args.job_id} is already running"}),
@@ -1400,6 +1426,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_job_create.set_defaults(func=_cmd_job_create)
     p_job_trigger = job_sub.add_parser("trigger", help="run a job immediately")
     p_job_trigger.add_argument("job_id", type=str)
+    p_job_trigger.add_argument(
+        "--remote-url",
+        type=str,
+        default=None,
+        help="execute on remote worker base URL (e.g. http://127.0.0.1:8000); "
+        "omitted = local execution",
+    )
+    p_job_trigger.add_argument(
+        "--remote-token",
+        type=str,
+        default=None,
+        help="worker token for remote execution (required with --remote-url)",
+    )
+    p_job_trigger.add_argument(
+        "--remote-retries",
+        type=int,
+        default=0,
+        help="transport-level retries for remote execution (default 0)",
+    )
+    p_job_trigger.add_argument(
+        "--remote-preflight",
+        action="store_true",
+        help="health-probe the worker before remote execution (fast fail)",
+    )
     p_job_trigger.set_defaults(func=_cmd_job_trigger)
     p_job_status = job_sub.add_parser("status", help="job view + recent run history")
     p_job_status.add_argument("job_id", type=str)

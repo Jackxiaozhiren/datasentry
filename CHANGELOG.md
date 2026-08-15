@@ -4,6 +4,22 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.23.0] - 2026-08-15
+
+### 变更（Step 111，job trigger 远程执行器 CLI 配置化，ADR-111）
+
+- `job trigger job_id --remote-url URL --remote-token TOKEN
+  [--remote-retries N] [--remote-preflight]`：委托远端 worker 执行
+  ——无 --remote-url 时本地执行行为零变化；--remote-token 必填
+  （缺失 EXIT_CONFIG）
+- 远程执行注入 RemoteScanExecutor（retries/preflight 可选），报告
+  自动回传本工作区 `.datasentry/reports`（与本地导出统一落点）
+- `RemoteScanExecutor` 增构造参数 `preflight`（execute 参数缺省时
+  用构造默认，向后兼容）
+- 失败语义不变：远程失败由 Scheduler 落库 run failed
+- 测试 +6（本地回归 / 缺 token / 远程成功 / 错 token / preflight
+  快速失败 / 报告回传落点）
+
 ## [0.22.0] - 2026-08-15
 
 ### 变更（Step 110，远端报告回传，ADR-110）

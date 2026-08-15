@@ -91,6 +91,7 @@ class RemoteScanExecutor:
         sleep_fn: Callable[[float], None] = time.sleep,
         rng: random.Random | None = None,
         report_dir: Path | None = None,
+        preflight: bool = False,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._endpoint = f"{self._base_url}{self._ENDPOINT}"
@@ -107,6 +108,7 @@ class RemoteScanExecutor:
         self._sleep_fn = sleep_fn
         self._rng = rng or random.Random()
         self._report_dir = report_dir
+        self._preflight = preflight
 
     def _client(self) -> Any:
         if self._client_factory is not None:
@@ -191,16 +193,17 @@ class RemoteScanExecutor:
         except Exception as exc:
             logger.warning("report pull failed for %s: %s", result.scan_run_id, exc)
 
-    def execute(self, command: JobCommand, *, preflight: bool = False) -> JobResult:
+    def execute(self, command: JobCommand, *, preflight: bool | None = None) -> JobResult:
         """下发任务并同步等待远端结果；失败抛 `ScanExecutionError`。
 
         仅网络错误与可重试 HTTP 状态退避重试（`retries` 次）；4xx 与
         契约错误立即失败（retryable=False）。重试耗尽后抛最后一次错误。
-        `preflight=True`（Step 109，ADR-109）时先 `health()` 探测——
-        失败快速失败（不等总超时）；默认关闭，行为向后兼容。
-        执行成功后按 Step 110（ADR-110）尽力而为回传远端报告。
+        `preflight`（Step 109，ADR-109）时先 `health()` 探测——失败
+        快速失败（不等总超时）；参数为 None 时用构造默认 `preflight`
+        （默认 False，向后兼容）。执行成功后按 Step 110（ADR-110）
+        尽力而为回传远端报告。
         """
-        if preflight:
+        if self._preflight if preflight is None else preflight:
             self.health()
         last_error: ScanExecutionError | None = None
         for attempt in range(self._retries + 1):
