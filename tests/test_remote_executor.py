@@ -7,9 +7,10 @@ async-only，同步 Client 不可用，见 V14 计划书坑位）。
 
 from __future__ import annotations
 
+import random
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
@@ -143,3 +144,208 @@ class TestRemoteExecutor:
             result = executor.execute(JobCommand(project="p", path="orders.csv"))
         assert result.skipped is True
         assert result.file_hash == "h123"
+
+
+class TestRemoteRetryV20:
+    """Step 108（ADR-108）：超时细分 + 传输层重试退避 + 错误分类。"""
+
+    @staticmethod
+    def _mock_factory(
+        handler: Callable[[httpx.Request], httpx.Response | Any],
+    ) -> Callable[[], Any]:
+        def factory() -> Any:
+            return httpx.Client(
+                transport=httpx.MockTransport(handler),  # type: ignore[arg-type]
+                base_url="http://worker",
+            )
+
+        return factory
+
+    def test_timeout_split_configuration(self) -> None:
+        executor = RemoteScanExecutor("http://w", token="t")
+        assert executor._timeout.connect == 120.0
+        assert executor._timeout.read == 120.0
+        assert executor._timeout.write == 120.0
+        assert executor._timeout.pool == 120.0
+        split = RemoteScanExecutor("http://w", token="t", connect_timeout=3.0, read_timeout=7.0)
+        assert split._timeout.connect == 3.0
+        assert split._timeout.read == 7.0
+        assert split._timeout.write == 120.0
+        assert split._timeout.pool == 120.0
+
+    def test_default_no_retry_on_network_error(self) -> None:
+        calls: list[str] = []
+
+        def handler(_: httpx.Request) -> Any:
+            calls.append("x")
+            raise httpx.ConnectError("connection refused")
+
+        executor = RemoteScanExecutor(
+            "http://worker", token="t", client_factory=self._mock_factory(handler)
+        )
+        with pytest.raises(ScanExecutionError) as excinfo:
+            executor.execute(JobCommand(project="p", path="orders.csv"))
+        assert excinfo.value.category == "network"
+        assert excinfo.value.retryable is True
+        assert len(calls) == 1
+
+    def test_network_error_retried_then_success(self) -> None:
+        calls: list[str] = []
+
+        def handler(_: httpx.Request) -> Any:
+            calls.append("x")
+            if len(calls) == 1:
+                raise httpx.ConnectError("refused")
+            return httpx.Response(
+                200, json=JobResult(scan_run_id="sr_r", total_issues=1).model_dump()
+            )
+
+        sleeps: list[float] = []
+        executor = RemoteScanExecutor(
+            "http://worker",
+            token="t",
+            client_factory=self._mock_factory(handler),
+            retries=2,
+            backoff_jitter=0.0,
+            sleep_fn=sleeps.append,
+        )
+        result = executor.execute(JobCommand(project="p", path="orders.csv"))
+        assert result.scan_run_id == "sr_r"
+        assert len(calls) == 2
+        assert sleeps == [0.5]
+
+    def test_5xx_retried_then_success(self) -> None:
+        calls: list[str] = []
+
+        def handler(_: httpx.Request) -> Any:
+            calls.append("x")
+            if len(calls) < 3:
+                return httpx.Response(500, text="boom")
+            return httpx.Response(
+                200, json=JobResult(scan_run_id="sr_r", total_issues=1).model_dump()
+            )
+
+        sleeps: list[float] = []
+        executor = RemoteScanExecutor(
+            "http://worker",
+            token="t",
+            client_factory=self._mock_factory(handler),
+            retries=2,
+            backoff_jitter=0.0,
+            sleep_fn=sleeps.append,
+        )
+        result = executor.execute(JobCommand(project="p", path="orders.csv"))
+        assert result.scan_run_id == "sr_r"
+        assert len(calls) == 3
+        assert sleeps == [0.5, 1.0]
+
+    def test_retries_exhausted_fails_with_last_error(self) -> None:
+        calls: list[str] = []
+
+        def handler(_: httpx.Request) -> Any:
+            calls.append("x")
+            return httpx.Response(503, text="unavailable")
+
+        executor = RemoteScanExecutor(
+            "http://worker",
+            token="t",
+            client_factory=self._mock_factory(handler),
+            retries=2,
+            backoff_jitter=0.0,
+            sleep_fn=lambda _d: None,
+        )
+        with pytest.raises(ScanExecutionError) as excinfo:
+            executor.execute(JobCommand(project="p", path="orders.csv"))
+        assert excinfo.value.category == "http"
+        assert excinfo.value.retryable is True
+        assert "HTTP 503" in str(excinfo.value)
+        assert len(calls) == 3
+
+    def test_4xx_not_retried(self) -> None:
+        calls: list[str] = []
+
+        def handler(_: httpx.Request) -> Any:
+            calls.append("x")
+            return httpx.Response(401, text="unauthorized")
+
+        executor = RemoteScanExecutor(
+            "http://worker",
+            token="t",
+            client_factory=self._mock_factory(handler),
+            retries=2,
+            sleep_fn=lambda _d: None,
+        )
+        with pytest.raises(ScanExecutionError) as excinfo:
+            executor.execute(JobCommand(project="p", path="orders.csv"))
+        assert excinfo.value.category == "http"
+        assert excinfo.value.retryable is False
+        assert len(calls) == 1
+
+    def test_429_retryable(self) -> None:
+        calls: list[str] = []
+
+        def handler(_: httpx.Request) -> Any:
+            calls.append("x")
+            if len(calls) == 1:
+                return httpx.Response(429, text="rate limited")
+            return httpx.Response(200, json=JobResult(scan_run_id="sr_r").model_dump())
+
+        executor = RemoteScanExecutor(
+            "http://worker",
+            token="t",
+            client_factory=self._mock_factory(handler),
+            retries=1,
+            backoff_jitter=0.0,
+            sleep_fn=lambda _d: None,
+        )
+        result = executor.execute(JobCommand(project="p", path="orders.csv"))
+        assert result.scan_run_id == "sr_r"
+        assert len(calls) == 2
+
+    def test_contract_error_not_retried(self) -> None:
+        calls: list[str] = []
+
+        def handler(_: httpx.Request) -> Any:
+            calls.append("x")
+            return httpx.Response(200, text="not-json")
+
+        executor = RemoteScanExecutor(
+            "http://worker",
+            token="t",
+            client_factory=self._mock_factory(handler),
+            retries=2,
+            sleep_fn=lambda _d: None,
+        )
+        with pytest.raises(ScanExecutionError) as excinfo:
+            executor.execute(JobCommand(project="p", path="orders.csv"))
+        assert excinfo.value.category == "contract"
+        assert excinfo.value.retryable is False
+        assert len(calls) == 1
+
+    def test_jitter_bounded_and_deterministic(self) -> None:
+        calls: list[str] = []
+
+        def handler(_: httpx.Request) -> Any:
+            calls.append("x")
+            return httpx.Response(500, text="boom")
+
+        def run(seed: int) -> tuple[list[float], float]:
+            sleeps: list[float] = []
+            executor = RemoteScanExecutor(
+                "http://worker",
+                token="t",
+                client_factory=self._mock_factory(handler),
+                retries=1,
+                backoff_jitter=0.1,
+                rng=random.Random(seed),
+                sleep_fn=sleeps.append,
+            )
+            with pytest.raises(ScanExecutionError):
+                executor.execute(JobCommand(project="p", path="orders.csv"))
+            return sleeps, sleeps[0]
+
+        _sleeps_a, delay_a = run(7)
+        _sleeps_b, delay_b = run(7)
+        assert delay_a == delay_b
+        assert 0.5 <= delay_a < 0.6
+        assert len(_sleeps_a) == 1

@@ -2628,3 +2628,28 @@
   - 无 MCP/REST/UI 变更（20 tools 不变）。
 - **测试**：+4 例（见上）。合计 V19 新增 6+10+4=20 例。
 - **依据**：Step 51 原子抢占设计（ADR-051）+ SQLite 单写者锁语义。
+
+## ADR-108：远程执行器超时细分 + 传输层重试退避 + 错误分类（V20，Step 108）
+- **背景**：`RemoteScanExecutor`（V14，ADR-090）单 `timeout=120s`、
+  无重试；网络抖动一次失败就把任务交给 Scheduler 重试/死信，无法
+  区分「传输瞬时故障」与「永久失败」。
+- **决策**：
+  - **超时细分**：`httpx.Timeout(timeout, connect=…, read=…)`——
+    connect/read 可独立配置（默认跟随总超时），建连慢与读取慢可
+    分别诊断；
+  - **传输层重试**：`retries`（默认 0，向后兼容）+ 指数退避
+    （`backoff_base` 默认 0.5s，`2**(attempt-1)`）+ 可注入抖动
+    （`backoff_jitter` 默认 0.1、`rng` 可注入）——仅网络错误与
+    `_RETRYABLE_HTTP_STATUS`（408/429/500/502/503/504）重试；
+    4xx 与契约错误（retryable=False）立即失败；
+  - **错误分类**：`ScanExecutionError` 增 `category`
+    （network/http/contract）与 `retryable` 属性，消息前缀
+    `network:` 区分，既有关键字（HTTP 422 / connection refused /
+    invalid result）保留；
+  - **边界（红线）**：执行器内重试只治传输瞬时故障；任务级重试/
+    死信仍归 `Scheduler._run_job`（既有语义零改动）；`retries=0`
+    时行为与 V14 完全一致。
+- **测试**：+9（超时分离配置 / 默认网络错误不重试 / 网络错误重试
+  后成功 / 5xx 退避序列 0.5→1.0 / 重试耗尽抛最后错误 / 4xx 不重试 /
+  429 可重试 / 契约错误不重试 / 抖动有界且同种子确定性）。
+- **依据**：ADR-090 执行器协议 + httpx.Timeout 语义。

@@ -4,6 +4,21 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.22.0] - 2026-08-15
+
+### 变更（Step 108，远程执行器超时细分 + 传输层重试，ADR-108）
+
+- `RemoteScanExecutor` 超时细分：`connect_timeout` / `read_timeout`
+  独立配置（默认跟随总超时），建连与读取可分别诊断
+- 传输层重试退避：`retries`（默认 0，向后兼容）+ 指数退避（base
+  0.5s）+ 可注入抖动——仅网络错误与 408/429/500/502/503/504 重试；
+  4xx 与契约错误立即失败
+- 错误分类：`ScanExecutionError` 增 `category`（network/http/
+  contract）与 `retryable` 属性，消息保留既有关键字
+- 边界：执行器内重试只治传输瞬时故障，任务级重试/死信仍在
+  Scheduler（`retries=0` 行为与 V14 一致）；MCP/REST/UI 零变更
+- 测试 +9（超时配置 / 重试语义 / 退避时序 / 抖动确定性）
+
 ## [0.21.0] - 2026-08-15
 
 V19 跨进程/多调度端一致性：元数据存储并发加固 + vault 密钥原子写 +
