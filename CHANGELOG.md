@@ -6,6 +6,14 @@
 
 ## [0.23.0] - 2026-08-15
 
+### 变更（Step 113，跨 workspace 物理隔离语义，ADR-113）
+
+- `/rpc/execute` worker 端改用自身 project 执行：扫描历史落 worker
+  库，与调度端库物理隔离（JobCommand.project 保留为契约信息字段，
+  同 workspace 部署行为零变化）
+- 测试 +1 跨 workspace e2e：worker 库含 scan_runs 记录 / 调度端库
+  无该记录 / run completed / 报告回传调度端 `.datasentry/reports`
+
 ### 变更（Step 112，ping 命令，ADR-112）
 
 - 新增顶层命令 `ping URL [--token TOKEN] [--timeout S]`：探测远端

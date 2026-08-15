@@ -241,3 +241,65 @@ class TestPingV21:
         body = json.loads(out)
         assert body["ok"] is True  # envelope 恒 ok；错误在 data.error
         assert "error" in body["data"]
+
+
+class TestCrossWorkspaceE2EV21:
+    """Step 113（ADR-113）：调度端与远端 worker 物理隔离证明。
+
+    worker 与调度端是**不同** workspace：远端 worker 执行扫描（scan
+    落 worker 库），调度端本地 store run completed，报告回传调度端
+    `.datasentry/reports`。
+    """
+
+    def test_cross_workspace_remote_trigger(self, tmp_path: Path) -> None:
+        scheduler_ws = tmp_path / "scheduler"
+        worker_ws = tmp_path / "worker"
+        scheduler_ws.mkdir()
+        worker_ws.mkdir()
+        csv = _csv(scheduler_ws)
+        job_id = _create_job(scheduler_ws, csv, export_report=True)
+
+        worker_app = create_worker_app(project=worker_ws, worker_token="s3cret")
+        base_url, _server, _thread = _serve(worker_app)
+
+        code = main(
+            [
+                "--project",
+                str(scheduler_ws),
+                "job",
+                "trigger",
+                job_id,
+                "--remote-url",
+                base_url,
+                "--remote-token",
+                "s3cret",
+            ]
+        )
+        assert code == 0
+
+        store = SchedulerStore(project_db_path(scheduler_ws))
+        run = store.get_run(store.list_runs(job_id)[0].run_id)
+        assert run is not None
+        assert run.status.value == "completed"
+        assert run.scan_run_id is not None
+
+        reports = list((scheduler_ws / ".datasentry" / "reports").glob("*.html"))
+        assert reports, "report not pulled back to scheduler workspace"
+        assert "<html" in reports[0].read_text(encoding="utf-8")
+
+        worker_scan_db = worker_ws / ".datasentry" / "metadata.db"
+        assert worker_scan_db.is_file(), "scan history must land in worker workspace"
+        assert not (scheduler_ws / ".datasentry" / "scan.db").is_file()
+
+        import sqlite3
+
+        with sqlite3.connect(worker_scan_db) as conn:
+            row = conn.execute(
+                "SELECT id FROM scan_runs WHERE id = ?", (run.scan_run_id,)
+            ).fetchone()
+        assert row, "scan_run must be recorded in worker metadata.db"
+        with sqlite3.connect(project_db_path(scheduler_ws)) as conn:
+            row = conn.execute(
+                "SELECT id FROM scan_runs WHERE id = ?", (run.scan_run_id,)
+            ).fetchone()
+        assert row is None, "scan_run must NOT be recorded in scheduler metadata.db"

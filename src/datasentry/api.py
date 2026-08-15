@@ -895,7 +895,12 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         except Exception as exc:
             raise HTTPException(status_code=422, detail=f"invalid job command: {exc}") from exc
         try:
-            result = LocalScanExecutor().execute(command)
+            # V21（Step 113，ADR-113）：worker 用自身 project 执行——扫描历史
+            # 落 worker 库（物理隔离语义），命令中的调度端 project 仅作契约
+            # 字段保留；command.path 需在 worker 侧可达（单机绝对路径/远端
+            # 同步均由部署者保证）。
+            worker_command = command.model_copy(update={"project": str(project)})
+            result = LocalScanExecutor().execute(worker_command)
         except Exception as exc:
             raise HTTPException(
                 status_code=500, detail=f"scan failed: {type(exc).__name__}"

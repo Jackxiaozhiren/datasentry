@@ -2735,3 +2735,23 @@
   未启用 token 的 worker ping worker=false / 不可达 → EXIT_ERROR
   且 data.error 存在）。
 - **依据**：ADR-109 信息面/数据面分离。
+
+## ADR-113：worker 用自身 project 执行（物理隔离语义，V21，Step 113）
+- **背景**：`/rpc/execute` 原样使用 JobCommand.project（调度端路径）
+  执行——扫描历史落调度端库，「远端执行」只是换个进程跑，物理
+  隔离不成立（Step 113 验收要求 scan 落 worker 库）。
+- **决策**：
+  - worker 端 `rpc_execute` 以 `command.model_copy(update={
+    project: <worker 自身 project>})` 覆盖命令 project 后执行——
+    扫描历史/数据产物落 worker 库，与调度端库物理隔离；
+  - 契约上 JobCommand.project 仍保留（信息字段），`command.path`
+    需在 worker 侧可达（单机绝对路径、远端同步由部署者保证）；
+  - 报告仍由 worker 生成（相对 worker project），回传调度端
+    `.datasentry/reports`（ADR-110 不变）；
+  - 同 workspace 部署（本地 e2e 既有语义）行为零变化——覆盖后
+    project 相同。
+- **测试**：+1 跨 workspace e2e（worker 库含 scan_runs 记录、调度端
+  库无该记录、报告回传调度端、run completed）；V20 remote 套件
+  未回归。
+- **依据**：ADR-091 远端执行 + ADR-010 工作区数据目录 + ADR-070
+  报告落点。

@@ -58,7 +58,7 @@ CLI 无配置入口——`job trigger` 硬编码 `LocalScanExecutor`，库级远
   worker ping ok 且 worker:false / 不可达 URL → EXIT_ERROR +
   error 字段 / --format json 结构
 
-### Step 113（ADR-113）：跨 workspace 端到端证明 + 收尾
+### Step 113（ADR-113）：跨 workspace 端到端证明 + 收尾 —— 代码 ✅（收尾文档/发布见下）
 
 - 端到端测试（Step 92 模式扩展）：worker 与调度端**不同** workspace
   ——远端 worker 执行扫描（scan 落 worker 库）+ 调度端本地 store
