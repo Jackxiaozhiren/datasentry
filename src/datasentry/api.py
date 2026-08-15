@@ -116,6 +116,12 @@ class PiiRotateRequest(BaseModel):
     new_key: str | None = None
 
 
+class PiiPurgeRequest(BaseModel):
+    """POST /pii/sessions/purge 请求体：删除早于 N 天的会话（<1 → 422）。"""
+
+    older_than_days: int = Field(ge=1)
+
+
 def _config_from(req: ScanRequest) -> ScanConfig:
     return ScanConfig(
         detectors=req.detectors,
@@ -611,6 +617,34 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             )
         )
 
+    @app.post("/ui/pii/purge", response_class=HTMLResponse, tags=["ui"])
+    def ui_pii_purge(
+        older_than_days: int = Form(default=30), lang: str = Query(default="en")
+    ) -> HTMLResponse:
+        """清理表单：删除早于 N 天的会话（无需密钥，V18，Step 103，ADR-103）。"""
+        from datasentry.pii_vault import PIIVault
+
+        vault = PIIVault(client._store)
+        error: str | None = None
+        purge_ok: str | None = None
+        purged: int | None = None
+        if older_than_days < 1:
+            error = "older_than_days must be >= 1"
+        else:
+            purge_ok = _t(lang, "ui.pii_purged_result")
+            purged = vault.purge_sessions(older_than_days)
+        return HTMLResponse(
+            ui.render_pii(
+                client._store.list_pii_mappings(),
+                key_source=vault.key_source,
+                key_configured=vault.key_configured,
+                error=error,
+                purge_ok=purge_ok,
+                purged=purged,
+                lang=lang,
+            )
+        )
+
     @app.get("/ui/scans/{run_id}", response_class=HTMLResponse, tags=["ui"])
     def ui_scan_detail(
         run_id: str,
@@ -927,6 +961,15 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             )
         return Response(status_code=204)
 
+    @app.post("/pii/sessions/purge", tags=["pii"])
+    def pii_purge_sessions(req: PiiPurgeRequest) -> dict[str, Any]:
+        """删除创建时间早于 N 天的加密会话（V18，Step 103，ADR-103）。
+
+        无需密钥（与 DELETE 同语义：只删密文行不解密）。
+        """
+        vault = PIIVault(client._store)
+        return {"purged": vault.purge_sessions(req.older_than_days)}
+
     @app.post("/pii/rotate-key", tags=["pii"])
     def pii_rotate_key(req: PiiRotateRequest | None = None) -> dict[str, Any]:
         """轮换加密密钥：全部映射以新密钥重加密 + 写入本地 key 文件。
@@ -978,6 +1021,7 @@ _ENDPOINTS = frozenset(
         "GET /pii/sessions/{session_id}",
         "POST /pii/sessions/{session_id}/restore",
         "DELETE /pii/sessions/{session_id}",
+        "POST /pii/sessions/purge",
         "POST /pii/rotate-key",
     }
 )

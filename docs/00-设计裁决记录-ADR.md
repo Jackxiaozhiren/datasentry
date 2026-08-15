@@ -2518,3 +2518,29 @@
   轮换按钮、设置表单、zh）。合计 12 例新增。
 - **依据**：rotate_key 既有语义（pii_vault.py）+ CLI 同源
   （ADR-048）+ 四面缺 key 对齐（ADR-099/100/101）。
+
+## ADR-103：会话按龄清理 purge 四面（V18，Step 103）
+- **背景**：vault 会话只增不删过期，只能手工逐条 --delete；
+  密钥/会话生命周期管理缺"过期清理"能力。
+- **决策**：
+  - `PIIVault.purge_sessions(older_than_days) -> int`：遍历
+    list_pii_mappings（limit=10**6 覆盖全量），created_at 早于
+    cutoff 则 delete_pii_mapping 计数——只删密文行、不解密，
+    **无需密钥**（与 DELETE 同语义）；不触碰存储 schema；
+  - CLI `llm restore --purge --older-than N`（默认 30）：与
+    session_id 互斥、N<1 拒绝（EXIT_ERROR=3）；输出 {"purged"}；
+    无 key 可跑（dev 兜底告警照常）；
+  - REST `POST /pii/sessions/purge` body {"older_than_days": int}：
+    N<1 或缺失 → 422（pydantic Field(ge=1) 自动校验，不 gate
+    密钥）；_ENDPOINTS 同步 +1；
+  - MCP `pii_purge_sessions`（required olderThanDays）：N<1 →
+    ok:false 错误消息；无需密钥；
+  - UI /ui/pii 清理表单（number min=1 默认 30，POST
+    /ui/pii/purge）：key_configured 与否都显示（purge 无 key
+    可用）；结果 alert 展示 purged 数。
+- **测试**：CLI 3 例（删旧留新、无 key、非法参数互斥/0）；
+  REST 4 例（e2e、422×2、无 key、端点列表）；MCP 3 例（e2e、
+  非法参数、无 key）；UI 4 例（表单可见、无 key 提交、删旧留
+  新、zh）。合计 14 例新增。
+- **依据**：delete 无需密钥语义（ADR-099）+ list/delete 既有
+  存储 API（不改 schema）+ 四面同语义模式（ADR-099/100/101）。

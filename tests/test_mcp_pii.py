@@ -53,6 +53,9 @@ class TestPiiToolsShape:
             assert set(rotate["inputSchema"]["properties"]) == {"newKey"}
             assert rotate["inputSchema"]["required"] == []
             assert "newKey" in rotate["description"]
+            purge = by_name["pii_purge_sessions"]
+            assert set(purge["inputSchema"]["properties"]) == {"olderThanDays"}
+            assert purge["inputSchema"]["required"] == ["olderThanDays"]
         finally:
             server.close()
 
@@ -189,5 +192,56 @@ class TestPiiToolsEndToEnd:
             assert (tmp_path / "vault.key").read_text(
                 encoding="utf-8"
             ).strip() == "mcp-known-material"
+        finally:
+            server.close()
+
+    def test_purge_sessions(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from datetime import timedelta
+
+        from datasentry_core.models.evidence import utcnow
+
+        server = _server_with_key(tmp_path, monkeypatch)
+        try:
+            store = server._client._store
+            store.save_pii_mapping(
+                "pii_old", "ct", key_version="env", created_at=utcnow() - timedelta(days=60)
+            )
+            store.save_pii_mapping(
+                "pii_new", "ct2", key_version="env", created_at=utcnow() - timedelta(days=2)
+            )
+            purged = _tool_text(server, 39, "pii_purge_sessions", {"olderThanDays": 30})
+            assert purged["ok"] is True
+            assert purged["purged"] == 1
+            listed = _tool_text(server, 40, "pii_sessions", {})
+            assert [s["sessionId"] for s in listed["sessions"]] == ["pii_new"]
+        finally:
+            server.close()
+
+    def test_purge_invalid_days_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        server = _server_with_key(tmp_path, monkeypatch)
+        try:
+            purged = _tool_text(server, 41, "pii_purge_sessions", {"olderThanDays": 0})
+            assert purged["ok"] is False
+            assert "must be >= 1" in purged["error"]
+        finally:
+            server.close()
+
+    def test_purge_works_without_key(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from datetime import timedelta
+
+        from datasentry_core.models.evidence import utcnow
+
+        monkeypatch.delenv("DATASENTRY_ENCRYPTION_KEY", raising=False)
+        monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            server._client._store.save_pii_mapping(
+                "pii_old", "ct", key_version="env", created_at=utcnow() - timedelta(days=60)
+            )
+            purged = _tool_text(server, 42, "pii_purge_sessions", {"olderThanDays": 30})
+            assert purged["ok"] is True
+            assert purged["purged"] == 1
         finally:
             server.close()

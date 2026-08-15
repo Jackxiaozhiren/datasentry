@@ -875,6 +875,25 @@ def _cmd_llm_restore(args: argparse.Namespace) -> int:
                 "using built-in development key: set DATASENTRY_ENCRYPTION_KEY "
                 "or run 'datasentry llm rotate-key'"
             )
+        if args.purge:
+            if args.session_id is not None:
+                _emit(
+                    _envelope(
+                        "llm restore",
+                        {"error": "--purge cannot be combined with a session_id"},
+                    ),
+                    args.format,
+                )
+                return EXIT_ERROR
+            if args.older_than < 1:
+                _emit(
+                    _envelope("llm restore", {"error": "--older-than must be >= 1"}),
+                    args.format,
+                )
+                return EXIT_ERROR
+            purged = vault.purge_sessions(args.older_than)
+            _emit(_envelope("llm restore", {"purged": purged}, warnings), args.format)
+            return EXIT_OK
         if args.session_id is None:
             sessions = client._store.list_pii_mappings(limit=args.limit)
             data = {
@@ -1411,6 +1430,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_restore.add_argument("--text", type=str, default=None, help="restore placeholders in TEXT")
     p_restore.add_argument("--delete", action="store_true", help="delete the session mapping")
     p_restore.add_argument("--limit", type=int, default=100, help="max sessions (default 100)")
+    p_restore.add_argument(
+        "--purge",
+        action="store_true",
+        help="delete sessions older than --older-than days (Step 103)",
+    )
+    p_restore.add_argument(
+        "--older-than",
+        type=int,
+        default=30,
+        help="purge sessions created before N days (default 30, requires --purge)",
+    )
     p_restore.set_defaults(func=_cmd_llm_restore)
     p_rotate = llm_sub.add_parser(
         "rotate-key", help="re-encrypt all mappings with a new key (writes local key file)"

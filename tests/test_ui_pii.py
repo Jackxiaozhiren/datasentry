@@ -165,6 +165,69 @@ class TestPiiPageWithKey:
         assert "密钥已轮换" in resp.text
 
 
+class TestPiiPurgeV18:
+    """Step 103（V18，ADR-103）：/ui/pii/purge 清理表单（无需密钥）。"""
+
+    def test_purge_form_shown_without_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("DATASENTRY_ENCRYPTION_KEY", raising=False)
+        monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
+        resp = _client(tmp_path).get("/ui/pii")
+        assert resp.status_code == 200
+        assert 'action="/ui/pii/purge"' in resp.text
+        assert 'name="older_than_days"' in resp.text
+
+    def test_purge_posts_without_key(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from datetime import timedelta
+
+        from datasentry_core.models.evidence import utcnow
+
+        monkeypatch.delenv("DATASENTRY_ENCRYPTION_KEY", raising=False)
+        monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
+        client = _client(tmp_path)
+        client.app.state.client._store.save_pii_mapping(
+            "pii_old", "ct", key_version="env", created_at=utcnow() - timedelta(days=60)
+        )
+        resp = client.post("/ui/pii/purge", data={"older_than_days": "30"})
+        assert resp.status_code == 200
+        assert "Old sessions purged" in resp.text
+        assert "purged: 1" in resp.text
+
+    def test_purge_removes_old_keeps_new(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from datetime import timedelta
+
+        from datasentry_core.models.evidence import utcnow
+
+        monkeypatch.setenv("DATASENTRY_ENCRYPTION_KEY", "ui-test-key-0001")
+        monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
+        client = _client(tmp_path)
+        store = client.app.state.client._store
+        store.save_pii_mapping(
+            "pii_old", "ct", key_version="env", created_at=utcnow() - timedelta(days=60)
+        )
+        store.save_pii_mapping(
+            "pii_new", "ct2", key_version="env", created_at=utcnow() - timedelta(days=2)
+        )
+        resp = client.post("/ui/pii/purge", data={"older_than_days": "30"})
+        assert resp.status_code == 200
+        assert "purged: 1" in resp.text
+        page = client.get("/ui/pii").text
+        assert "pii_new" in page
+        assert "pii_old" not in page
+
+    def test_purge_zh(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DATASENTRY_ENCRYPTION_KEY", "ui-test-key-0001")
+        monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
+        resp = _client(tmp_path).post(
+            "/ui/pii/purge", data={"older_than_days": "30"}, params={"lang": "zh"}
+        )
+        assert resp.status_code == 200
+        assert "过期会话已清理" in resp.text
+
+
 class TestPiiNav:
     def test_nav_links_pii(self, tmp_path: Path) -> None:
         resp = _client(tmp_path).get("/ui/")

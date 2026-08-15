@@ -103,6 +103,7 @@ class TestTools:
                 "pii_restore",
                 "pii_delete_session",
                 "pii_rotate_key",
+                "pii_purge_sessions",
             } == names
             for tool in tools:
                 assert tool["inputSchema"]["type"] == "object"

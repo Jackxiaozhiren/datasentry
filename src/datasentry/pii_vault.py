@@ -27,6 +27,7 @@ import json
 import os
 import secrets
 import uuid
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -164,6 +165,19 @@ class PIIVault:
         return restored
 
     # ---- 密钥轮换 ---------------------------------------------------------
+
+    def purge_sessions(self, older_than_days: int) -> int:
+        """删除创建时间早于 N 天的加密会话（Step 103，V18，ADR-103）。
+
+        purge 不需要密钥（与 delete 同语义）：只按 created_at
+        过滤删除密文行，不解密内容。返回删除条数。
+        """
+        cutoff = utcnow() - timedelta(days=older_than_days)
+        purged = 0
+        for row in self._store.list_pii_mappings(limit=10**6):
+            if row["created_at"] < cutoff and self._store.delete_pii_mapping(row["session_id"]):
+                purged += 1
+        return purged
 
     def rotate_key(self, new_key: str | None = None) -> dict[str, Any]:
         """用新密钥重加密全部映射；新密钥写入本地 key 文件。

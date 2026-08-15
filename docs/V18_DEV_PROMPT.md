@@ -50,7 +50,7 @@ V18 收尾这两个生命周期管理缺口：密钥轮换/设置完整透传 + 
 - i18n：`ui.pii_key_card`、`ui.pii_rotate_button`、`ui.pii_set_key_form`、`ui.pii_new_key_label`、`ui.pii_rotate_result`、`ui.pii_key_hint` 等（en+zh）
 - 测试（`tests/test_api_pii.py` + `tests/test_mcp_pii.py` + `tests/test_ui_pii.py` 追加）：REST 无 body 轮换（行为不变）、带 new_key 轮换（轮换后旧 env key 解密 503、新 key 可还原）、缺 key 503；MCP 工具存在 + schema、e2e 轮换、newKey 指定、缺 key 错误消息；UI 密钥卡片显示、轮换按钮 POST、设置表单 POST（含 XSS 转义）
 
-### Step 103（ADR-103）：会话按龄清理 purge 四面
+### Step 103（ADR-103）：会话按龄清理 purge 四面—— ✅ 完成
 
 - `src/datasentry/pii_vault.py` 加 `purge_sessions(older_than_days: int) -> int`：遍历 `list_pii_mappings(limit=10**6)`，`created_at < utcnow - timedelta(days=N)` 则 `delete_pii_mapping`，计数返回；**不触碰存储 schema**
 - CLI：`llm restore` 加 `--purge` + `--older-than <int>`；`--purge` 时忽略 session_id（互斥校验：`--purge` 与 `session_id` 同给则报错 EXIT_ERROR；`--purge` 必须带 `--older-than` 且 ≥1，否则报错）；输出 `{"purged": N}`；无 key 也能 purge（dev 兜底警告照常）

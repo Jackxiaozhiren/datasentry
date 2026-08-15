@@ -841,6 +841,110 @@ class TestCli:
         payload = json.loads(capsys.readouterr().out)
         assert payload["data"]["rotated"] == 1
 
+    # ---- Step 103：llm restore --purge --older-than（V18，ADR-103） -------
+
+    def test_llm_purge_deletes_old_keeps_new(
+        self, workspace: Path, capsys, monkeypatch, tmp_path: Path
+    ) -> None:
+        from datetime import timedelta
+
+        from datasentry.client import DataSentry as SDKClient
+        from datasentry_core.models.evidence import utcnow
+
+        monkeypatch.setenv("DATASENTRY_ENCRYPTION_KEY", "cli-purge-test-key")
+        monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
+        store = SDKClient(project=workspace)._store
+        store.save_pii_mapping(
+            "pii_old", "ct", key_version="env", created_at=utcnow() - timedelta(days=60)
+        )
+        store.save_pii_mapping(
+            "pii_new", "ct2", key_version="env", created_at=utcnow() - timedelta(days=2)
+        )
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "llm",
+                "restore",
+                "--purge",
+                "--older-than",
+                "30",
+            ]
+        )
+        assert code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["data"]["purged"] == 1
+        listed = main(["--project", str(workspace), "--format", "json", "llm", "restore"])
+        assert listed == 0
+        sessions = json.loads(capsys.readouterr().out)["data"]["sessions"]
+        assert [s["session_id"] for s in sessions] == ["pii_new"]
+
+    def test_llm_purge_works_without_key(
+        self, workspace: Path, capsys, monkeypatch, tmp_path: Path
+    ) -> None:
+        from datetime import timedelta
+
+        from datasentry.client import DataSentry as SDKClient
+        from datasentry_core.models.evidence import utcnow
+
+        monkeypatch.delenv("DATASENTRY_ENCRYPTION_KEY", raising=False)
+        monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
+        store = SDKClient(project=workspace)._store
+        store.save_pii_mapping(
+            "pii_old", "ct", key_version="env", created_at=utcnow() - timedelta(days=60)
+        )
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "llm",
+                "restore",
+                "--purge",
+                "--older-than",
+                "30",
+            ]
+        )
+        assert code == 0  # purge 不需要密钥（与 --delete 同语义）
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["data"]["purged"] == 1
+
+    def test_llm_purge_rejects_bad_args(self, workspace: Path, capsys) -> None:
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "llm",
+                "restore",
+                "pii_x",
+                "--purge",
+            ]
+        )
+        assert code == 3
+        payload = json.loads(capsys.readouterr().out)
+        assert "cannot be combined" in payload["data"]["error"]
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "llm",
+                "restore",
+                "--purge",
+                "--older-than",
+                "0",
+            ]
+        )
+        assert code == 3
+        payload = json.loads(capsys.readouterr().out)
+        assert "must be >= 1" in payload["data"]["error"]
+
 
 class TestSecretsCli:
     """Step 59 凭据管理（ADR-059）：secrets set/get/list/rm 子命令族。"""

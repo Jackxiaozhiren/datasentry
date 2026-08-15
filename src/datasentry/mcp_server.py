@@ -25,6 +25,7 @@ SDK（与 CLI/REST 同源）。
     pii_restore          还原文本明文（显式授权，Step 100）
     pii_delete_session   删除 PII 加密会话（Step 100）
     pii_rotate_key       轮换 PII 加密密钥（Step 102）
+    pii_purge_sessions   删除早于 N 天的 PII 加密会话（Step 103）
 
 用法：`datasentry mcp [--project DIR]`；由 MCP 客户端（如 Claude
 Code）以 stdio 方式启动。
@@ -612,6 +613,29 @@ class McpServer:
                 "rotated": result["rotated"],
                 "keyFile": result["key_file"],
             }
+
+        @self._tool(
+            "pii_purge_sessions",
+            "Delete PII encryption sessions older than N days (Step "
+            "103, ADR-103). Sessions are matched by creation time "
+            "only; the encryption key is not required. Returns "
+            "purged (count of deleted sessions) or ok:false when "
+            "olderThanDays is invalid (< 1).",
+            {
+                "olderThanDays": {
+                    "type": "integer",
+                    "description": "Delete sessions created before this many days (>= 1)",
+                },
+            },
+            ["olderThanDays"],
+        )
+        def pii_purge_sessions(olderThanDays: int) -> dict[str, Any]:
+            from datasentry.pii_vault import PIIVault
+
+            if olderThanDays < 1:
+                return {"ok": False, "error": "olderThanDays must be >= 1"}
+            vault = PIIVault(self._client._store)
+            return {"ok": True, "purged": vault.purge_sessions(olderThanDays)}
 
     # ---- JSON-RPC 分发 --------------------------------------------------
 

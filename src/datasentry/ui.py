@@ -412,14 +412,17 @@ def render_pii(
     error: str | None = None,
     key_ok: str | None = None,
     key_result: dict[str, Any] | None = None,
+    purge_ok: str | None = None,
+    purged: int | None = None,
     lang: str = "en",
 ) -> str:
-    """PII 加密会话管理页（Step 101/102，V17/V18，ADR-101/102）。
+    """PII 加密会话管理页（Step 101-103，V17/V18，ADR-101/102/103）。
 
     默认打码语义不变：列表只显示 session_id/key_version/时间；
     还原表单提交到本页，还原结果仅存在于本次响应体（内存），
     不落盘。缺 key 时只显示提示、不提供还原表单，也不显示
-    密钥管理卡片。key_ok/key_result 用于密钥轮换/设置结果。
+    密钥管理卡片。key_ok/key_result 用于密钥轮换/设置结果，
+    purge_ok/purged 用于按龄清理结果。
     """
     body: list[str] = []
     if not key_configured:
@@ -474,6 +477,15 @@ def render_pii(
             f'<button type="submit">{escape(t(lang, "ui.pii_restore_button"))}</button>'
             "</form>"
         )
+    body.append(
+        f"<h2>{escape(t(lang, 'ui.pii_purge_form'))}</h2>"
+        f'<p class="meta">{escape(t(lang, "ui.pii_purge_days"))}</p>'
+        '<form method="post" action="/ui/pii/purge">'
+        '<input type="number" id="older_than_days" name="older_than_days" '
+        'min="1" value="30" required>'
+        f'<button type="submit">{escape(t(lang, "ui.pii_purge_button"))}</button>'
+        "</form>"
+    )
     if key_ok:
         result_lines = [f"<strong>{escape(key_ok)}:</strong>"]
         if key_result:
@@ -482,6 +494,11 @@ def render_pii(
                 result_lines.append(f"{escape(str(field))}: {escape(str(value))}")
             result_lines.append("</pre>")
         body.append('<div class="alert alert-ok">' + "".join(result_lines) + "</div>")
+    if purge_ok:
+        body.append(
+            '<div class="alert alert-ok"><strong>'
+            f"{escape(purge_ok)}:</strong> <code>purged: {purged}</code></div>"
+        )
     if restored is not None:
         body.append(
             '<div class="alert alert-ok"><strong>'

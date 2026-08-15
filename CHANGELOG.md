@@ -26,7 +26,18 @@ V18 PII vault 密钥与会话生命周期管理：密钥轮换/设置完整透�
 
 ### 新增（Step 103，会话按龄清理 purge，ADR-103）
 
-（Step 103 完成时回填）
+- **CLI**：`llm restore --purge --older-than <days>`（默认 30）删除
+  创建早于 N 天的加密会话，输出 `{"purged": N}`；与 session_id 互斥、
+  `--older-than < 1` 拒绝（EXIT_ERROR）；无需密钥（与 `--delete`
+  同语义）
+- **REST**：`POST /pii/sessions/purge`（body `{"older_than_days": int}`，
+  必须 ≥1 否则 422）→ `{"purged": N}`；无需密钥
+- **MCP**：新增 `pii_purge_sessions` 工具（20 个；required
+  `olderThanDays`，<1 → `ok:false` 错误消息）；无需密钥
+- **Web UI**：`/ui/pii` 清理表单（number min=1 默认 30）——无论是否
+  配置密钥都可使用；结果展示 purged 数；en/zh i18n
+- 测试 +14 例（CLI 3 / REST 4 / MCP 3 / UI 4）；pii 四面总量
+  1131 → 1155
 
 ## [0.19.0] - 2026-08-14
 

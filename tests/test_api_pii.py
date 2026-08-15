@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from datasentry.api import create_app
 from datasentry.pii_vault import PIIVault
+from datasentry_core.storage.store import MetadataStore
 
 _MAPPING = {"email": ["alice@example.com", "bob@corp.io"], "cn_phone": ["13800138000"]}
 
@@ -219,3 +220,47 @@ class TestPiiRotateKeyV18:
         vault.save_mapping(_MAPPING)
         client.post("/pii/rotate-key", json={"new_key": "v18-known-material"})
         assert (tmp_path / "vault.key").read_text(encoding="utf-8").strip() == "v18-known-material"
+
+
+class TestPiiPurgeV18:
+    """Step 103（V18，ADR-103）：POST /pii/sessions/purge 按龄清理。
+
+    无需密钥（与 DELETE 同语义）；older_than_days < 1 → 422。
+    """
+
+    def _seed(self, store: MetadataStore) -> None:
+        from datetime import timedelta
+
+        from datasentry_core.models.evidence import utcnow
+
+        store.save_pii_mapping(
+            "pii_old", "ct", key_version="env", created_at=utcnow() - timedelta(days=60)
+        )
+        store.save_pii_mapping(
+            "pii_new", "ct2", key_version="env", created_at=utcnow() - timedelta(days=2)
+        )
+
+    def test_purge_removes_old_keeps_new(self, tmp_path: Path, key_env: None) -> None:
+        client, _ = _client(tmp_path)
+        self._seed(client.app.state.client._store)
+        resp = client.post("/pii/sessions/purge", json={"older_than_days": 30})
+        assert resp.status_code == 200
+        assert resp.json() == {"purged": 1}
+        remaining = [s["session_id"] for s in client.get("/pii/sessions").json()["sessions"]]
+        assert remaining == ["pii_new"]
+
+    def test_purge_invalid_days_422(self, tmp_path: Path, key_env: None) -> None:
+        client, _ = _client(tmp_path)
+        assert client.post("/pii/sessions/purge", json={"older_than_days": 0}).status_code == 422
+        assert client.post("/pii/sessions/purge", json={}).status_code == 422
+
+    def test_purge_works_without_key(self, tmp_path: Path, no_key_env: None) -> None:
+        client, _ = _client(tmp_path)
+        self._seed(client.app.state.client._store)
+        resp = client.post("/pii/sessions/purge", json={"older_than_days": 30})
+        assert resp.status_code == 200
+        assert resp.json() == {"purged": 1}
+
+    def test_purge_endpoint_listed(self, tmp_path: Path, key_env: None) -> None:
+        client, _ = _client(tmp_path)
+        assert "POST /pii/sessions/purge" in client.get("/").json()["endpoints"]
