@@ -220,6 +220,11 @@ flowchart LR
 | [docs/01-一致性检查.md](docs/01-设计材料-一致性检查.md) | Spec consistency checks |
 | [docs/03-MVP-V1-划分.md](docs/03-设计材料-MVP-V1-划分.md) | MVP vs V1 feature scoping |
 
+## Blog
+
+- [Detecting data quality issues with LLM-assisted tooling](.growth/blog-1-detect-quality-en.md) — why detection stays statistical while LLMs translate and suggest; a full walkthrough on real data. (中文版：[用 LLM 做数据质量检测，我把「检测」和「建议」分开了](.growth/blog-1-detect-quality-zh.md))
+- [Great Expectations vs DataSentry: two ways to care about data quality](.growth/blog-2-ge-vs-datasentry-en.md) — assertion frameworks vs detection frameworks, and where they complement each other.
+
 ## Development
 
 ```bash
