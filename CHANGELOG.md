@@ -4,6 +4,30 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.20.0] - 2026-08-15
+
+V18 PII vault 密钥与会话生命周期管理：密钥轮换/设置完整透传 + 会话按龄清理（purge）。
+
+### 新增（Step 102，密钥轮换/设置完整透传，ADR-102）
+
+- **REST**：`POST /pii/rotate-key` 支持可选请求体 `{"new_key": "..."}`
+  指定新密钥材料（与 CLI `rotate-key --new-key` 对齐）；无 body /
+  空对象行为与 v0.19.0 完全一致（自动生成），向后兼容；返回仍不
+  含密钥材料（远程面不泄露，ADR-099 延续）；缺 key 503
+- **MCP**：新增 `pii_rotate_key` 工具（19 个；可选参数 newKey，缺省
+  自动生成）→ `{ok, keyVersion:"file", rotated, keyFile}`；缺 key →
+  `ok:false` 错误消息；描述注明轮换后旧密钥对存量会话失效
+- **Web UI**：`/ui/pii` 加密钥管理卡片（key_configured 时）——
+  key_source 状态 + "轮换密钥"按钮 + "设置密钥"表单（new_key 留空
+  自动生成）；缺 key 时隐藏卡片并在提示下补充创建密钥 hint
+  （`datasentry llm rotate-key`）；en/zh i18n
+- 测试 +12 例（REST 4 / MCP 3 / UI 5）；四面语义与 CLI `rotate-key`
+  `--new-key` 同源（轮换后旧 key 解密失败，REST 503 / MCP 错误消息）
+
+### 新增（Step 103，会话按龄清理 purge，ADR-103）
+
+（Step 103 完成时回填）
+
 ## [0.19.0] - 2026-08-14
 
 V17 PII 加密 vault 管理面补全：CLI 之外的 REST / MCP / Web UI

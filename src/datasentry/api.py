@@ -110,6 +110,12 @@ class PiiRestoreRequest(BaseModel):
     text: str
 
 
+class PiiRotateRequest(BaseModel):
+    """POST /pii/rotate-key 可选请求体：指定新密钥材料（缺省自动生成）。"""
+
+    new_key: str | None = None
+
+
 def _config_from(req: ScanRequest) -> ScanConfig:
     return ScanConfig(
         detectors=req.detectors,
@@ -541,6 +547,70 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             )
         )
 
+    @app.post("/ui/pii/rotate", response_class=HTMLResponse, tags=["ui"])
+    def ui_pii_rotate(lang: str = Query(default="en")) -> HTMLResponse:
+        """轮换密钥按钮：重加密全部映射 + 写入本地 key 文件（V18，ADR-102）。"""
+        from datasentry.pii_vault import PIIVault, VaultKeyMissingError
+
+        vault = PIIVault(client._store)
+        key_ok: str | None = None
+        key_result: dict[str, Any] | None = None
+        error: str | None = None
+        if not vault.key_configured:
+            error = _t(lang, "ui.pii_key_missing")
+        else:
+            try:
+                result = vault.rotate_key()
+            except VaultKeyMissingError as exc:
+                error = str(exc)
+            else:
+                key_ok = _t(lang, "ui.pii_rotate_ok")
+                key_result = {"rotated": result["rotated"], "key_file": result["key_file"]}
+        return HTMLResponse(
+            ui.render_pii(
+                client._store.list_pii_mappings(),
+                key_source=vault.key_source,
+                key_configured=vault.key_configured,
+                error=error,
+                key_ok=key_ok,
+                key_result=key_result,
+                lang=lang,
+            )
+        )
+
+    @app.post("/ui/pii/key", response_class=HTMLResponse, tags=["ui"])
+    def ui_pii_set_key(
+        new_key: str = Form(default=""), lang: str = Query(default="en")
+    ) -> HTMLResponse:
+        """设置密钥表单：以指定材料轮换（与 CLI rotate-key --new-key 对齐，V18）。"""
+        from datasentry.pii_vault import PIIVault, VaultKeyMissingError
+
+        vault = PIIVault(client._store)
+        key_ok: str | None = None
+        key_result: dict[str, Any] | None = None
+        error: str | None = None
+        if not vault.key_configured:
+            error = _t(lang, "ui.pii_key_missing")
+        else:
+            try:
+                result = vault.rotate_key(new_key=new_key or None)
+            except VaultKeyMissingError as exc:
+                error = str(exc)
+            else:
+                key_ok = _t(lang, "ui.pii_set_key_ok")
+                key_result = {"rotated": result["rotated"], "key_file": result["key_file"]}
+        return HTMLResponse(
+            ui.render_pii(
+                client._store.list_pii_mappings(),
+                key_source=vault.key_source,
+                key_configured=vault.key_configured,
+                error=error,
+                key_ok=key_ok,
+                key_result=key_result,
+                lang=lang,
+            )
+        )
+
     @app.get("/ui/scans/{run_id}", response_class=HTMLResponse, tags=["ui"])
     def ui_scan_detail(
         run_id: str,
@@ -858,15 +928,18 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         return Response(status_code=204)
 
     @app.post("/pii/rotate-key", tags=["pii"])
-    def pii_rotate_key() -> dict[str, Any]:
+    def pii_rotate_key(req: PiiRotateRequest | None = None) -> dict[str, Any]:
         """轮换加密密钥：全部映射以新密钥重加密 + 写入本地 key 文件。
 
-        返回 key_version（轮换后恒 "file"——密钥已落盘，与落库行的
-        key_version 一致）；不返回新密钥材料本身（远程面不泄露）。
+        可选请求体 {"new_key": "..."} 指定新密钥材料（与 CLI
+        rotate-key --new-key 对齐），缺省自动生成（v0.19.0 行为
+        不变，向后兼容）。返回 key_version（轮换后恒 "file"——
+        密钥已落盘，与落库行的 key_version 一致）；不返回新密钥
+        材料本身（远程面不泄露）。
         """
         vault = _pii_vault(client)
         try:
-            result = vault.rotate_key()
+            result = vault.rotate_key(new_key=req.new_key if req else None)
         except VaultKeyMissingError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         return {

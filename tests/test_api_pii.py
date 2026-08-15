@@ -161,3 +161,61 @@ class TestPiiFullLifecycle:
         )
         assert restored.status_code == 200
         assert restored.json()["restored"] == "alice@example.com"
+
+
+class TestPiiRotateKeyV18:
+    """Step 102（V18，ADR-102）：POST /pii/rotate-key 可选 body {"new_key"}。
+
+    无 body / 空对象行为与 v0.19.0 完全一致（向后兼容）；带
+    new_key 与 CLI rotate-key --new-key 同源。
+    """
+
+    def test_no_body_backward_compat(self, tmp_path: Path, key_env: None) -> None:
+        client, vault = _client(tmp_path)
+        vault.save_mapping(_MAPPING)
+        body = client.post("/pii/rotate-key").json()
+        assert body == {
+            "key_version": "file",
+            "rotated": 1,
+            "key_file": str(tmp_path / "vault.key"),
+        }
+
+    def test_empty_object_backward_compat(self, tmp_path: Path, key_env: None) -> None:
+        client, vault = _client(tmp_path)
+        vault.save_mapping(_MAPPING)
+        body = client.post("/pii/rotate-key", json={}).json()
+        assert body["key_version"] == "file"
+        assert body["rotated"] == 1
+
+    def test_explicit_new_key_chain(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """带 new_key 轮换：旧 env key 失效 503，去 env 后新 key 可还原（与 CLI 同源）。"""
+        monkeypatch.setenv("DATASENTRY_ENCRYPTION_KEY", "api-test-key-0001")
+        monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
+        client, vault = _client(tmp_path)
+        session_id = vault.save_mapping(_MAPPING)
+
+        rotated = client.post("/pii/rotate-key", json={"new_key": "v18-explicit-material"})
+        assert rotated.status_code == 200
+        body = rotated.json()
+        assert body["key_version"] == "file"
+        assert body["rotated"] == 1
+        assert "new_key" not in body  # 远程面不泄露密钥材料
+
+        stale = client.post(
+            f"/pii/sessions/{session_id}/restore", json={"text": "{{REDACTED:email:0}}"}
+        )
+        assert stale.status_code == 503
+
+        monkeypatch.delenv("DATASENTRY_ENCRYPTION_KEY", raising=False)
+        restored = client.post(
+            f"/pii/sessions/{session_id}/restore", json={"text": "{{REDACTED:email:0}}"}
+        )
+        assert restored.status_code == 200
+        assert restored.json()["restored"] == "alice@example.com"
+
+    def test_explicit_new_key_roundtrip_uses_it(self, tmp_path: Path, key_env: None) -> None:
+        """文件密钥内容即轮换时指定材料（可被 CLI/API 复用，非随机）。"""
+        client, vault = _client(tmp_path)
+        vault.save_mapping(_MAPPING)
+        client.post("/pii/rotate-key", json={"new_key": "v18-known-material"})
+        assert (tmp_path / "vault.key").read_text(encoding="utf-8").strip() == "v18-known-material"

@@ -24,6 +24,7 @@ SDK（与 CLI/REST 同源）。
     pii_sessions         列出 PII 加密会话（Step 100）
     pii_restore          还原文本明文（显式授权，Step 100）
     pii_delete_session   删除 PII 加密会话（Step 100）
+    pii_rotate_key       轮换 PII 加密密钥（Step 102）
 
 用法：`datasentry mcp [--project DIR]`；由 MCP 客户端（如 Claude
 Code）以 stdio 方式启动。
@@ -573,6 +574,44 @@ class McpServer:
             if not deleted:
                 return {"ok": False, "error": f"pii mapping session not found: {session_id}"}
             return {"ok": True, "sessionId": session_id, "deleted": True}
+
+        @self._tool(
+            "pii_rotate_key",
+            "Rotate the PII vault encryption key (Step 102, ADR-102): "
+            "re-encrypts all existing mappings with a new key and "
+            "writes it to the local key file, making the previous key "
+            "invalid for existing sessions. Optional newKey supplies "
+            "the key material; a random key is generated when omitted "
+            "(mirrors CLI rotate-key --new-key). Returns ok:false with "
+            "an error when no encryption key is configured.",
+            {
+                "newKey": {
+                    "type": "string",
+                    "description": "Optional new key material (auto-generated when omitted)",
+                },
+            },
+            [],
+        )
+        def pii_rotate_key(newKey: str | None = None) -> dict[str, Any]:
+            from datasentry.pii_vault import PIIVault, VaultKeyMissingError
+
+            vault = PIIVault(self._client._store)
+            if not vault.key_configured:
+                return {
+                    "ok": False,
+                    "error": "pii vault disabled: no encryption key configured — "
+                    "set DATASENTRY_ENCRYPTION_KEY or run 'datasentry llm rotate-key'",
+                }
+            try:
+                result = vault.rotate_key(new_key=newKey)
+            except VaultKeyMissingError as exc:
+                return {"ok": False, "error": str(exc)}
+            return {
+                "ok": True,
+                "keyVersion": "file",
+                "rotated": result["rotated"],
+                "keyFile": result["key_file"],
+            }
 
     # ---- JSON-RPC 分发 --------------------------------------------------
 

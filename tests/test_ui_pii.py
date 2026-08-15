@@ -27,6 +27,8 @@ class TestPiiPageNoKey:
         assert resp.status_code == 200
         assert "Encryption key not configured" in resp.text
         assert "DATASENTRY_ENCRYPTION_KEY" in resp.text
+        assert "Create a key with" in resp.text
+        assert "datasentry llm rotate-key" in resp.text
 
     def test_page_zh_hint(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("DATASENTRY_ENCRYPTION_KEY", raising=False)
@@ -34,6 +36,7 @@ class TestPiiPageNoKey:
         resp = _client(tmp_path).get("/ui/pii", params={"lang": "zh"})
         assert resp.status_code == 200
         assert "未配置加密密钥" in resp.text
+        assert "datasentry llm rotate-key" in resp.text
 
     def test_no_restore_form_without_key(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -42,6 +45,8 @@ class TestPiiPageNoKey:
         monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
         resp = _client(tmp_path).get("/ui/pii")
         assert 'name="session_id"' not in resp.text
+        assert 'action="/ui/pii/rotate"' not in resp.text
+        assert 'name="new_key"' not in resp.text
 
     def test_restore_post_without_key_hint(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -115,6 +120,49 @@ class TestPiiPageWithKey:
         assert resp.status_code == 200
         assert "<script>alert(1)</script>" not in resp.text
         assert "&lt;script&gt;" in resp.text
+
+    def test_key_card_with_rotate_and_set_forms(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("DATASENTRY_ENCRYPTION_KEY", "ui-test-key-0001")
+        monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
+        resp = _client(tmp_path).get("/ui/pii")
+        assert resp.status_code == 200
+        assert 'action="/ui/pii/rotate"' in resp.text
+        assert 'name="new_key"' in resp.text
+        assert "Rotate key" in resp.text
+        assert "Set key" in resp.text
+
+    def test_rotate_button_posts(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DATASENTRY_ENCRYPTION_KEY", "ui-test-key-0001")
+        monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
+        client = _client(tmp_path)
+        PIIVault(client.app.state.client._store).save_mapping(_MAPPING)
+        resp = client.post("/ui/pii/rotate")
+        assert resp.status_code == 200
+        assert "Key rotated" in resp.text
+        assert "rotated: 1" in resp.text
+        assert str(tmp_path / "vault.key") in resp.text
+
+    def test_set_key_form_posts(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DATASENTRY_ENCRYPTION_KEY", "ui-test-key-0001")
+        monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
+        client = _client(tmp_path)
+        PIIVault(client.app.state.client._store).save_mapping(_MAPPING)
+        resp = client.post("/ui/pii/key", data={"new_key": "ui-known-material"})
+        assert resp.status_code == 200
+        assert "Key set" in resp.text
+        assert "rotated: 1" in resp.text
+        assert (tmp_path / "vault.key").read_text(encoding="utf-8").strip() == "ui-known-material"
+
+    def test_rotate_button_zh(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("DATASENTRY_ENCRYPTION_KEY", "ui-test-key-0001")
+        monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
+        client = _client(tmp_path)
+        PIIVault(client.app.state.client._store).save_mapping(_MAPPING)
+        resp = client.post("/ui/pii/rotate", params={"lang": "zh"})
+        assert resp.status_code == 200
+        assert "密钥已轮换" in resp.text
 
 
 class TestPiiNav:

@@ -410,17 +410,21 @@ def render_pii(
     key_configured: bool = True,
     restored: str | None = None,
     error: str | None = None,
+    key_ok: str | None = None,
+    key_result: dict[str, Any] | None = None,
     lang: str = "en",
 ) -> str:
-    """PII 加密会话管理页（Step 101，V17，ADR-101）。
+    """PII 加密会话管理页（Step 101/102，V17/V18，ADR-101/102）。
 
     默认打码语义不变：列表只显示 session_id/key_version/时间；
     还原表单提交到本页，还原结果仅存在于本次响应体（内存），
-    不落盘。缺 key 时只显示提示、不提供还原表单。
+    不落盘。缺 key 时只显示提示、不提供还原表单，也不显示
+    密钥管理卡片。key_ok/key_result 用于密钥轮换/设置结果。
     """
     body: list[str] = []
     if not key_configured:
         body.append(f'<div class="alert alert-err">{escape(t(lang, "ui.pii_key_missing"))}</div>')
+        body.append(f'<p class="meta">{escape(t(lang, "ui.pii_key_hint"))}</p>')
     else:
         body.append(
             f'<p class="meta">{escape(t(lang, "ui.pii_key_source"))}: '
@@ -450,6 +454,15 @@ def render_pii(
                 f"</tr>{''.join(rows)}</table>"
             )
         body.append(
+            f"<h2>{escape(t(lang, 'ui.pii_key_card'))}</h2>"
+            '<form method="post" action="/ui/pii/rotate">'
+            f'<button type="submit">{escape(t(lang, "ui.pii_rotate_button"))}</button>'
+            "</form>"
+            '<form method="post" action="/ui/pii/key">'
+            f'<label for="new_key">{escape(t(lang, "ui.pii_new_key_label"))}</label>'
+            '<input type="text" id="new_key" name="new_key" autocomplete="off">'
+            f'<button type="submit">{escape(t(lang, "ui.pii_set_key_form"))}</button>'
+            "</form>"
             f"<h2>{escape(t(lang, 'ui.pii_restore_form'))}</h2>"
             f'<p class="meta">{escape(t(lang, "ui.pii_explicit_note"))}</p>'
             '<form method="post" action="/ui/pii">'
@@ -461,6 +474,14 @@ def render_pii(
             f'<button type="submit">{escape(t(lang, "ui.pii_restore_button"))}</button>'
             "</form>"
         )
+    if key_ok:
+        result_lines = [f"<strong>{escape(key_ok)}:</strong>"]
+        if key_result:
+            result_lines.append("<pre>")
+            for field, value in key_result.items():
+                result_lines.append(f"{escape(str(field))}: {escape(str(value))}")
+            result_lines.append("</pre>")
+        body.append('<div class="alert alert-ok">' + "".join(result_lines) + "</div>")
     if restored is not None:
         body.append(
             '<div class="alert alert-ok"><strong>'

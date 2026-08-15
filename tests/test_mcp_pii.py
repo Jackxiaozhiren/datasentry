@@ -40,13 +40,19 @@ class TestPiiToolsShape:
         try:
             result = _call(server, 4, "tools/list")["result"]
             by_name = {t["name"]: t for t in result["tools"]}
-            assert {"pii_sessions", "pii_restore", "pii_delete_session"} <= set(by_name)
+            assert {"pii_sessions", "pii_restore", "pii_delete_session", "pii_rotate_key"} <= set(
+                by_name
+            )
             restore = by_name["pii_restore"]
             assert "Explicit authorization" in restore["description"]
             assert restore["inputSchema"]["type"] == "object"
             assert set(restore["inputSchema"]["properties"]) == {"session_id", "text"}
             assert restore["inputSchema"]["required"] == ["session_id", "text"]
             assert by_name["pii_sessions"]["inputSchema"]["required"] == []
+            rotate = by_name["pii_rotate_key"]
+            assert set(rotate["inputSchema"]["properties"]) == {"newKey"}
+            assert rotate["inputSchema"]["required"] == []
+            assert "newKey" in rotate["description"]
         finally:
             server.close()
 
@@ -67,6 +73,9 @@ class TestPiiToolsNoKey:
             )
             assert restored["ok"] is False
             assert "no encryption key configured" in restored["error"]
+            rotated = _tool_text(server, 22, "pii_rotate_key", {})
+            assert rotated["ok"] is False
+            assert "no encryption key configured" in rotated["error"]
         finally:
             server.close()
 
@@ -140,5 +149,45 @@ class TestPiiToolsEndToEnd:
             assert "not found" in gone["error"]
             listed = _tool_text(server, 35, "pii_sessions", {})
             assert listed["sessions"] == []
+        finally:
+            server.close()
+
+    def test_rotate_key_auto_generates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        server = _server_with_key(tmp_path, monkeypatch)
+        try:
+            vault = PIIVault(server._client._store)
+            session_id = vault.save_mapping(_MAPPING)
+            rotated = _tool_text(server, 36, "pii_rotate_key", {})
+            assert rotated["ok"] is True
+            assert rotated["keyVersion"] == "file"
+            assert rotated["rotated"] == 1
+            assert rotated["keyFile"] == str(tmp_path / "vault.key")
+            assert "newKey" not in rotated  # 远程面不泄露密钥材料
+            # 旧 env key 失效 → 缺文件 key 时解密失败错误
+            stale = _tool_text(
+                server,
+                37,
+                "pii_restore",
+                {"session_id": session_id, "text": "{{REDACTED:email:0}}"},
+            )
+            assert stale["ok"] is False
+        finally:
+            server.close()
+
+    def test_rotate_key_with_new_key_material(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        server = _server_with_key(tmp_path, monkeypatch)
+        try:
+            vault = PIIVault(server._client._store)
+            vault.save_mapping(_MAPPING)
+            rotated = _tool_text(server, 38, "pii_rotate_key", {"newKey": "mcp-known-material"})
+            assert rotated["ok"] is True
+            assert rotated["rotated"] == 1
+            assert (tmp_path / "vault.key").read_text(
+                encoding="utf-8"
+            ).strip() == "mcp-known-material"
         finally:
             server.close()

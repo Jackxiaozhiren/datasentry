@@ -2494,3 +2494,27 @@
   还原 XSS 转义、导航入口；冒烟：uvicorn 真服务 GET/POST 200。
 - **依据**：ui.py 渲染惯例 + i18n（ADR-069）+ vault 语义
   （ADR-048/099）。
+
+## ADR-102：密钥轮换/设置完整透传（V18，Step 102）
+- **背景**：rotate-key 只有 CLI 面完整（--new-key）；REST 端点
+  不支持指定新密钥、MCP 无轮换工具、UI 无密钥管理入口。
+- **决策**：
+  - REST `POST /pii/rotate-key` 加可选 body `{"new_key": str|null}`
+    （PiiRotateRequest 模型）；无 body / 空对象行为与 v0.19.0
+    完全一致（自动生成）——向后兼容，旧客户端零改动；
+  - MCP 新增 `pii_rotate_key`（可选参数 newKey，缺省自动生成），
+    返回 {ok, keyVersion:"file", rotated, keyFile}；描述注明"轮换
+    后旧密钥对存量会话失效"；
+  - UI /ui/pii 加密钥卡片（key_configured 时）：key_source 状态 +
+    轮换按钮（POST /ui/pii/rotate）+ 设置密钥表单（POST
+    /ui/pii/key，new_key 留空=自动生成）；缺 key 时不显示卡片，
+    提示下补充创建密钥 hint；
+  - 四面均不返回新密钥材料（远程面不泄露，延续 ADR-099）；
+    缺 key → REST 503 / MCP 错误消息 / UI 无卡片（CLI 保留 dev
+    兜底告警语义）。
+- **测试**：REST 4 例（无 body 兼容、空对象兼容、显式 key 全链
+  路含旧 key 失效 503、key 文件内容=指定材料）；MCP 3 例（schema、
+  自动生成、显式材料）；UI 5 例（缺 key 隐藏卡片+hint、卡片显示、
+  轮换按钮、设置表单、zh）。合计 12 例新增。
+- **依据**：rotate_key 既有语义（pii_vault.py）+ CLI 同源
+  （ADR-048）+ 四面缺 key 对齐（ADR-099/100/101）。
