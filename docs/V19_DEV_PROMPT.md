@@ -58,7 +58,7 @@ BUSY 炸裂、vault.key 原子写 + 会话冲突检测、调度端互斥有跨�
   失配降级、status 新字段）；`llm status` 既有断言更新（只加字段不断
   字段，向后兼容）
 
-### Step 107（ADR-107）：多调度端互斥跨进程验证 + 感知
+### Step 107（ADR-107）：多调度端互斥跨进程验证 + 感知 —— ✅ 完成
 
 - 新增 `tests/test_scheduler_concurrency.py`（subprocess 并发）：
   两进程同时 claim_due_jobs/claim_job/finish_run → 同 job 只被抢一次、

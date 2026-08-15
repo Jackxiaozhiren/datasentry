@@ -37,6 +37,16 @@ V19 跨进程/多调度端一致性：元数据存储并发加固 + vault 密钥
   增加 `key_fingerprint`/`key_file` 字段（只加不断，向后兼容）
 - 测试 +10 例（vault 8 / CLI 1 / subprocess 并发 rotate 1）
 
+### 变更（Step 107，多调度端互斥跨进程验证，ADR-107）
+
+- **跨进程证明**：新增 `tests/test_scheduler_concurrency.py` 4 例
+  （subprocess 真实子进程）——两进程并发 `claim_due_jobs` 同一任务只
+  被抢一次；并发手动触发（`claim_job`）只有一个成功；并发 tick
+  （claim+finish 循环）状态机不坏、run 无丢失；调度端与 CLI 并发写
+  pii 会话不丢不 BUSY（独立调度端写会话可被主进程感知的并发证明）
+- 无 MCP/REST/UI 变更（MCP tools 保持 20）；SchedulerStore 既有原子
+  抢占设计（ADR-051）不变，本 Step 只补证明
+
 ## [0.20.0] - 2026-08-15
 
 V18 PII vault 密钥与会话生命周期管理：密钥轮换/设置完整透传 + 会话按龄清理（purge）。

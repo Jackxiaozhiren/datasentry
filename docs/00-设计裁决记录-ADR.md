@@ -2609,3 +2609,22 @@
   rotate 1 例（key 文件必为完整某次内容）。合计 10 例。
 - **依据**：ADR-048 会话复用语义 + SQLite REPLACE 语义 + 轮换期间
   他进程写入行解密失败为既有文档化语义（测试注明）。
+
+## ADR-107：多调度端互斥跨进程验证（V19，Step 107）
+- **背景**：SchedulerStore 自 Step 51 起按跨进程设计（每操作新连接 +
+  BEGIN IMMEDIATE + busy_timeout 5000 + 条件更新原子抢占），但所有
+  测试都是单进程，跨进程互斥从未被证明；「调度端写会话可被主进程
+  感知」也缺并发场景证据。
+- **决策**：
+  - **不加锁、不加连接池、不加协议**（YAGNI，已有设计即正确）——
+    本 Step 产出的是**跨进程证明**：新增
+    `tests/test_scheduler_concurrency.py` 4 例（subprocess 真实子进程）：
+    两进程并发 claim_due_jobs 同 job 只被抢一次（run 数==1 且
+    completed）；两进程并发 claim_job 手动触发只有一个成功（另一
+    返回 None）；两进程并发 tick 循环（claim+finish）状态机不坏、
+    4 job 各 1 run 无丢失；调度端（SchedulerStore）与 CLI
+    （MetadataStore）并发写 pii 会话不丢不 BUSY（30 条守恒）——
+    「独立调度端写会话可被主进程感知」的并发证明；
+  - 无 MCP/REST/UI 变更（20 tools 不变）。
+- **测试**：+4 例（见上）。合计 V19 新增 6+10+4=20 例。
+- **依据**：Step 51 原子抢占设计（ADR-051）+ SQLite 单写者锁语义。
