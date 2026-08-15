@@ -191,6 +191,19 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
   claim 互斥与调度端写会话可被主进程感知）；CI 全绿（94.94% 覆盖，
   1175 测试），mypy --strict 通过；下一阶段候选：报告交互增强、
   调度端远程执行器细化
+- **V20 已完成（v0.22.0）**：调度端远程执行器细化——超时细分 +
+  传输层重试退避 + 错误分类（Step 108：connect/read 超时独立配置、
+  retries+指数退避+可注入抖动，仅网络错误与 408/429/5xx 重试、
+  4xx/契约错误立即失败，ScanExecutionError 增 category/retryable；
+  边界：执行器内重试只治传输瞬时故障，任务级重试/死信仍在
+  Scheduler）、worker 健康探测 preflight（Step 109：公开信息面
+  GET /rpc/health 恒 200 {service,version,worker} 与 token 数据面
+  分离；health() + execute(preflight=True) 快速失败，默认关向后
+  兼容）、远端报告回传（Step 110：GET /rpc/reports/{run_id} token
+  鉴权 401/503/404；执行器 report_dir 自动拉回本地，尽力而为与
+  ADR-070 一致，未配置零请求）；CI 全绿（94.94% 覆盖，1204 测试），
+  mypy --strict 通过；下一阶段候选：报告交互增强、调度端
+  cancel/异步协议、worker 远程执行器 CLI 配置化
 
 ---
 

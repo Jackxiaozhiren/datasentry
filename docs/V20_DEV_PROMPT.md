@@ -123,3 +123,24 @@
 
 五段式中文汇报：完成概述 / 新增能力 / 测试与门禁数据 / 发布状态 /
 遗留问题（V21 候选：报告交互增强、调度端 cancel/异步协议等）。
+
+## V20 执行坑位记录（Step 108-110）
+
+- 重试/探测测试禁止真 sleep：注入 sleep_fn + rng（jitter=0 或
+  固定种子），断言退避序列与确定性
+- mypy int**int 推断为 Any：退避计算用 2.0**（float 底数），否则
+  no-any-return 报错
+- mypy 门禁必须带两个源目录（`src/datasentry
+  packages/core/src/datasentry_core`）——只给 src/datasentry 时
+  mypy 解析到已安装的无 py.typed 包，误报 105 条 import-untyped
+- FastAPI 返回 str 会被 JSON 序列化（带引号）：报告/文本响应必须
+  Response(media_type="text/html")
+- httpx.Timeout 无 .total 属性（只有 connect/read/write/pool）
+- 报告落点是 <workspace>/.datasentry/reports（project_reports_dir），
+  不是 <workspace>/reports
+- 报告回传是 HTML 文本：_get 是 JSON 语义，需独立 _get_text
+- /rpc/health 公开 vs /rpc/reports 必须 token：信息面/数据面分离
+- _ENDPOINTS 是 frozenset 字面量，每加端点必须同步（测试断言
+  root 端点枚举）
+- preflight/report_dir 均为默认关/None：既有 Step 90 测试零变化
+  是向后兼容红线
