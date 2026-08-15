@@ -178,6 +178,19 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
   不触碰存储 schema）；CHANGELOG 归一为 Keep-a-Changelog 倒序；
   CI 全绿（95.01% 覆盖，1155 测试），mypy --strict 通过；下一
   阶段候选：报告交互增强、跨进程/多调度端队列
+- **V19 已完成（v0.21.0）**：跨进程/多调度端一致性——元数据存储
+  跨进程加固（Step 105：显式 busy_timeout=5000；journal_mode=WAL
+  移出 DDL 改 _enable_wal() 显式重试——该 pragma 独占锁不调用
+  busy handler，两进程并发首开新库会立刻 BUSY（实测复现后根治）；
+  pii 会话列表 rowid 二级排序同秒顺序稳定）、vault 密钥原子写 +
+  会话冲突检测（Step 106：rotate-key tmp+os.replace；save_mapping
+  解密比较明文——相等幂等跳过、key 失配降级重写、不等抛
+  PIIMappingConflictError 拒覆盖；llm status 加 key_fingerprint/
+  key_file 感知字段）、多调度端互斥跨进程证明（Step 107：
+  SchedulerStore 原子抢占设计不变，subprocess 并发测试 4 例证明
+  claim 互斥与调度端写会话可被主进程感知）；CI 全绿（94.94% 覆盖，
+  1175 测试），mypy --strict 通过；下一阶段候选：报告交互增强、
+  调度端远程执行器细化
 
 ---
 

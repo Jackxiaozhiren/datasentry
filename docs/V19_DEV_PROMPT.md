@@ -119,3 +119,25 @@ BUSY 炸裂、vault.key 原子写 + 会话冲突检测、调度端互斥有跨�
 
 五段式中文汇报：完成概述 / 新增能力 / 测试与门禁数据 / 发布状态 /
 遗留问题（V19 后候选：报告交互增强、调度端远程执行器细化等）。
+
+## V19 执行坑位记录（Step 105-107）
+
+- 并发首开新库 BUSY：`PRAGMA journal_mode = WAL` 独占锁且**不调用
+  busy handler**——必须移出 executescript 改显式重试（_enable_wal）；
+  此坑由 subprocess 并发测试实测复现，非理论
+- multiprocessing + pytest spawn 会递归 re-import 测试模块——全部
+  并发证明用 subprocess + sys.executable -c helper（helper 独立，
+  无测试断言）
+- helper 脚本里 MetadataStore 必须传 Path（str 无 .parent）——
+  子进程 argv 是 str，helper 内要 Path() 包装
+- 并发 rotate 测试别带各自 mapping：轮换期间他进程写入的行按文档
+  化语义解密失败（VaultKeyMissingError），那是轮换语义非原子性
+  问题——原子性证明聚焦 key 文件本身（无行 rotate）
+- 冲突检测不能比密文（nonce 随机密文必不等）——解密比明文；key
+  失配（轮换后）解密失败要降级重写，否则轮换后重扫必崩（回归
+  红线，测试固化）
+- zip 要 strict=True（B905）；ruff UP017 用 datetime.UTC 别名
+- `llm status` 只加字段不断字段（既有断言宽松匹配 key_source/
+  mappings，兼容）
+- CI 期间并行做 Step 107/收尾文档没问题，但 push 顺序保持 Step
+  顺序（每 Step 单独 commit，CI 全绿后推进）
