@@ -12,11 +12,12 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from uvicorn import Config, Server
 
 from datasentry.scheduler.models import JobCommand, JobResult
@@ -463,3 +464,129 @@ class TestRemoteHealthV20:
         result = executor.execute(JobCommand(project="p", path="orders.csv"), preflight=True)
         assert result.scan_run_id == "sr_r"
         assert calls == ["/rpc/health", "/rpc/execute"]
+
+
+class TestRemoteReportV20:
+    """Step 110（ADR-110）：远端报告回传（尽力而为）测试。"""
+
+    @staticmethod
+    def _mock_factory(
+        handler: Callable[[httpx.Request], httpx.Response | Any],
+    ) -> Callable[[], Any]:
+        def factory() -> Any:
+            return httpx.Client(
+                transport=httpx.MockTransport(handler),  # type: ignore[arg-type]
+                base_url="http://worker",
+            )
+
+        return factory
+
+    def test_pull_report_written(self, tmp_path: Path) -> None:
+        calls: list[str] = []
+
+        def handler(request: httpx.Request) -> Any:
+            calls.append(request.url.path)
+            if request.url.path.startswith("/rpc/reports/"):
+                return httpx.Response(200, text="<html>report</html>")
+            return httpx.Response(
+                200,
+                json=JobResult(
+                    scan_run_id="sr_r",
+                    total_issues=1,
+                    report_path="reports/sr_r.html",
+                    report_size=19,
+                ).model_dump(),
+            )
+
+        executor = RemoteScanExecutor(
+            "http://worker",
+            token="t",
+            client_factory=self._mock_factory(handler),
+            report_dir=tmp_path,
+        )
+        result = executor.execute(JobCommand(project="p", path="orders.csv"))
+        assert result.scan_run_id == "sr_r"
+        assert calls == ["/rpc/execute", "/rpc/reports/sr_r"]
+        assert (tmp_path / "sr_r.html").read_text(encoding="utf-8") == "<html>report</html>"
+
+    def test_no_report_path_no_pull(self, tmp_path: Path) -> None:
+        calls: list[str] = []
+
+        def handler(request: httpx.Request) -> Any:
+            calls.append(request.url.path)
+            return httpx.Response(200, json=JobResult(scan_run_id="sr_r").model_dump())
+
+        executor = RemoteScanExecutor(
+            "http://worker",
+            token="t",
+            client_factory=self._mock_factory(handler),
+            report_dir=tmp_path,
+        )
+        result = executor.execute(JobCommand(project="p", path="orders.csv"))
+        assert result.scan_run_id == "sr_r"
+        assert calls == ["/rpc/execute"]
+        assert not (tmp_path / "sr_r.html").exists()
+
+    def test_report_dir_none_no_pull(self) -> None:
+        calls: list[str] = []
+
+        def handler(request: httpx.Request) -> Any:
+            calls.append(request.url.path)
+            return httpx.Response(
+                200,
+                json=JobResult(scan_run_id="sr_r", report_path="reports/sr_r.html").model_dump(),
+            )
+
+        executor = RemoteScanExecutor(
+            "http://worker", token="t", client_factory=self._mock_factory(handler)
+        )
+        result = executor.execute(JobCommand(project="p", path="orders.csv"))
+        assert result.scan_run_id == "sr_r"
+        assert calls == ["/rpc/execute"]
+
+    def test_pull_failure_best_effort(self, tmp_path: Path) -> None:
+        calls: list[str] = []
+
+        def handler(request: httpx.Request) -> Any:
+            calls.append(request.url.path)
+            if request.url.path.startswith("/rpc/reports/"):
+                return httpx.Response(404, text="no report")
+            return httpx.Response(
+                200,
+                json=JobResult(scan_run_id="sr_r", report_path="reports/sr_r.html").model_dump(),
+            )
+
+        executor = RemoteScanExecutor(
+            "http://worker",
+            token="t",
+            client_factory=self._mock_factory(handler),
+            report_dir=tmp_path,
+        )
+        result = executor.execute(JobCommand(project="p", path="orders.csv"))
+        assert result.scan_run_id == "sr_r"
+        assert not (tmp_path / "sr_r.html").exists()
+
+    def test_pull_report_e2e(self, tmp_path: Path) -> None:
+        """真 uvicorn worker：execute 自动回传报告到本地 report_dir。"""
+        app = FastAPI()
+
+        @app.post("/rpc/execute")
+        def execute() -> dict[str, Any]:
+            return JobResult(
+                scan_run_id="sr_e2e",
+                total_issues=2,
+                report_path="reports/sr_e2e.html",
+                report_size=5,
+            ).model_dump()
+
+        @app.get("/rpc/reports/{scan_run_id}")
+        def report(scan_run_id: str) -> Response:
+            if scan_run_id != "sr_e2e":
+                raise HTTPException(status_code=404)
+            return Response(content="<html>e2e</html>", media_type="text/html")
+
+        with _serve(app) as base_url:
+            executor = RemoteScanExecutor(base_url, token="t", report_dir=tmp_path)
+            result = executor.execute(JobCommand(project="p", path="orders.csv"))
+        assert result.scan_run_id == "sr_e2e"
+        assert (tmp_path / "sr_e2e.html").read_text(encoding="utf-8") == "<html>e2e</html>"

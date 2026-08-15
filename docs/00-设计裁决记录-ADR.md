@@ -2673,3 +2673,26 @@
   执行器：health 成功 / 404 / 契约错误 / 非对象 / preflight 失败不
   调 execute / 默认不探测 / 探测通过后正常执行）。
 - **依据**：ADR-091 端点安全 + ADR-108 错误分类。
+
+## ADR-110：远端报告回传（V20，Step 110）
+- **背景**：LocalScanExecutor 导出报告（ADR-070），但 RemoteScanExecutor
+  执行成功后报告留在 worker 的 `.datasentry/reports`——调度端拿不到
+  远端扫描的报告，Local/Remote 能力差中最大的一块。
+- **决策**：
+  - **报告下载端点**：新增 `GET /rpc/reports/{scan_run_id}`——与
+    `/rpc/execute` 同级 token 鉴权（401/503），按
+    `reports/{scan_run_id}.html` 约定（与 LocalScanExecutor 导出
+    一致）返回 HTML，不存在 404；
+  - **执行器回传**：`RemoteScanExecutor(report_dir=…)` 配置本地落点；
+    执行成功且 JobResult 携带 `report_path`（远端已导出）时经下载
+    端点拉回写本地 `report_dir/{scan_run_id}.html`；**尽力而为**
+    （下载失败仅 warning 日志，不抛异常、不影响 finish_run——与
+    ADR-070 完全一致）；未配置 `report_dir` 或结果无报告时不拉取
+    （向后兼容红线，默认零新增网络请求）；
+  - 报告拉取用原始文本 GET（HTML 非 JSON），JSON 解析仅 `_get`
+    （health 等结构化端点）使用。
+- **测试**：+10（端点：真实扫描后下载 200 且内容 HTML / 404 /
+  401 / 503 / _ENDPOINTS 同步；执行器：MockTransport 回传落盘 /
+  无 report_path 不拉 / 未配置 report_dir 不拉 / 404 尽力而为不
+  抛 / 真 uvicorn 端到端回传内容一致）。
+- **依据**：ADR-091 token 鉴权 + ADR-070 报告导出尽力而为语义。

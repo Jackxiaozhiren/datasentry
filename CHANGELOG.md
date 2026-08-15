@@ -6,6 +6,19 @@
 
 ## [0.22.0] - 2026-08-15
 
+### 变更（Step 110，远端报告回传，ADR-110）
+
+- 新增 `GET /rpc/reports/{scan_run_id}`（数据面，与 /rpc/execute
+  同级 token 鉴权，401/503）：按 `reports/{scan_run_id}.html` 约定
+  返回远端报告 HTML，不存在 404
+- `RemoteScanExecutor(report_dir=…)`：执行成功且结果携带
+  report_path 时自动拉回报告写本地 `report_dir/{scan_run_id}.html`
+  ——尽力而为（失败仅日志，不影响调度，与本地导出 ADR-070 语义
+  一致）；未配置 report_dir 或结果无报告时零额外请求（向后兼容）
+- `_ENDPOINTS` +1；MCP tools 不变
+- 测试 +10（端点 200/404/401/503/枚举同步；回传落盘/跳过条件/
+  尽力而为/端到端）
+
 ### 变更（Step 109，远端 worker 健康探测 preflight，ADR-109）
 
 - 新增公开 `GET /rpc/health`（信息面）：{service, version, worker

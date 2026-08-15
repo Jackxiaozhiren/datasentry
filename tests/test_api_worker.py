@@ -111,3 +111,51 @@ class TestRpcHealthV20:
         with TestClient(create_app(project=tmp_path)) as client:
             body = client.get("/").json()
         assert "GET /rpc/health" in body["endpoints"]
+
+
+class TestRpcReportV20:
+    """Step 110（ADR-110）：报告下载端点（token 鉴权数据面）测试。"""
+
+    def test_report_download_success(self, tmp_path: Path) -> None:
+        csv = _csv(tmp_path)
+        app = create_app(project=tmp_path, worker_token="s3cret")
+        with TestClient(app) as client:
+            exec_resp = client.post(
+                "/rpc/execute",
+                headers={"X-Datasentry-Token": "s3cret"},
+                json={
+                    "project": str(tmp_path),
+                    "path": str(csv),
+                    "dataset_id": "orders",
+                    "table_name": "orders",
+                    "export_report": True,
+                },
+            )
+            assert exec_resp.status_code == 200
+            run_id = exec_resp.json()["scan_run_id"]
+            report_file = tmp_path / ".datasentry" / "reports" / f"{run_id}.html"
+            assert report_file.is_file()
+            resp = client.get(f"/rpc/reports/{run_id}", headers={"X-Datasentry-Token": "s3cret"})
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/html")
+        assert "<html" in resp.text
+
+    def test_report_missing_404(self, tmp_path: Path) -> None:
+        with TestClient(create_app(project=tmp_path, worker_token="s3cret")) as client:
+            resp = client.get("/rpc/reports/no-such-run", headers={"X-Datasentry-Token": "s3cret"})
+        assert resp.status_code == 404
+
+    def test_report_missing_token_401(self, tmp_path: Path) -> None:
+        with TestClient(create_app(project=tmp_path, worker_token="s3cret")) as client:
+            resp = client.get("/rpc/reports/no-such-run")
+        assert resp.status_code == 401
+
+    def test_report_disabled_503(self, tmp_path: Path) -> None:
+        with TestClient(create_app(project=tmp_path)) as client:
+            resp = client.get("/rpc/reports/no-such-run")
+        assert resp.status_code == 503
+
+    def test_report_in_endpoints(self, tmp_path: Path) -> None:
+        with TestClient(create_app(project=tmp_path)) as client:
+            body = client.get("/").json()
+        assert "GET /rpc/reports/{scan_run_id}" in body["endpoints"]

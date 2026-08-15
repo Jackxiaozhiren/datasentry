@@ -916,6 +916,28 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             "worker": worker_token is not None,
         }
 
+    @app.get("/rpc/reports/{scan_run_id}", tags=["rpc"])
+    def rpc_report(scan_run_id: str, request: Request) -> Response:
+        """远端报告下载端点（V20，Step 110，ADR-110）。
+
+        数据面：与 `/rpc/execute` 同级 token 鉴权（401 拒绝、未配置
+        worker_token 时 503）；按 `reports/{scan_run_id}.html` 约定
+        （与 LocalScanExecutor 报告导出一致）返回 HTML，不存在 404。
+        """
+        import secrets
+
+        if worker_token is None:
+            raise HTTPException(
+                status_code=503, detail="worker endpoint disabled: set DATASENTRY_WORKER_TOKEN"
+            )
+        supplied = request.headers.get("X-Datasentry-Token")
+        if not supplied or not secrets.compare_digest(supplied, worker_token):
+            raise HTTPException(status_code=401, detail="invalid worker token")
+        report_path = client.reports_dir / f"{scan_run_id}.html"
+        if not report_path.is_file():
+            raise HTTPException(status_code=404, detail=f"report not found: {scan_run_id}")
+        return Response(content=report_path.read_text(encoding="utf-8"), media_type="text/html")
+
     # ---- PII 加密 vault 管理面（V17，Step 99，ADR-099） -------------------
 
     @app.get("/pii/sessions", tags=["pii"])
@@ -1032,6 +1054,7 @@ _ENDPOINTS = frozenset(
         "PATCH /jobs/{job_id}",
         "DELETE /jobs/{job_id}",
         "GET /rpc/health",
+        "GET /rpc/reports/{scan_run_id}",
         "GET /pii/sessions",
         "GET /pii/sessions/{session_id}",
         "POST /pii/sessions/{session_id}/restore",

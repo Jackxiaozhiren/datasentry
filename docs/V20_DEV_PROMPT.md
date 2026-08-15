@@ -55,7 +55,7 @@
   preflight=True 时失败快路径（不调 execute）、preflight=False 行为
   不变、健康通过后正常执行
 
-### Step 110（ADR-110）：报告回传（远端报告下载）
+### Step 110（ADR-110）：报告回传（远端报告下载） —— ✅ 完成
 
 - REST `GET /rpc/reports/{scan_run_id}`：token 鉴权（同 execute，
   401/503）；报告文件不存在 → 404；存在 → 返回 HTML 文本

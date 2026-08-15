@@ -16,6 +16,11 @@
 - Step 109（ADR-109）细化：健康探测——`health()` 调公开信息面
   `GET /rpc/health`（无数据、无需 token）；`execute(preflight=True)`
   执行前探测，失败快速失败（不等总超时）；默认关闭，向后兼容。
+- Step 110（ADR-110）细化：报告回传——执行成功且 JobResult 携带
+  `report_path` 时，经 `GET /rpc/reports/{scan_run_id}` 拉回远端
+  报告写入本地 `report_dir/{scan_run_id}.html`（**尽力而为**：失败
+  仅日志，不影响调度——与 LocalScanExecutor._export_report 的
+  ADR-070 语义一致）；未配置 `report_dir` 时不拉取。
 - 可测性：`client_factory` 注入——生产默认 `httpx.Client`（真
   socket）；测试注入 `httpx.ASGITransport`（FastAPI app 直连）
   或 `httpx.MockTransport`（网络异常场景）。
@@ -23,10 +28,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import random
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -66,6 +73,7 @@ class RemoteScanExecutor:
 
     _ENDPOINT = "/rpc/execute"
     _HEALTH_ENDPOINT = "/rpc/health"
+    _REPORTS_ENDPOINT = "/rpc/reports"
     _TOKEN_HEADER = "X-Datasentry-Token"
 
     def __init__(
@@ -82,6 +90,7 @@ class RemoteScanExecutor:
         backoff_jitter: float = 0.1,
         sleep_fn: Callable[[float], None] = time.sleep,
         rng: random.Random | None = None,
+        report_dir: Path | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._endpoint = f"{self._base_url}{self._ENDPOINT}"
@@ -97,6 +106,7 @@ class RemoteScanExecutor:
         self._backoff_jitter = backoff_jitter
         self._sleep_fn = sleep_fn
         self._rng = rng or random.Random()
+        self._report_dir = report_dir
 
     def _client(self) -> Any:
         if self._client_factory is not None:
@@ -110,9 +120,9 @@ class RemoteScanExecutor:
             delay += float(self._rng.uniform(0.0, self._backoff_jitter))
         return delay
 
-    def _get(self, path: str) -> Any:
-        """GET 同步请求（token 头恒带，服务端信息面可忽略）；失败抛
-        `ScanExecutionError`（分类语义与 execute 一致，契约错误不可重试）。"""
+    def _get_text(self, path: str) -> str:
+        """GET 原始文本（供报告等非 JSON 响应）；失败抛
+        `ScanExecutionError`（分类语义与 execute 一致）。"""
         try:
             client = self._client()
             try:
@@ -134,8 +144,14 @@ class RemoteScanExecutor:
                 category="http",
                 retryable=False,
             )
+        return str(response.text)
+
+    def _get(self, path: str) -> Any:
+        """GET 同步请求（token 头恒带，服务端信息面可忽略）；失败抛
+        `ScanExecutionError`（分类语义与 execute 一致，契约错误不可重试）。"""
+        text = self._get_text(path)
         try:
-            return response.json()
+            return json.loads(text)
         except ValueError as exc:
             raise ScanExecutionError(
                 f"GET {path} returned invalid JSON: {exc}",
@@ -156,6 +172,25 @@ class RemoteScanExecutor:
             )
         return data
 
+    def _pull_report(self, result: JobResult) -> None:
+        """远端报告回传（Step 110，ADR-110）：尽力而为。
+
+        JobResult 携带 `report_path`（远端已导出）且配置了 `report_dir`
+        时，拉取 `GET /rpc/reports/{scan_run_id}` 写入本地
+        `report_dir/{scan_run_id}.html`；失败仅记录日志，不影响调度
+        （与 LocalScanExecutor._export_report 的 ADR-070 语义一致）。
+        """
+        if self._report_dir is None or result.report_path is None or result.scan_run_id is None:
+            return
+        try:
+            content = self._get_text(f"{self._REPORTS_ENDPOINT}/{result.scan_run_id}")
+            out = self._report_dir / f"{result.scan_run_id}.html"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(content, encoding="utf-8")
+            logger.info("pulled report for %s -> %s", result.scan_run_id, out)
+        except Exception as exc:
+            logger.warning("report pull failed for %s: %s", result.scan_run_id, exc)
+
     def execute(self, command: JobCommand, *, preflight: bool = False) -> JobResult:
         """下发任务并同步等待远端结果；失败抛 `ScanExecutionError`。
 
@@ -163,6 +198,7 @@ class RemoteScanExecutor:
         契约错误立即失败（retryable=False）。重试耗尽后抛最后一次错误。
         `preflight=True`（Step 109，ADR-109）时先 `health()` 探测——
         失败快速失败（不等总超时）；默认关闭，行为向后兼容。
+        执行成功后按 Step 110（ADR-110）尽力而为回传远端报告。
         """
         if preflight:
             self.health()
@@ -171,13 +207,17 @@ class RemoteScanExecutor:
             if attempt > 0 and last_error is not None:
                 self._sleep_fn(self._backoff_delay(attempt))
             try:
-                return self._execute_once(command)
+                result = self._execute_once(command)
+                break
             except ScanExecutionError as exc:
                 last_error = exc
                 if not exc.retryable:
                     raise
-        assert last_error is not None
-        raise last_error
+        else:
+            assert last_error is not None
+            raise last_error
+        self._pull_report(result)
+        return result
 
     def _execute_once(self, command: JobCommand) -> JobResult:
         try:
