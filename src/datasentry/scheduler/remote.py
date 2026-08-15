@@ -13,6 +13,9 @@
   错误立即失败）、错误分类（`category`/`retryable` 属性）。
   **边界**：执行器内重试只治传输瞬时故障；任务级重试/死信仍归
   `Scheduler._run_job`（`retries=0` 时行为与 V14 完全一致）。
+- Step 109（ADR-109）细化：健康探测——`health()` 调公开信息面
+  `GET /rpc/health`（无数据、无需 token）；`execute(preflight=True)`
+  执行前探测，失败快速失败（不等总超时）；默认关闭，向后兼容。
 - 可测性：`client_factory` 注入——生产默认 `httpx.Client`（真
   socket）；测试注入 `httpx.ASGITransport`（FastAPI app 直连）
   或 `httpx.MockTransport`（网络异常场景）。
@@ -62,6 +65,7 @@ class RemoteScanExecutor:
     """把扫描任务委托给远端 worker 执行的执行器（HTTP 同步）。"""
 
     _ENDPOINT = "/rpc/execute"
+    _HEALTH_ENDPOINT = "/rpc/health"
     _TOKEN_HEADER = "X-Datasentry-Token"
 
     def __init__(
@@ -79,7 +83,8 @@ class RemoteScanExecutor:
         sleep_fn: Callable[[float], None] = time.sleep,
         rng: random.Random | None = None,
     ) -> None:
-        self._endpoint = f"{base_url.rstrip('/')}{self._ENDPOINT}"
+        self._base_url = base_url.rstrip("/")
+        self._endpoint = f"{self._base_url}{self._ENDPOINT}"
         self._token = token
         self._timeout = httpx.Timeout(
             timeout,
@@ -105,12 +110,62 @@ class RemoteScanExecutor:
             delay += float(self._rng.uniform(0.0, self._backoff_jitter))
         return delay
 
-    def execute(self, command: JobCommand) -> JobResult:
+    def _get(self, path: str) -> Any:
+        """GET 同步请求（token 头恒带，服务端信息面可忽略）；失败抛
+        `ScanExecutionError`（分类语义与 execute 一致，契约错误不可重试）。"""
+        try:
+            client = self._client()
+            try:
+                response = client.get(
+                    f"{self._base_url}{path}",
+                    headers={self._TOKEN_HEADER: self._token},
+                )
+            finally:
+                client.close()
+        except Exception as exc:
+            raise ScanExecutionError(
+                f"network: GET {path} failed: {exc}",
+                category="network",
+                retryable=True,
+            ) from exc
+        if response.status_code >= 400:
+            raise ScanExecutionError(
+                f"GET {path} failed: HTTP {response.status_code}: {response.text[:200]}",
+                category="http",
+                retryable=False,
+            )
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise ScanExecutionError(
+                f"GET {path} returned invalid JSON: {exc}",
+                category="contract",
+                retryable=False,
+            ) from exc
+
+    def health(self) -> dict[str, Any]:
+        """探测远端 worker（`GET /rpc/health`，公开信息面）；失败抛
+        `ScanExecutionError`。返回 worker 健康信息 dict（service/version/
+        worker 标志），供执行前 preflight 与状态诊断用。"""
+        data = self._get(self._HEALTH_ENDPOINT)
+        if not isinstance(data, dict):
+            raise ScanExecutionError(
+                f"GET {self._HEALTH_ENDPOINT} returned non-object: {data!r}",
+                category="contract",
+                retryable=False,
+            )
+        return data
+
+    def execute(self, command: JobCommand, *, preflight: bool = False) -> JobResult:
         """下发任务并同步等待远端结果；失败抛 `ScanExecutionError`。
 
         仅网络错误与可重试 HTTP 状态退避重试（`retries` 次）；4xx 与
         契约错误立即失败（retryable=False）。重试耗尽后抛最后一次错误。
+        `preflight=True`（Step 109，ADR-109）时先 `health()` 探测——
+        失败快速失败（不等总超时）；默认关闭，行为向后兼容。
         """
+        if preflight:
+            self.health()
         last_error: ScanExecutionError | None = None
         for attempt in range(self._retries + 1):
             if attempt > 0 and last_error is not None:

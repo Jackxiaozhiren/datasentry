@@ -6,6 +6,18 @@
 
 ## [0.22.0] - 2026-08-15
 
+### 变更（Step 109，远端 worker 健康探测 preflight，ADR-109）
+
+- 新增公开 `GET /rpc/health`（信息面）：{service, version, worker
+  启用标志}，无需 token、不涉数据——与 token 鉴权的数据面
+  `/rpc/execute` 分离；未配置 worker_token 时恒 200 且 worker: false
+- `RemoteScanExecutor.health()` 探测方法 + `execute(preflight=True)`
+  执行前探测：worker 不可达立即快速失败（不等 120s 总超时）；默认
+  关闭，行为向后兼容
+- `_ENDPOINTS` +1（GET /rpc/health）；MCP tools 不变
+- 测试 +10（端点结构 / 无 token / 探测各失败路径 / preflight 快
+  失败且不调 execute / 默认不探测）
+
 ### 变更（Step 108，远程执行器超时细分 + 传输层重试，ADR-108）
 
 - `RemoteScanExecutor` 超时细分：`connect_timeout` / `read_timeout`

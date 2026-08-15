@@ -42,7 +42,7 @@
   消息含分类前缀
 - CLI/REST 零变更
 
-### Step 109（ADR-109）：健康探测 preflight
+### Step 109（ADR-109）：健康探测 preflight —— ✅ 完成
 
 - REST `GET /rpc/health`（**公开**：只返回 {service, version, worker:
   true} 静态信息，不涉数据——与数据面 /rpc/execute 分离；未配置

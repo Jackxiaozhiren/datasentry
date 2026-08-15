@@ -2653,3 +2653,23 @@
   后成功 / 5xx 退避序列 0.5→1.0 / 重试耗尽抛最后错误 / 4xx 不重试 /
   429 可重试 / 契约错误不重试 / 抖动有界且同种子确定性）。
 - **依据**：ADR-090 执行器协议 + httpx.Timeout 语义。
+
+## ADR-109：远端 worker 健康探测 preflight（V20，Step 109）
+- **背景**：worker 未启动/重启中时，RemoteScanExecutor 首次请求要等
+  到传输超时（默认 120s）才失败；调度端无法在提交任务前低成本
+  感知 worker 存活。
+- **决策**：
+  - **信息面与数据面分离**：新增公开 `GET /rpc/health`——只返回
+    {service, version, worker 启用标志}，不涉数据、无需 token；
+    与 token 鉴权的 `/rpc/execute` 严格分层（V14，ADR-091 沿用）；
+  - **探测方法**：`RemoteScanExecutor.health()` 拉取健康信息，
+    失败抛 `ScanExecutionError`（复用 Step 108 分类语义）；
+  - **preflight 快速失败**：`execute(command, preflight=False)`
+    关键字参数（默认关，向后兼容红线）；开启时执行前先探测，
+    worker 不可达立即失败（不等总超时）；
+  - 健康端点恒 200：worker 未配置 token 时 `worker: false`（轻量
+    无泄露），探测语义不被 503 混淆。
+- **测试**：+10（api：公开结构 / 无 token 仍 200 / _ENDPOINTS 同步；
+  执行器：health 成功 / 404 / 契约错误 / 非对象 / preflight 失败不
+  调 execute / 默认不探测 / 探测通过后正常执行）。
+- **依据**：ADR-091 端点安全 + ADR-108 错误分类。

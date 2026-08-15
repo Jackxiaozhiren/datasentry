@@ -902,6 +902,20 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             ) from exc
         return result.model_dump()
 
+    @app.get("/rpc/health", tags=["rpc"])
+    def rpc_health() -> dict[str, Any]:
+        """远端 worker 健康端点（V20，Step 109，ADR-109）。
+
+        公开（信息面）：仅返回服务标识/版本/worker 启用标志，不涉数据、
+        不需要 token——与数据面 `/rpc/execute`（token 鉴权）分离，供
+        `RemoteScanExecutor.health()` / preflight 探测用。
+        """
+        return {
+            "service": "datasentry-worker",
+            "version": __version__,
+            "worker": worker_token is not None,
+        }
+
     # ---- PII 加密 vault 管理面（V17，Step 99，ADR-099） -------------------
 
     @app.get("/pii/sessions", tags=["pii"])
@@ -1017,6 +1031,7 @@ _ENDPOINTS = frozenset(
         "POST /jobs/{job_id}/trigger",
         "PATCH /jobs/{job_id}",
         "DELETE /jobs/{job_id}",
+        "GET /rpc/health",
         "GET /pii/sessions",
         "GET /pii/sessions/{session_id}",
         "POST /pii/sessions/{session_id}/restore",

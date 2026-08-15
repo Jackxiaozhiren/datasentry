@@ -349,3 +349,117 @@ class TestRemoteRetryV20:
         assert delay_a == delay_b
         assert 0.5 <= delay_a < 0.6
         assert len(_sleeps_a) == 1
+
+
+class TestRemoteHealthV20:
+    """Step 109（ADR-109）：health() 探测 + execute(preflight) 快速失败。"""
+
+    @staticmethod
+    def _mock_factory(
+        handler: Callable[[httpx.Request], httpx.Response | Any],
+    ) -> Callable[[], Any]:
+        def factory() -> Any:
+            return httpx.Client(
+                transport=httpx.MockTransport(handler),  # type: ignore[arg-type]
+                base_url="http://worker",
+            )
+
+        return factory
+
+    def test_health_success(self) -> None:
+        app = FastAPI()
+
+        @app.get("/rpc/health")
+        def health() -> dict[str, str]:
+            return {"service": "datasentry-worker", "version": "0.22.0", "worker": "true"}
+
+        with _serve(app) as base_url:
+            executor = RemoteScanExecutor(base_url, token="t")
+            info = executor.health()
+        assert info["service"] == "datasentry-worker"
+        assert info["worker"] == "true"
+
+    def test_health_http_error_raises(self) -> None:
+        def handler(_: httpx.Request) -> Any:
+            return httpx.Response(404, text="no health")
+
+        executor = RemoteScanExecutor(
+            "http://worker", token="t", client_factory=self._mock_factory(handler)
+        )
+        with pytest.raises(ScanExecutionError) as excinfo:
+            executor.health()
+        assert excinfo.value.category == "http"
+        assert excinfo.value.retryable is False
+
+    def test_health_contract_error_raises(self) -> None:
+        def handler(_: httpx.Request) -> Any:
+            return httpx.Response(200, text="not-json")
+
+        executor = RemoteScanExecutor(
+            "http://worker", token="t", client_factory=self._mock_factory(handler)
+        )
+        with pytest.raises(ScanExecutionError) as excinfo:
+            executor.health()
+        assert excinfo.value.category == "contract"
+
+    def test_health_non_object_raises(self) -> None:
+        def handler(_: httpx.Request) -> Any:
+            return httpx.Response(200, json=[1, 2, 3])
+
+        executor = RemoteScanExecutor(
+            "http://worker", token="t", client_factory=self._mock_factory(handler)
+        )
+        with pytest.raises(ScanExecutionError) as excinfo:
+            executor.health()
+        assert excinfo.value.category == "contract"
+
+    def test_preflight_fast_fail_skips_execute(self) -> None:
+        """preflight 失败快速失败：execute 端点不被调用。"""
+        calls: list[str] = []
+
+        def handler(request: httpx.Request) -> Any:
+            calls.append(request.url.path)
+            if request.url.path == "/rpc/health":
+                return httpx.Response(503, text="starting")
+            return httpx.Response(200, json=JobResult(scan_run_id="sr_r").model_dump())
+
+        executor = RemoteScanExecutor(
+            "http://worker", token="t", client_factory=self._mock_factory(handler)
+        )
+        with pytest.raises(ScanExecutionError) as excinfo:
+            executor.execute(JobCommand(project="p", path="orders.csv"), preflight=True)
+        assert excinfo.value.category == "http"
+        assert calls == ["/rpc/health"]
+
+    def test_preflight_disabled_by_default(self) -> None:
+        """默认不探测：health 端点不存在时 execute 照常成功。"""
+        calls: list[str] = []
+
+        def handler(request: httpx.Request) -> Any:
+            calls.append(request.url.path)
+            if request.url.path == "/rpc/health":
+                return httpx.Response(404)
+            return httpx.Response(200, json=JobResult(scan_run_id="sr_r").model_dump())
+
+        executor = RemoteScanExecutor(
+            "http://worker", token="t", client_factory=self._mock_factory(handler)
+        )
+        result = executor.execute(JobCommand(project="p", path="orders.csv"))
+        assert result.scan_run_id == "sr_r"
+        assert calls == ["/rpc/execute"]
+
+    def test_preflight_ok_then_execute(self) -> None:
+        calls: list[str] = []
+
+        def handler(request: httpx.Request) -> Any:
+            calls.append(request.url.path)
+            if request.url.path == "/rpc/health":
+                return httpx.Response(200, json={"service": "datasentry-worker"})
+            return httpx.Response(200, json=JobResult(scan_run_id="sr_r").model_dump())
+
+        executor = RemoteScanExecutor(
+            "http://worker", token="t", client_factory=self._mock_factory(handler)
+        )
+        result = executor.execute(JobCommand(project="p", path="orders.csv"), preflight=True)
+        assert result.scan_run_id == "sr_r"
+        assert calls == ["/rpc/health", "/rpc/execute"]

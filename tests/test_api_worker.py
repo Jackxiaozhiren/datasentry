@@ -87,3 +87,27 @@ class TestRpcExecute:
                 json={"project": "p", "path": "x.csv"},
             )
         assert resp.status_code != 401
+
+
+class TestRpcHealthV20:
+    """Step 109（ADR-109）：公开信息面 /rpc/health 端点测试。"""
+
+    def test_health_public_structure(self, tmp_path: Path) -> None:
+        with TestClient(create_app(project=tmp_path, worker_token="s3cret")) as client:
+            resp = client.get("/rpc/health")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["service"] == "datasentry-worker"
+        assert body["version"]
+        assert body["worker"] is True
+
+    def test_health_public_without_token(self, tmp_path: Path) -> None:
+        with TestClient(create_app(project=tmp_path)) as client:
+            resp = client.get("/rpc/health")
+        assert resp.status_code == 200
+        assert resp.json()["worker"] is False
+
+    def test_health_in_endpoints(self, tmp_path: Path) -> None:
+        with TestClient(create_app(project=tmp_path)) as client:
+            body = client.get("/").json()
+        assert "GET /rpc/health" in body["endpoints"]
