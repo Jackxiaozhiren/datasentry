@@ -168,6 +168,16 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
   页面提示）；CI 全绿（95.01% 覆盖，1131 测试），mypy --strict
   通过；下一阶段候选：报告交互增强、跨进程/多调度端队列、
   vault 密钥的 UI 管理
+- **V18 已完成（v0.20.0）**：PII vault 密钥与会话生命周期管理
+  收尾——密钥轮换/设置完整透传（Step 102：REST rotate-key 可选
+  body {"new_key"} 向后兼容、MCP pii_rotate_key 可选 newKey、
+  UI 密钥管理卡片（状态+轮换按钮+设置表单）、四面缺 key 对齐、
+  远程面不返回密钥材料）、会话按龄清理（Step 103：purge 四面
+  ——CLI --purge --older-than / REST POST /pii/sessions/purge /
+  MCP pii_purge_sessions / UI 清理表单；无需密钥、N<1 拒绝、
+  不触碰存储 schema）；CHANGELOG 归一为 Keep-a-Changelog 倒序；
+  CI 全绿（95.01% 覆盖，1155 测试），mypy --strict 通过；下一
+  阶段候选：报告交互增强、跨进程/多调度端队列
 
 ---
 

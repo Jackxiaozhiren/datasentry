@@ -2544,3 +2544,20 @@
   新、zh）。合计 14 例新增。
 - **依据**：delete 无需密钥语义（ADR-099）+ list/delete 既有
   存储 API（不改 schema）+ 四面同语义模式（ADR-099/100/101）。
+
+## ADR-104：CHANGELOG 归一 + V18 收尾（V18，Step 104）
+- **背景**：历史 CHANGELOG 节序混乱（0.14/0.15 在顶、0.16-0.19
+  在尾）；任务书多次假设"顶部为最新"与实际不符，新节位置歧义。
+- **决策**：
+  - **CHANGELOG 归一为 Keep-a-Changelog 倒序**（最新节在顶部）：
+    一次性重排 20 节、内容零改动（脚本按节拆分反转 + 行多集
+    校验）；此后新版本节一律加在文件顶部；
+  - 发布流程沉淀：版本 bump 三处 + uv.lock datasentry-ai 包
+    版本行、bump 单独 commit、tag v0.20.0 触发 publish.yml
+    （PyPI 索引有延迟）、Pages 上传 docs/ 自动重部署、gh
+    release create 记录变更；
+  - index.html 徽章随版本刷新（tests/ADR/MCP tools 计数与
+    门禁实际值一致）。
+- **测试**：无新增代码测试；门禁四连 + CI 全绿验证。
+- **依据**：Keep-a-Changelog 惯例 + 历史"最新在底部"异常
+  （V17 坑位记录）。

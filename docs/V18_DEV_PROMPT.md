@@ -60,9 +60,9 @@ V18 收尾这两个生命周期管理缺口：密钥轮换/设置完整透传 + 
 - i18n：`ui.pii_purge_form`、`ui.pii_purge_days`、`ui.pii_purge_button`、`ui.pii_purged_result` 等（en+zh）
 - 测试：CLI purge（删旧留新、无 key 可 purge、缺参/非法 days 报错、与 session_id 互斥）；REST purge（e2e、422、无 key ok）；MCP purge（e2e、非法参数）；UI purge 表单（提交显示结果）
 
-### Step 104（ADR-104）：文档 + 发布 v0.20.0
+### Step 104（ADR-104）：文档 + 发布 v0.20.0 —— ✅ 完成
 
-- 收尾：CHANGELOG `[0.20.0]` 节（**加在文件顶部**，2 个 Step 小节）、DEVELOPMENT.md V18 段、计划书三 Step 打 ✅ + 坑位记录、ADR-102/103/104 落档、`docs/index.html` 刷新（版本 0.20.0、新测试数、100 ADR、20 MCP tools）
+- 收尾：CHANGELOG `[0.20.0]` 节（**加在文件顶部**，2 个 Step 小节）、DEVELOPMENT.md V18 段、计划书三 Step 打 ✅ + 坑位记录、ADR-102/103/104 落档、`docs/index.html` 刷新（版本 0.20.0、新测试数、99 ADR、20 MCP tools）
 - 版本三处 0.19.0 → 0.20.0（**bump 单独 commit**）；`uv.lock` 中 `name = "datasentry-ai"` 包的 `version` 行同步（优先 `uv lock --refresh`，网络不通则直接编辑）；tag v0.20.0；push tag；等 PyPI 0.20.0 + Pages + CI 全绿；`gh release create v0.20.0 --title "v0.20.0 — PII vault 密钥与会话生命周期管理" --notes "..."`
 
 ## 五、门禁（每个 Step 必须全绿才提交）
@@ -111,3 +111,19 @@ uv run --offline pytest -q --cov=datasentry_core --cov-fail-under=85
 ## 九、完成后汇报格式
 
 按"完成概述 / 新增能力（Step 102-104 各一段）/ 测试与门禁数据 / 发布状态 / 遗留问题"五段式汇报，中文，简明。
+
+## V18 执行坑位记录（Step 102-104）
+
+- REST purge 端点不能走 `_pii_vault()` gate helper（它 503 拦
+  缺 key）——purge 语义无需密钥，直接 `PIIVault(client._store)`
+  构造（首次测试暴露：无 key 时 503 ≠ 预期 200）
+- pydantic `Field(ge=1)` 自动 422，比手写校验干净
+- `save_pii_mapping` 支持显式 `created_at`（datetime 参数）——
+  purge 测试借此制造"60 天前/2 天前"会话
+- SIM102 规则：嵌套 if 要合并（purge 遍历里 delete 计数）
+- MCP 可选参数：properties 声明 + 不出现在 required，handler
+  用默认值（**arguments 关键字分发）
+- UI i18n 里单引号会被 escape() 转成 &#x27;——测试断言不要带
+  单引号原文
+- DEVELOPMENT.md 追加 V18 段时误替换 V17 段——先确认锚点唯一
+  再 edit（已恢复，两段并存）
