@@ -16,6 +16,7 @@ from uvicorn import Config, Server
 
 from datasentry.api import create_app as create_worker_app
 from datasentry.cli import main
+from datasentry.scheduler.models import JobCommand, JobResult
 from datasentry.scheduler.store import SchedulerStore
 from datasentry_core.storage.paths import project_db_path
 
@@ -338,3 +339,95 @@ class TestCancelRemoteV22:
 
         executor = RemoteScanExecutor("http://127.0.0.1:1", "t", timeout=2.0)
         assert executor.cancel("run_x") is False
+
+
+class _SlowLocalScanExecutor:
+    """worker 端慢执行器（monkeypatch datasentry.api.LocalScanExecutor 用）。
+
+    真实 LocalScanExecutor 会落 worker 库（Step 113 已证）；这里注入
+    慢执行器只为了在扫描期间留出 cancel 时机——调用计数证明 worker
+    端确实执行（cancel 后扫描仍跑完，结果作废回执）。
+    """
+
+    calls = 0
+
+    def __init__(self, delay: float = 1.5) -> None:
+        self.delay = delay
+
+    def execute(self, command: JobCommand) -> JobResult:
+        type(self).calls += 1
+        time.sleep(self.delay)
+        return JobResult(
+            scan_run_id="scan_worker_slow",
+            total_issues=3,
+            quality_score=88.0,
+            report_path=None,
+        )
+
+
+class TestCrossWorkspaceCancelE2EV22:
+    """Step 116（ADR-116）：跨 workspace 远程 cancel 全链路。
+
+    调度端 trigger → 慢 worker 执行 → 调度端 cancel（通知远端）→
+    worker 回执 cancelled:true → 调度端 run 保持 cancelled（结果
+    丢弃）；scan 已落 worker 库（不可回收边界）。
+    """
+
+    def test_remote_cancel_chain(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import datasentry.api as api_module
+
+        monkeypatch.setattr(api_module, "LocalScanExecutor", _SlowLocalScanExecutor)
+
+        scheduler_ws = tmp_path / "scheduler"
+        worker_ws = tmp_path / "worker"
+        scheduler_ws.mkdir()
+        worker_ws.mkdir()
+        csv = _csv(scheduler_ws)
+        job_id = _create_job(scheduler_ws, csv)
+
+        worker_app = create_worker_app(project=worker_ws, worker_token="s3cret")
+        base_url, _server, _thread = _serve(worker_app)
+
+        from datasentry.scheduler.core import Scheduler
+        from datasentry.scheduler.remote import RemoteScanExecutor
+        from datasentry.scheduler.store import SchedulerStore
+        from datasentry_core.storage.paths import project_db_path
+
+        store = SchedulerStore(project_db_path(scheduler_ws))
+        executor = RemoteScanExecutor(base_url, "s3cret")
+        thread = threading.Thread(
+            target=lambda: Scheduler(store=store, executor=executor).trigger(job_id),
+            daemon=True,
+        )
+        thread.start()
+        time.sleep(0.5)  # worker 扫描中（1.5s），run 已 running
+
+        run = store.get_run(store.list_runs(job_id)[0].run_id)
+        assert run is not None and run.status.value == "running"
+        run_id = run.run_id
+
+        code = main(
+            [
+                "--project",
+                str(scheduler_ws),
+                "--format",
+                "json",
+                "job",
+                "cancel",
+                job_id,
+                "--remote-url",
+                base_url,
+                "--remote-token",
+                "s3cret",
+            ]
+        )
+        assert code == 0
+        run = store.get_run(run_id)
+        assert run is not None and run.status.value == "cancelled"
+
+        thread.join(timeout=10)
+        run = store.get_run(run_id)
+        assert run is not None
+        assert run.status.value == "cancelled", "result must be discarded, not revived"
+        assert run.scan_run_id is None, "voided result must not land in scheduler db"
+        assert _SlowLocalScanExecutor.calls == 1, "worker did execute scan (finished after cancel)"

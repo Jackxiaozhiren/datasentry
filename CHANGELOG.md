@@ -6,6 +6,15 @@
 
 ## [0.24.0] - 2026-08-15
 
+### 变更（Step 116，跨 workspace 远程 cancel 全链路，ADR-116）
+
+- 端到端证明：触发中 cancel → 调度端 run cancelled + 远端已通知；
+  worker 扫描跑完 → 结果作废回执 → 调度端结果丢弃（run 保持
+  cancelled、scan_run_id 不落调度端）
+- 边界文档化：worker 扫描线程无法强杀，落 worker 库记录不可回收；
+  作废语义由调度端事务内结果丢弃承担
+- 测试 +1 全链路 e2e（worker 端注入慢执行器留 cancel 时机）
+
 ### 变更（Step 115，远程 cancel 协议，ADR-115）
 
 - JobCommand 增 optional `run_token`（调度端 run_id，Scheduler 每次

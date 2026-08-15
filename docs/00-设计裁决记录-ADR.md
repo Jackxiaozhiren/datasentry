@@ -2805,3 +2805,22 @@
   e2e 覆盖。
 - **依据**：ADR-091 数据面鉴权 + ADR-114 结果丢弃 + V21 坑 9
   （远程失败仅警告）。
+
+## ADR-116：跨 workspace 远程 cancel 全链路证明（V22，Step 116）
+- **背景**：调度端 cancel（ADR-114）与远程协议（ADR-115）分属两端，
+  需要端到端证明「取消 → 通知 → 回执 → 结果丢弃」闭环。
+- **决策**：
+  - 端到端测试（worker 端 monkeypatch LocalScanExecutor 为慢执行器
+    注入 1.5s 延迟留出 cancel 时机；调度端线程触发 + 主线程 CLI
+    `job cancel --remote-url`）：
+    - 触发中 cancel → 调度端 run cancelled + remote_notified；
+    - worker 扫描跑完（调用计数证明）→ 结果作废回执（JobResult
+      cancelled:true）→ 调度端 finish_run 丢弃 → run 保持
+      cancelled、scan_run_id 不落调度端；
+    - worker 端 scan 落库行为由 Step 113 已证（注入执行器不落库，
+      本测试只证 cancel 链路，不重复断言）；
+  - **边界文档化**：worker 扫描线程无法强杀——cancel 后 worker 仍
+    跑完扫描，落 worker 库的记录不可回收；作废语义由调度端结果
+    丢弃承担（ADR-114 事务内检查）。
+- **测试**：+1 全链路 e2e。
+- **依据**：ADR-114 + ADR-115 + Step 113 物理隔离。
