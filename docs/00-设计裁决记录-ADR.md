@@ -2584,3 +2584,28 @@
   同秒三行 rowid 倒序。
 - **依据**：SQLite 官方语义（busy_timeout 覆盖普通 DML/DDL；
   journal_mode pragma 独占锁不重试）+ ADR-012 迁移策略。
+
+## ADR-106：vault 密钥原子写 + 会话冲突检测（V19，Step 106）
+- **背景**：rotate_key 直接 write_text 写 key 文件——两进程并发轮换
+  会交错/半写损坏；save_pii_mapping 是 INSERT OR REPLACE——session_id
+  确定性派生，同 ID 不同明文会被静默覆盖（内容碰撞/注入丢数据）；
+  密文每次 nonce 随机，不能比较密文判冲突。
+- **决策**：
+  - **原子写**：rotate_key 先写 `.vault.key.tmp.<uuid>`（0600）再
+    os.replace()——并发轮换后 key 文件必为某次完整内容；读侧对空
+    文件显式报错兜底（半写非空无法检测，解密失败会由
+    VaultKeyMissingError 暴露）；
+  - **冲突检测在 vault 层**（底层 INSERT OR REPLACE 不动）：save_mapping
+    先读旧行解密比较**明文**——明文相等 → 幂等跳过不重写（ADR-048
+    复用语义）；解密失败（key 失配，轮换后重扫）→ 降级允许重写
+    （否则轮换后必崩，回归红线）；明文不等 → 抛
+    PIIMappingConflictError 拒绝覆盖；
+  - **感知字段**：vault.key_fingerprint（sha256 前 8 hex，不泄露材料）
+    + key_file_info（file 源时 path+mtime）——`llm status` pii_vault
+    增加输出（只加字段不断字段，向后兼容）；REST/UI 不加（YAGNI）。
+- **测试**：vault 单测 8 例（幂等跳过不重写、注入冲突拦截不覆盖、
+  key 失配降级重写、原子写无 tmp 残留、空 key 文件报错、指纹
+  explicit/dev、file 信息）+ CLI status 字段 1 例 + subprocess 并发
+  rotate 1 例（key 文件必为完整某次内容）。合计 10 例。
+- **依据**：ADR-048 会话复用语义 + SQLite REPLACE 语义 + 轮换期间
+  他进程写入行解密失败为既有文档化语义（测试注明）。

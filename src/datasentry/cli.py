@@ -822,7 +822,12 @@ def _cmd_llm_status(args: argparse.Namespace) -> int:
         "configured": config.provider != "null",
         "recent_calls": len(invocations),
         "last_status": invocations[0].status if invocations else None,
-        "pii_vault": {"key_source": vault.key_source, "mappings": mappings},
+        "pii_vault": {
+            "key_source": vault.key_source,
+            "key_fingerprint": vault.key_fingerprint,
+            "key_file": vault.key_file_info,
+            "mappings": mappings,
+        },
     }
     _emit(_envelope("llm status", summary), args.format)
     return EXIT_OK

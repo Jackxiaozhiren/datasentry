@@ -23,6 +23,20 @@ V19 跨进程/多调度端一致性：元数据存储并发加固 + vault 密钥
   并发写无 BUSY 无丢失、并发 save_scan 全事务、busy_timeout/WAL 断言、
   并发写+删交叉计数守恒、同秒顺序稳定
 
+### 变更（Step 106，vault 密钥原子写 + 会话冲突检测，ADR-106）
+
+- **密钥原子写**：`rotate-key` 先写 `.vault.key.tmp.<uuid>`（0600）再
+  `os.replace()`——两进程并发轮换时 key 文件必为某次完整内容，不再
+  交错/半写；空 key 文件读取时显式报错（不静默用错 key）
+- **会话冲突检测**：`save_mapping` 先读旧行解密比较**明文**——明文
+  相等 → 幂等跳过不重写（复用会话语义）；解密失败（轮换后 key 失配）
+  → 降级允许重写；明文不等（内容碰撞/注入）→ 抛
+  `PIIMappingConflictError`，拒绝静默覆盖（底层 INSERT OR REPLACE 不变）
+- **密钥感知**：`vault.key_fingerprint`（sha256 前 8 hex，不泄露材料）
+  + `key_file_info`（file 源 path+mtime）；`llm status` 的 pii_vault
+  增加 `key_fingerprint`/`key_file` 字段（只加不断，向后兼容）
+- 测试 +10 例（vault 8 / CLI 1 / subprocess 并发 rotate 1）
+
 ## [0.20.0] - 2026-08-15
 
 V18 PII vault 密钥与会话生命周期管理：密钥轮换/设置完整透传 + 会话按龄清理（purge）。

@@ -41,7 +41,7 @@ BUSY 炸裂、vault.key 原子写 + 会话冲突检测、调度端互斥有跨�
   无 "database is locked"、最终计数 = 写入数；busy_timeout 生效断言
 - 测试 ~8 例
 
-### Step 106（ADR-106）：vault 密钥原子写 + 会话冲突检测
+### Step 106（ADR-106）：vault 密钥原子写 + 会话冲突检测 —— ✅ 完成
 
 - `rotate_key` 原子写：`vault.key.tmp.<pid/随机>`（0600）→ `os.replace()`
   → 删除 tmp；并发 rotate 后文件必为某次完整内容

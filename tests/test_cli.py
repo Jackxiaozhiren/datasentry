@@ -774,6 +774,20 @@ class TestCli:
         assert payload["data"]["pii_vault"]["key_source"] == "dev"
         assert payload["data"]["pii_vault"]["mappings"] == 0
 
+    def test_llm_status_key_fingerprint(
+        self, workspace: Path, capsys, monkeypatch, tmp_path
+    ) -> None:
+        monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
+        assert main(["--project", str(workspace), "--format", "json", "llm", "rotate-key"]) == 0
+        capsys.readouterr()
+        assert main(["--project", str(workspace), "--format", "json", "llm", "status"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+        vault = payload["data"]["pii_vault"]
+        assert vault["key_source"] == "file"
+        assert len(vault["key_fingerprint"]) == 8
+        assert vault["key_file"]["path"].endswith("vault.key")
+        assert vault["key_file"]["mtime"] is not None
+
     def test_llm_restore_list_empty(self, workspace: Path, capsys) -> None:
         code = main(["--project", str(workspace), "--format", "json", "llm", "restore"])
         assert code == 0

@@ -27,7 +27,7 @@ import json
 import os
 import secrets
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +48,10 @@ _NONCE_BYTES = 12
 
 class VaultKeyMissingError(RuntimeError):
     """解密所需密钥缺失：拒绝还原/轮换，提示用户配置密钥。"""
+
+
+class PIIMappingConflictError(RuntimeError):
+    """同 session_id 已存在不同明文内容（内容碰撞/注入）：拒绝静默覆盖。"""
 
 
 def _derive_key(key_material: str) -> bytes:
@@ -84,8 +88,14 @@ class PIIVault:
             else:
                 key_path = _key_file()
                 if key_path.is_file():
+                    material = key_path.read_text(encoding="utf-8").strip()
+                    if not material:
+                        raise RuntimeError(
+                            f"vault key file is empty: {key_path} — "
+                            f"run 'datasentry llm rotate-key' to regenerate"
+                        )
                     self._key_source = "file"
-                    self._key_material = key_path.read_text(encoding="utf-8").strip()
+                    self._key_material = material
         if self._key_material is not None:
             self._key_bytes = _derive_key(self._key_material)
 
@@ -99,6 +109,29 @@ class PIIVault:
     @property
     def key_configured(self) -> bool:
         return self._key_bytes is not None
+
+    @property
+    def key_fingerprint(self) -> str | None:
+        """当前生效密钥内容指纹（sha256 前 8 hex）；dev 兜底同样返回。
+
+        不泄露密钥材料本身——用于多进程「是否在用同一把 key」可感知
+        （V19，Step 106，ADR-106）。
+        """
+        if self._key_material is not None:
+            return hashlib.sha256(self._key_material.encode("utf-8")).hexdigest()[:8]
+        return hashlib.sha256(_DEV_KEY.encode("utf-8")).hexdigest()[:8]
+
+    @property
+    def key_file_info(self) -> dict[str, Any] | None:
+        """key_source=file 时的本地 key 文件信息（路径 + mtime）；其他来源 None。"""
+        if self._key_source != "file":
+            return None
+        key_path = _key_file()
+        try:
+            mtime = datetime.fromtimestamp(key_path.stat().st_mtime, tz=UTC)
+        except OSError:
+            return {"path": str(key_path), "mtime": None}
+        return {"path": str(key_path), "mtime": mtime.isoformat()}
 
     # ---- 加密原语 ---------------------------------------------------------
 
@@ -133,9 +166,29 @@ class PIIVault:
         return f"pii_{hashlib.sha256(canonical.encode()).hexdigest()[:16]}"
 
     def save_mapping(self, mapping: dict[str, list[str]]) -> str:
-        """加密映射落库（确定性 session_id：同映射复用同会话）。返回 session_id。"""
+        """加密映射落库（确定性 session_id：同映射复用同会话）。返回 session_id。
+
+        会话冲突检测（V19，Step 106，ADR-106）：同 session_id 已存在
+        密文时解密比较明文——明文相等 → 幂等跳过（不重写）；解密失败
+        （key 失配，轮换后重扫场景）→ 降级允许重写；明文不等（内容
+        碰撞/注入）→ 抛 PIIMappingConflictError，拒绝静默覆盖。
+        """
         session_id = self._session_id_for(mapping)
-        ciphertext, version = self._encrypt(json.dumps(mapping, ensure_ascii=False))
+        payload = json.dumps(mapping, ensure_ascii=False)
+        existing = self._store.get_pii_mapping(session_id)
+        if existing is not None:
+            try:
+                old_plain = self._decrypt(existing["ciphertext"])
+            except VaultKeyMissingError:
+                pass
+            else:
+                if old_plain == payload:
+                    return session_id
+                raise PIIMappingConflictError(
+                    f"pii mapping session conflict: {session_id} already holds different "
+                    "content — refusing to overwrite; inspect or purge the session"
+                )
+        ciphertext, version = self._encrypt(payload)
         self._store.save_pii_mapping(session_id, ciphertext, key_version=version)
         return session_id
 
@@ -206,8 +259,13 @@ class PIIVault:
             rotated += 1
         key_path = _key_file()
         key_path.parent.mkdir(parents=True, exist_ok=True)
-        key_path.write_text(new_material + "\n", encoding="utf-8")
-        key_path.chmod(0o600)
+        # 原子写（V19，Step 106，ADR-106）：先写临时文件（0600）再
+        # os.replace——两进程并发 rotate 时 key 文件必为某次完整内容，
+        # 不会出现交错/半写（读侧对空文件显式报错兜底）
+        tmp_path = key_path.with_name(f".vault.key.tmp.{uuid.uuid4().hex[:8]}")
+        tmp_path.write_text(new_material + "\n", encoding="utf-8")
+        tmp_path.chmod(0o600)
+        os.replace(tmp_path, key_path)
         self._key_material = new_material
         self._key_bytes = new_bytes
         self._key_source = "file"

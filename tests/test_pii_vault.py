@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
 from datasentry.pii_vault import (
+    PIIMappingConflictError,
     PIIVault,
     VaultKeyMissingError,
     format_mapping_summary,
@@ -156,3 +158,118 @@ class TestSummary:
         session_id = vault.save_mapping(_MAPPING)
         mapping = vault.load_mapping(session_id)
         assert json.loads(json.dumps(mapping)) == mapping
+
+
+class TestMappingConflictV19:
+    """Step 106（V19，ADR-106）：会话冲突检测 + 原子密钥写 + 感知字段。"""
+
+    def test_same_content_idempotent_no_rewrite(
+        self, vault: PIIVault, store: MetadataStore
+    ) -> None:
+        session_id = vault.save_mapping(_MAPPING)
+        before = store.get_pii_mapping(session_id)
+        assert vault.save_mapping(_MAPPING) == session_id
+        after = store.get_pii_mapping(session_id)
+        assert after is not None and before is not None
+        assert after["ciphertext"] == before["ciphertext"]
+        assert after["created_at"] == before["created_at"]
+
+    def test_different_content_conflict_raises(self, vault: PIIVault, store: MetadataStore) -> None:
+        session_id = vault.save_mapping(_MAPPING)
+        injected = {"email": ["attacker@example.com"]}
+        ct = vault._encrypt(json.dumps(injected, ensure_ascii=False))[0]
+        store.save_pii_mapping(session_id, ct, key_version="env")
+        with pytest.raises(PIIMappingConflictError):
+            vault.save_mapping(_MAPPING)
+        assert vault.load_mapping(session_id) == injected
+
+    def test_key_mismatch_allows_rewrite(self, vault: PIIVault, store: MetadataStore) -> None:
+        session_id = vault.save_mapping(_MAPPING)
+        other = PIIVault(store, key="new-key-material")
+        assert other.save_mapping(_MAPPING) == session_id
+        assert other.load_mapping(session_id) == _MAPPING
+        with pytest.raises(VaultKeyMissingError):
+            vault.load_mapping(session_id)
+
+    def test_rotate_atomic_write_no_tmp_leftovers(self, vault: PIIVault, tmp_path: Path) -> None:
+        vault.rotate_key(new_key="atomic-key-1")
+        vault.rotate_key(new_key="atomic-key-2")
+        key_path = tmp_path / "vault.key"
+        assert key_path.read_text(encoding="utf-8").strip() == "atomic-key-2"
+        assert list(tmp_path.glob(".vault.key.tmp.*")) == []
+        assert (key_path.stat().st_mode & 0o777) == 0o600
+
+    def test_empty_key_file_raises(
+        self, store: MetadataStore, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        key_path = tmp_path / "vault.key"
+        key_path.write_text("", encoding="utf-8")
+        monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
+        with pytest.raises(RuntimeError, match="empty"):
+            PIIVault(store)
+
+    def test_key_fingerprint_explicit(self, store: MetadataStore) -> None:
+        vault = PIIVault(store, key="abc")
+        assert vault.key_fingerprint == hashlib.sha256(b"abc").hexdigest()[:8]
+        assert vault.key_file_info is None
+
+    def test_key_fingerprint_dev(self, store: MetadataStore) -> None:
+        vault = PIIVault(store)
+        assert len(vault.key_fingerprint) == 8
+
+    def test_key_file_info_file_source(self, vault: PIIVault, tmp_path: Path) -> None:
+        vault.rotate_key(new_key="file-key-xyz")
+        info = vault.key_file_info
+        assert info is not None
+        assert info["path"] == str(tmp_path / "vault.key")
+        assert info["mtime"] is not None
+
+
+_ROTATOR = r"""
+import sys
+from pathlib import Path
+
+from datasentry import pii_vault
+from datasentry.pii_vault import PIIVault
+from datasentry_core.storage.store import MetadataStore
+
+pii_vault._key_file = lambda: Path(sys.argv[1])
+store = MetadataStore(Path(sys.argv[2]) / "meta.db")
+vault = PIIVault(store, key="seed-key")
+vault.rotate_key(new_key=sys.argv[3])
+store.close()
+"""
+
+
+class TestConcurrentRotateV19:
+    """Step 106：两进程并发 rotate —— key 文件必为某次完整内容（原子写）。
+
+    注意：不写各自 mapping——并发轮换期间他进程写入的行按文档化语义
+    解密失败（VaultKeyMissingError），那是轮换语义而非原子性问题；
+    原子性证明聚焦 key 文件写入本身。
+    """
+
+    def test_concurrent_rotators_key_file_always_complete(self, tmp_path: Path) -> None:
+        import subprocess
+        import sys
+
+        key_path = tmp_path / "vault.key"
+        a = subprocess.Popen(
+            [sys.executable, "-c", _ROTATOR, str(key_path), str(tmp_path), "key-a-000"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        b = subprocess.Popen(
+            [sys.executable, "-c", _ROTATOR, str(key_path), str(tmp_path), "key-b-000"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        _, err_a = a.communicate(timeout=120)
+        _, err_b = b.communicate(timeout=120)
+        assert a.returncode == 0, err_a
+        assert b.returncode == 0, err_b
+        final = key_path.read_text(encoding="utf-8").strip()
+        assert final in ("key-a-000", "key-b-000")
+        assert list(tmp_path.glob(".vault.key.tmp.*")) == []
