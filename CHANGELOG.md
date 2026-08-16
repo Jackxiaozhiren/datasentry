@@ -4,7 +4,17 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.33.0] - 2026-08-16
+## [0.34.0] - 2026-08-16
+
+### 新增
+
+- Web run 对比页：扫描列表勾选两个 run（全选控件 + 恰两选中
+  才可提交）→ /ui/compare?runs=a&runs=b——六维差值表（±着色）、
+  严重度计数变化、列漂移表（复用 drift_compare，含阈值/方向/
+  严重度）、Schema 变更表；未知 run 404。
+- 对比页复用现有 drift_compare（DriftReport），零重复逻辑。
+
+
 
 ### 新增
 

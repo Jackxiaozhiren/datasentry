@@ -36,7 +36,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
 from fastapi import FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -638,6 +638,28 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         global _last_batch
         batch, _last_batch = _last_batch, None
         return HTMLResponse(ui.render_home(client.list_scan_runs(), batch=batch, lang=lang))
+
+    @app.get("/ui/compare", response_class=HTMLResponse, tags=["ui"])
+    def ui_compare(
+        runs: Annotated[list[str], Query(min_length=2, max_length=2)],
+        lang: Annotated[str, Query()] = "en",
+    ) -> HTMLResponse:
+        """V28：两 run 对比页（勾选 → /ui/compare?runs=a&runs=b）。"""
+        try:
+            report = client.drift_compare(runs[0], runs[1])
+        except KeyError as exc:
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.scan_failed"), str(exc)), status_code=404
+            )
+        runs_map = {r.id: r for r in client.list_scan_runs()}
+        reference = runs_map.get(runs[0])
+        current = runs_map.get(runs[1])
+        if reference is None or current is None:
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.scan_failed"), "scan run not found"),
+                status_code=404,
+            )
+        return HTMLResponse(ui.render_compare(reference, current, report, lang=lang))
 
     @app.get("/ui/trends", response_class=HTMLResponse, tags=["ui"])
     def ui_trends(lang: str = Query(default="en")) -> HTMLResponse:

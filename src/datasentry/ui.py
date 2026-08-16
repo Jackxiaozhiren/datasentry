@@ -17,6 +17,8 @@ from html import escape
 from typing import Any, cast
 
 from datasentry.trends import DatasetTrend, ScanPoint
+from datasentry_core.models.drift import DriftReport
+from datasentry_core.models.enums import Severity
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
 from datasentry_core.models.scan import ScanConfig, ScanRun
@@ -33,6 +35,9 @@ body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 2rem 
 .batch-banner.warn { background: #fff3e0; border-color: #ffcc80; }
 .batch-banner ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
 .batch-banner li { font-size: 0.9rem; }
+.delta.pos { color: #1a7f37; font-weight: 600; }
+.delta.neg { color: #cf222e; font-weight: 600; }
+.delta.flat { color: #59636e; }
 h1 { border-bottom: 2px solid #0969da; padding-bottom: .3rem; }
 h2 { margin-top: 2rem; border-bottom: 1px solid #d0d7de; padding-bottom: .2rem; }
 table { border-collapse: collapse; width: 100%; margin: .5rem 0; }
@@ -173,6 +178,8 @@ def _scan_table(scans: list[ScanRun], *, lang: str = "en") -> str:
         overall = f"{scan.quality_score.overall:.1f}" if scan.quality_score else "—"
         rows.append(
             "<tr>"
+            f'<td><input type="checkbox" name="runs" value="{escape(scan.id)}" '
+            'class="run-check"></td>'
             f'<td><a href="/ui/scans/{escape(scan.id)}">{escape(scan.id)}</a></td>'
             f"<td>{escape(scan.dataset_id)}</td>"
             f"<td>{scan.fingerprint.row_count} × {scan.fingerprint.column_count}</td>"
@@ -182,11 +189,34 @@ def _scan_table(scans: list[ScanRun], *, lang: str = "en") -> str:
             "</tr>"
         )
     return (
+        f'<form method="get" action="/ui/compare" id="compare-form">'
         "<table><tr>"
+        f'<th><input type="checkbox" id="run-check-all" aria-label="select all"></th>'
         f"<th>{escape(t(lang, 'ui.run_id'))}</th><th>{escape(t(lang, 'ui.dataset'))}</th>"
         f"<th>{escape(t(lang, 'ui.rows_cols'))}</th><th>{escape(t(lang, 'ui.score'))}</th>"
         f"<th>{escape(t(lang, 'ui.status'))}</th><th>{escape(t(lang, 'ui.started'))}</th>"
         f"</tr>{''.join(rows)}</table>"
+        '<p><button type="submit" id="compare-btn" disabled>'
+        f"{escape(t(lang, 'ui.compare_selected'))}</button></p>"
+        "</form>"
+        "<script>(function () {"
+        'var form = document.getElementById("compare-form");'
+        'var btn = document.getElementById("compare-btn");'
+        'var all = document.getElementById("run-check-all");'
+        "function sync() {"
+        'var n = form.querySelectorAll(".run-check:checked").length;'
+        "btn.disabled = n !== 2;"
+        "if (all) { all.checked = n === form.querySelectorAll('.run-check').length; }"
+        "}"
+        'form.addEventListener("change", sync);'
+        "form.addEventListener('submit', function (ev) {"
+        "var n = form.querySelectorAll('.run-check:checked').length;"
+        "if (n !== 2) { ev.preventDefault(); }"
+        "});"
+        'if (all) { all.addEventListener("change", function () {'
+        "form.querySelectorAll('.run-check').forEach(function (c) { c.checked = all.checked; });"
+        "sync(); }); }"
+        "})();</script>"
     )
 
 
@@ -597,6 +627,122 @@ def render_workbench(
         "</form>"
     )
     return _page(t(lang, "ui.workbench_title"), "\n".join(body), lang=lang)
+
+
+def render_compare(
+    reference: ScanRun,
+    current: ScanRun,
+    report: DriftReport,
+    *,
+    lang: str = "en",
+) -> str:
+    """V28：两 run 对比页——六维差值、severity 变化、列漂移、schema 变更。
+
+    reference 为基线（较早），current 为现状；差值 = current − reference。
+    """
+    ref_score = reference.quality_score.overall if reference.quality_score else None
+    cur_score = current.quality_score.overall if current.quality_score else None
+    score_delta = (
+        cur_score - ref_score if (ref_score is not None and cur_score is not None) else None
+    )
+
+    dim_rows = []
+    ref_dims = reference.quality_score.dimensions if reference.quality_score else {}
+    cur_dims = current.quality_score.dimensions if current.quality_score else {}
+    for dim in sorted(set(ref_dims) | set(cur_dims)):
+        before = ref_dims.get(dim)
+        after = cur_dims.get(dim)
+        if before is None or after is None:
+            continue
+        delta = after - before
+        tone = "pos" if delta > 0.05 else ("neg" if delta < -0.05 else "flat")
+        dim_rows.append(
+            f"<tr><td>{escape(dim)}</td><td>{before:.1f}</td><td>{after:.1f}</td>"
+            f'<td class="delta {tone}">{"+" if delta > 0 else ""}{delta:.1f}</td></tr>'
+        )
+
+    severity_rows = []
+    for level in ("critical", "high", "medium", "low", "info"):
+        before = reference.issues_count.get(Severity(level), 0)
+        after = current.issues_count.get(Severity(level), 0)
+        delta = after - before
+        tone = "pos" if delta < 0 else ("neg" if delta > 0 else "flat")
+        severity_rows.append(
+            f"<tr><td>{_severity_badge(level)}</td><td>{before}</td><td>{after}</td>"
+            f'<td class="delta {tone}">{"+" if delta > 0 else ""}{delta}</td></tr>'
+        )
+
+    drift_rows = []
+    for d in report.column_drifts:
+        direction = (
+            "↑"
+            if d.direction in ("increase", "new_category")
+            else ("↓" if d.direction in ("decrease", "gone_category") else "⇄")
+        )
+        drift_rows.append(
+            f"<tr><td>{escape(d.column)}</td><td>{escape(d.drift_type)}</td>"
+            f"<td>{escape(d.metric)}</td><td>{d.value:.3g} / {d.threshold:.3g}</td>"
+            f"<td>{direction} {escape(d.direction)}</td>"
+            f"<td>{_severity_badge(d.severity.value)}</td></tr>"
+        )
+
+    schema_rows = []
+    for c in report.schema_changes:
+        schema_rows.append(
+            f"<tr><td>{escape(c.change_type)}</td><td>{escape(c.column)}</td>"
+            f"<td>{escape(str(c.before))}</td><td>{escape(str(c.after))}</td></tr>"
+        )
+
+    score_line = (
+        f"<p class='meta'>{escape(t(lang, 'ui.score_delta'))}: "
+        f"<strong>{'+' if (score_delta or 0) > 0 else ''}{score_delta:.1f}</strong>"
+        f" ({reference.quality_score.overall:.1f} → {current.quality_score.overall:.1f})</p>"
+        if score_delta is not None and reference.quality_score and current.quality_score
+        else ""
+    )
+    body = [
+        '<p class="meta">'
+        f'{escape(t(lang, "ui.compare_reference"))}: <a href="/ui/scans/{escape(reference.id)}">'
+        f"{escape(reference.id)}</a> · {escape(reference.dataset_id)} · "
+        f"{reference.started_at:%Y-%m-%d %H:%M}</p>",
+        '<p class="meta">'
+        f'{escape(t(lang, "ui.compare_current"))}: <a href="/ui/scans/{escape(current.id)}">'
+        f"{escape(current.id)}</a> · {escape(current.dataset_id)} · "
+        f"{current.started_at:%Y-%m-%d %H:%M}</p>",
+        score_line,
+        f"<h2>{escape(t(lang, 'ui.dimension_delta'))}</h2>",
+        "<table><tr><th></th>"
+        f"<th>{escape(t(lang, 'ui.compare_reference_short'))}</th>"
+        f"<th>{escape(t(lang, 'ui.compare_current_short'))}</th>"
+        f"<th>{escape(t(lang, 'ui.delta'))}</th></tr>" + "".join(dim_rows) + "</table>",
+        f"<h2>{escape(t(lang, 'ui.severity_delta'))}</h2>",
+        "<table><tr><th></th><th>ref</th><th>cur</th><th>Δ</th></tr>"
+        + "".join(severity_rows)
+        + "</table>",
+        f"<h2>{escape(t(lang, 'ui.column_drifts'))}</h2>",
+        "<table><tr><th>column</th><th>type</th><th>metric</th><th>value / threshold</th>"
+        "<th>direction</th><th></th></tr>"
+        + (
+            "".join(drift_rows)
+            if drift_rows
+            else "<tr><td colspan='6'>" + f"{escape(t(lang, 'ui.no_drifts'))}</td></tr>"
+        )
+        + "</table>",
+        f"<h2>{escape(t(lang, 'ui.schema_changes'))}</h2>",
+        "<table><tr><th>type</th><th>column</th><th>before</th><th>after</th></tr>"
+        + (
+            "".join(schema_rows)
+            if schema_rows
+            else "<tr><td colspan='4'>" + f"{escape(t(lang, 'ui.no_schema_changes'))}</td></tr>"
+        )
+        + "</table>",
+    ]
+    return _page(
+        f"{escape(reference.dataset_id)} vs {escape(current.dataset_id)}",
+        "\n".join(body),
+        active="scans",
+        lang=lang,
+    )
 
 
 def render_error(title: str, message: str, *, lang: str = "en") -> str:

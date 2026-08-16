@@ -210,6 +210,35 @@ class TestTrendsPage:
         assert 'class="dim-strip"' in resp.text
         assert 'title="completeness' in resp.text
 
+    def test_scans_list_compare_checkboxes(self, tmp_path: Path) -> None:
+        """V28：列表页含勾选控件 + 对比按钮（表单 GET /ui/compare）。"""
+        client = TestClient(create_app(project=tmp_path))
+        _scan(client, tmp_path)
+        resp = client.get("/ui/scans")
+        assert 'name="runs"' in resp.text
+        assert 'action="/ui/compare"' in resp.text
+        assert "compare-btn" in resp.text
+
+    def test_compare_page(self, tmp_path: Path) -> None:
+        """V28：/ui/compare?runs=a,b 渲染维度差值/severity/漂移表。"""
+        client = TestClient(create_app(project=tmp_path))
+        run_a = _scan(client, tmp_path)
+        run_b = _scan(client, tmp_path)
+        resp = client.get(f"/ui/compare?runs={run_a}&runs={run_b}")
+        assert resp.status_code == 200
+        assert "Dimension deltas" in resp.text
+        assert "completeness" in resp.text
+        assert "Severity counts" in resp.text
+        assert "Column drifts" in resp.text
+        assert "delta neg" in resp.text or "delta pos" in resp.text or "delta flat" in resp.text
+
+    def test_compare_page_unknown_run(self, tmp_path: Path) -> None:
+        """V28：未知 run id → 404 错误页。"""
+        client = TestClient(create_app(project=tmp_path))
+        run_a = _scan(client, tmp_path)
+        resp = client.get(f"/ui/compare?runs={run_a}&runs=scan_nope")
+        assert resp.status_code == 404
+
     def test_ui_scan_batch_banner(self, tmp_path: Path) -> None:
         """V27：批量扫描完成 → 汇总横幅（消费式，一次渲染后清除）。"""
         client = TestClient(create_app(project=tmp_path), follow_redirects=False)
