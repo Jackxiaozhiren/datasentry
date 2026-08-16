@@ -327,3 +327,40 @@ async def test_status_bar_shows_context(tmp_path: Path) -> None:
         await pilot.press("4")
         await pilot.pause()
         assert "视图: 修复" in str(bar.content)
+
+
+async def test_scan_multiple_files_batch(tmp_path: Path) -> None:
+    """多路径 → 批量扫描 → 合并 issues + 自动跳问题视图。"""
+    other = tmp_path / "orders2.csv"
+    other.write_text(DEMO_CSV.read_text(encoding="utf-8"), encoding="utf-8")
+    app = _app(tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.press("2")
+        input_w = app.query_one("#scan-input")
+        input_w.value = f"{DEMO_CSV}, {other}"
+        await pilot.click("#scan-button")
+        for _ in range(300):
+            await pilot.pause(0.05)
+            if app._issues:
+                break
+        single = len(app._client.list_issues())
+        assert len(app._issues) == 2 * (single // 2), "批量合并应为两份 issues"
+        assert len({i.scan_run_id for i in app._issues}) == 2, "来自两个 scan run"
+        assert app.query_one(TabbedContent).active == "tab-issues"
+        table = app.query_one("#issue-table", DataTable)
+        assert table.cursor_row == 0
+        assert app.current_issue is not None
+
+
+async def test_scan_parse_paths(tmp_path: Path) -> None:
+    """_parse_paths：逗号/换行/引号/glob/去重。"""
+    app = _app(tmp_path)
+    async with app.run_test():
+        paths = app._parse_paths(
+            f'"{DEMO_CSV}",\n"missing.csv",missing.csv\n{DEMO_CSV.parent / "*.csv"}'
+        )
+        names = [p.name for p in paths]
+        assert names[0] == "orders.csv", "首项为带引号路径"
+        assert names.count("missing.csv") == 1, "引号+裸路径去重"
+        assert names.count("orders.csv") >= 1, "glob 展开命中"
+        assert len(names) == len(set(names)), "整体去重保序"

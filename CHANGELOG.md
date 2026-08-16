@@ -4,7 +4,19 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.29.0] - 2026-08-16
+## [0.30.0] - 2026-08-16
+
+### 新增
+
+- TUI 批量扫描：扫描输入支持多路径（逗号/分号/换行分隔、
+  引号包裹、`*` 通配符 glob、去重保序）；顺序扫描全部文件，
+  进度条显示文件名 + 检测器；完成后汇总通知（文件数/总
+  issues/平均分/失败文件），自动跳问题视图展示合并列表。
+- 问题表格新增 dataset 列（多文件扫描可区分来源）。
+- CLI `score` 的 run_id 改为可选，缺省 `latest`（`datasentry score`
+  直接输出最近一次扫描评分）。
+
+
 
 ### 新增
 

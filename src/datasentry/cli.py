@@ -1438,7 +1438,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_score = sub.add_parser("score", help="quality score (27 章)")
     p_score.add_argument(
-        "run_id", type=str, help="scan run id, or `latest` for the most recent scan"
+        "run_id",
+        nargs="?",
+        type=str,
+        default="latest",
+        help="scan run id, or `latest` for the most recent scan (default: latest)",
     )
     p_score.set_defaults(func=_cmd_score)
 

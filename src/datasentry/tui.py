@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import glob
+import re
 from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
@@ -88,20 +90,29 @@ class ScanError(Message):
 class ScanProgress(Message):
     """扫描检测器进度事件（worker 线程 → UI 线程）。"""
 
-    def __init__(self, done: int, total: int, name: str) -> None:
+    def __init__(self, done: int, total: int, name: str, path: str | None = None) -> None:
         super().__init__()
         self.done = done
         self.total = total
         self.name = name
+        self.path = path
 
 
 class ScanResult(Message):
-    """扫描完成事件（worker → UI 线程）。"""
+    """扫描完成事件（worker → UI 线程）。单文件走 run/issues；批量带 batches。"""
 
-    def __init__(self, run: ScanRun, issues: list[Issue]) -> None:
+    def __init__(
+        self,
+        run: ScanRun,
+        issues: list[Issue],
+        batches: list[tuple[ScanRun, list[Issue]]] | None = None,
+        errors: list[str] | None = None,
+    ) -> None:
         super().__init__()
         self.run = run
         self.issues = issues
+        self.batches = batches
+        self.errors = errors or []
 
 
 class HelpScreen(ModalScreen[None]):
@@ -560,6 +571,7 @@ class DataSentryApp(App[None]):
         table = self.query_one("#issue-table", DataTable)
         previous_row = table.cursor_row if table.row_count else -1
         if not table.columns:
+            table.add_column("dataset", key="ds", width=14)
             table.add_column("severity", key="sev", width=8)
             table.add_column("type", key="typ", width=24)
             table.add_column("column", key="col", width=16)
@@ -570,20 +582,21 @@ class DataSentryApp(App[None]):
         issues = self._sorted_issues()
         if not issues:
             if self._filter_text:
-                table.add_row("— 没有匹配的 issue，改一下过滤条件 —", "", "", "", "", "")
+                table.add_row("— 没有匹配的 issue，改一下过滤条件 —", "", "", "", "", "", "")
             else:
-                table.add_row("— 没有问题，去扫描点什么 —", "", "", "", "", "")
+                table.add_row("— 没有问题，去扫描点什么 —", "", "", "", "", "", "")
             self._render_issue_detail()
             return
         for issue in issues:
             table.add_row(
+                (issue.dataset_id or "")[:14],
                 issue.severity,
                 issue.issue_type,
                 ", ".join(issue.columns or ["?"]),
                 str(issue.affected_count),
                 f"{issue.confidence:.2f}",
                 f"{issue.priority_score:.0f}",
-                key=issue.id,
+                key=f"{issue.scan_run_id}:{issue.id}",
             )
         if issues and previous_row >= 0 and previous_row < len(issues):
             table.move_cursor(row=previous_row)
@@ -747,44 +760,116 @@ class DataSentryApp(App[None]):
 
     # ---- 扫描 --------------------------------------------------------------
 
+    def _parse_paths(self, raw: str) -> list[Path]:
+        """多路径解析：逗号/分号/换行分隔，支持 glob 通配，去重保序。"""
+        seen: set[str] = set()
+        paths: list[Path] = []
+        for part in re.split(r"[,\n;]+", raw):
+            part = part.strip().strip("\"'")
+            if not part:
+                continue
+            expanded = glob.glob(str(Path(part).expanduser()))
+            candidates = [str(p) for p in expanded] if expanded else [part]
+            for c in candidates:
+                if c not in seen:
+                    seen.add(c)
+                    paths.append(Path(c))
+        return paths
+
     def _start_scan(self) -> None:
         raw = self.query_one("#scan-input", Input).value.strip().strip('"')
         if not raw:
-            self._flash("先输入要扫描的数据文件路径")
+            self._flash("先输入要扫描的数据文件路径（多个文件用逗号分隔，支持 * 通配）")
             return
-        path = Path(raw).expanduser()
-        if not path.exists():
-            self._flash(f"文件不存在: {path}")
+        paths = self._parse_paths(raw)
+        missing = [str(p) for p in paths if not p.exists()]
+        if not paths:
+            self._flash("没有可解析的路径")
             return
-        self._last_scan_path = str(path)
+        if len(paths) == len(missing):
+            self._flash(f"文件不存在: {missing[0]}")
+            return
+        self._last_scan_path = str(paths[0])
         self.query_one("#scan-progress", ProgressBar).styles.display = "block"
-        self._flash(f"扫描中: {path} …")
-        self.run_worker(self._scan_worker(path), exclusive=True)
+        if missing:
+            self._flash(f"跳过不存在: {missing[0]} …")
+        self._flash(f"扫描中: {len(paths)} 个文件 …")
+        self.run_worker(self._scan_worker(paths), exclusive=True)
 
-    async def _scan_worker(self, path: Path) -> None:
-        def on_progress(done: int, total: int, name: str) -> None:
-            self.call_from_thread(self.post_message, ScanProgress(done, total, name))
+    async def _scan_worker(self, paths: list[Path]) -> None:
+        batches: list[tuple[ScanRun, list[Issue]]] = []
+        errors: list[str] = []
 
-        try:
-            run, _, issues = await asyncio.to_thread(
-                self._client.scan_file, path, on_progress=on_progress
-            )
-        except Exception as exc:
-            self.post_message(ScanError(str(exc)))
+        def make_on_progress(path: Path) -> Callable[[int, int, str], None]:
+            def on_progress(done: int, total: int, name: str) -> None:
+                self.call_from_thread(
+                    self.post_message,
+                    ScanProgress(done, total, name, path=str(path)),
+                )
+
+            return on_progress
+
+        for path in paths:
+            try:
+                run, _, issues = await asyncio.to_thread(
+                    self._client.scan_file, path, on_progress=make_on_progress(path)
+                )
+            except Exception as exc:
+                errors.append(f"{path.name}: {exc}")
+                continue
+            batches.append((run, issues))
+        if not batches:
+            self.post_message(ScanError("; ".join(errors)))
             return
-        self.post_message(ScanResult(run, issues))
+        if len(batches) == 1:
+            run, issues = batches[0]
+            self.post_message(ScanResult(run, issues, errors=errors))
+            return
+        merged = [issue for _, issues in batches for issue in issues]
+        self.post_message(ScanResult(batches[0][0], merged, batches=batches, errors=errors))
 
     def on_scan_progress(self, message: ScanProgress) -> None:
-        self._flash(f"检测器 {message.done + 1}/{message.total}: {message.name} …")
+        prefix = f"{message.path} " if message.path else ""
+        self._flash(f"{prefix}检测器 {message.done + 1}/{message.total}: {message.name} …")
 
     def on_scan_result(self, message: ScanResult) -> None:
+        self.query_one("#scan-progress", ProgressBar).styles.display = "none"
+        if message.batches is not None:
+            self._on_batch_result(message)
+            return
         self.notify(
             f"{message.run.dataset_id} — {len(message.issues)} issues, "
             f"score {_fmt_score(message.run.quality_score)}",
             title="扫描完成",
             timeout=6,
         )
-        self.query_one("#scan-progress", ProgressBar).styles.display = "none"
+        self._after_scan_ready()
+
+    def _on_batch_result(self, message: ScanResult) -> None:
+        batches = message.batches or []
+        total_issues = sum(len(iss) for _, iss in batches)
+        scores = [r.quality_score.overall for r, _ in batches if r.quality_score]
+        avg = sum(scores) / len(scores) if scores else 0.0
+        note = f" {len(message.errors)} 个文件失败: {message.errors[0]}" if message.errors else ""
+        self.notify(
+            f"{len(batches)} 个文件 — {total_issues} issues, 平均分 {avg:.1f}{note}",
+            title="批量扫描完成",
+            timeout=8,
+        )
+        self._scans = self._client.list_scan_runs()
+        self._issues = [issue for _, iss in batches for issue in iss]
+        self._render_dashboard()
+        self._render_issues()
+        self._render_status_bar()
+        self._set_tab("tab-issues")
+        table = self.query_one("#issue-table", DataTable)
+        table.focus()
+        if self._issues:
+            table.move_cursor(row=0)
+            self.current_issue = self._sorted_issues()[0]
+            self._render_issue_detail()
+
+    def _after_scan_ready(self) -> None:
         self.refresh_view()
         self._set_tab("tab-issues")
         table = self.query_one("#issue-table", DataTable)
