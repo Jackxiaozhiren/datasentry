@@ -253,7 +253,14 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
 回车需处理 Input.Submitted 才触发扫描；③ 完成信息写 flash 会被
 立即切 tab 抢走下一帧渲染而永不上屏——改全局 notify()（跨视图
 可见）。调试方法：文件日志（写 /tmp，避免被屏幕重绘覆盖）定位
-到 worker 正常、消息正常，最终确认是渲染时序问题；v0.26.2——回滚防误触：
+到 worker 正常、消息正常，最终确认是渲染时序问题；v0.27.0——现代 CLI UX：
+命令面板用 App.COMMANDS + Provider（search/discover 双实现）；App 级
+j/k/? 绑定仅在不聚焦输入框时生效（Input 自然吞字符）；Ctrl+Tab 在
+run_test 可驱动、pty 需专有转义序列（真实用户键盘没问题）；扫描
+进度走 to_thread 内 call_from_thread(post_message)（线程安全）；
+状态条必须给 TabbedContent 显式 height:1fr 否则被挤出屏幕（默认
+auto 会超屏裁剪）；CSV 预览 debounce 0.6s + asyncio task 取消防
+陈旧覆盖；Textual 消息分发查类属性——测试 monkeypatch 需改类级；v0.26.2——回滚防误触：
 回滚按钮移出主操作行、独立"危险区"（Vertical 需显式 height，
 Horizontal 里 Label 会挤掉按钮），二次确认弹窗（复用 ModalScreen
 模式），且确认弹窗默认焦点=取消（AUTO_FOCUS，回车=取消，防误
