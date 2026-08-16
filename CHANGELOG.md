@@ -4,7 +4,28 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.26.2] - 2026-08-16
+## [0.27.0] - 2026-08-16
+
+### 新增（TUI 交互大升级，学习现代 CLI 交互模式）
+
+- 命令面板（ctrl+p）：扫描 / 切视图 / 刷新 / 帮助 / 退出，全部可检索。
+- 键盘流：j/k 列表上下移动、Enter 选中、ctrl+tab 循环切视图、
+  ? 帮助弹窗、/ 聚焦过滤、s 切换排序。
+- 问题列表过滤：关键字模糊（issue_type/列/ID）+ 结构化条件
+  （severity:/column:/type:/detector:），空格分隔 AND。
+- 问题列表排序：s 循环切换（优先级 / 影响行数 / 置信度）。
+- 扫描实时进度：检测器逐个执行状态（"检测器 3/12：缺失值检测 …"），
+  core ScanRunner 新增 on_progress 回调（向后兼容）。
+- 数据预览（先看后扫）：输入 CSV 路径后自动预览前 5 行 +
+  列类型推断（int/float/bool/date/str）。
+- 底部状态条：workspace / 当前视图 / 问题数 / 扫描数。
+- 工作台质量趋势：最近 8 次扫描分数 sparkline（▁▂▃▄▅▆▇█）。
+
+### 变更
+
+- 修复页帮助弹窗：快捷键全集（视图/导航/过滤/排序/面板/退出）。
+
+
 
 ### 变更（TUI 回滚防误触，ADR-118 续）
 

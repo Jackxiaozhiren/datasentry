@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections import Counter
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -66,14 +67,23 @@ class ScanRunner:
         context: DetectionContext,
         config: ScanConfig,
         scan_run_id: str,
+        on_progress: Callable[[int, int, str], None] | None = None,
     ) -> tuple[list[DetectorRun], list[Issue]]:
+        """执行扫描。
+
+        on_progress(done, total, name)：每个检测器执行前回调（TUI 实时进度）。
+        """
         detectors = filter_by_config(self._registry.list_active(), config.detectors)
+        total = len(detectors)
         full_count = context.handle.count_rows()
         sample_size = _resolve_sample_size(config, full_count)
         sampled_handle: SampledDataHandle | None = None
         runs: list[DetectorRun] = []
         candidates: list[IssueCandidate] = []
-        for detector in detectors:
+        for i, detector in enumerate(detectors):
+            if on_progress is not None:
+                meta = detector.metadata()
+                on_progress(i, total, meta.display_name or meta.detector_id)
             det_context = context
             sampling_info: SamplingInfo | None = None
             rows_scanned = full_count
@@ -184,6 +194,7 @@ class ScanRunner:
         self,
         context: DetectionContext,
         config: ScanConfig | None = None,
+        on_progress: Callable[[int, int, str], None] | None = None,
     ) -> tuple[ScanRun, list[DetectorRun], list[Issue]]:
         """完整扫描入口：跑检测器 → 融合 → 评分 → 组装 ScanRun（18.2）。
 
@@ -192,7 +203,7 @@ class ScanRunner:
         config = config or ScanConfig()
         scan_run_id = f"scan_{uuid.uuid4().hex[:12]}"
         started_at = datetime.now(UTC)
-        runs, issues = self.run(context, config, scan_run_id)
+        runs, issues = self.run(context, config, scan_run_id, on_progress)
         # Step 73/ADR-073：抽样扫描用 sampled 档指纹（变更检测语义），
         # 避免整文件 SHA-256（原 full 档在 1e6 行 CSV 上 ~1s 量级）
         fp_mode: FingerprintMode = (

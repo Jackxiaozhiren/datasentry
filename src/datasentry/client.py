@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -443,6 +444,7 @@ class DataSentry:
         config: ScanConfig | None = None,
         references: list[TableReference] | None = None,
         incremental: bool = False,
+        on_progress: Callable[[int, int, str], None] | None = None,
     ) -> tuple[ScanRun, list[DetectorRun], list[Issue]]:
         """导入 + 扫描 + 评分 + 落库（数据源不可用抛 FileNotFoundError 类异常）。
 
@@ -499,7 +501,7 @@ class DataSentry:
                 config=config or ScanConfig(),
                 references=references,
             )
-            scan_run, runs, issues = self._runner.run_scan(context, config)
+            scan_run, runs, issues = self._runner.run_scan(context, config, on_progress)
             self._store.save_scan(scan_run, runs, issues)
             self._save_profile(scan_run, handle)
             return scan_run, runs, issues
