@@ -48,6 +48,22 @@ class TestClient:
             client.scan_file(workspace / "nope.csv")
         client.close()
 
+    def test_scan_file_progress_callback(self, sample_csv: Path, workspace: Path) -> None:
+        """on_progress 回调逐检测器上报（V24，TUI/CLI 实时进度）。"""
+        client = DataSentry(project=workspace)
+        steps: list[tuple[int, int, str]] = []
+
+        def cb(done: int, total: int, name: str) -> None:
+            steps.append((done, total, name))
+
+        client.scan_file(sample_csv, on_progress=cb)
+        assert len(steps) >= 3, "至少上报 3 个检测器"
+        assert steps[0][1] == steps[-1][1], "total 一致"
+        assert steps[0][1] > 0
+        assert all(n for _, _, n in steps)
+        assert steps[0][0] == 0 and steps[-1][0] == steps[-1][1] - 1
+        client.close()
+
     def test_scan_writes_profile_sidecar(self, sample_csv: Path, workspace: Path) -> None:
         """Step 61：扫描期画像落 <workspace>/.datasentry/profiles/<run_id>.json。"""
         client = DataSentry(project=workspace)

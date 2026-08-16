@@ -826,10 +826,10 @@ class DataSentryApp(App[None]):
             if op == "propose":
                 proposal = self._client.repair_propose(issue.id, src)
                 if proposal is None:
-                    out.update("propose: 该 issue 无可用修复提案")
+                    out.update("[red]propose: 该 issue 无可用修复提案[/]")
                 else:
                     out.update(
-                        f"propose ok: {proposal.proposal_id}\n"
+                        f"[green]propose ok: {proposal.proposal_id}[/]\n"
                         f"operation={proposal.operation.value}  "
                         f"estimated_rows_changed={proposal.estimated_rows_changed}\n"
                         f"rationale: {proposal.rationale}"
@@ -837,11 +837,11 @@ class DataSentryApp(App[None]):
             elif op == "preview":
                 result = self._client.repair_preview(issue.id, src)
                 if result is None:
-                    out.update("preview: 无提案可预览")
+                    out.update("[red]preview: 无提案可预览[/]")
                 else:
                     _, preview = result
                     out.update(
-                        f"preview ok: rows_changed={preview.rows_changed}  "
+                        f"[green]preview ok:[/] rows_changed={preview.rows_changed}  "
                         f"rule_failures {preview.rule_failures_before} → "
                         f"{preview.rule_failures_after}\n"
                         f"null_delta={preview.null_delta}  unique_delta={preview.unique_delta}"
@@ -849,7 +849,7 @@ class DataSentryApp(App[None]):
             elif op == "apply":
                 run = self._client.repair_apply(issue.id, src)
                 out.update(
-                    f"applied: {run.id}\n"
+                    f"[green]applied: {run.id}[/]\n"
                     f"fingerprint {(run.fingerprint_before or '')[:12]}… → "
                     f"{(run.fingerprint_after or '')[:12]}…\n"
                     f"rollback artifact: {run.rollback_artifact}"
@@ -861,12 +861,12 @@ class DataSentryApp(App[None]):
                 else:
                     done = self._client.repair_rollback(runs[0].id)
                     out.update(
-                        f"rollback ok: {done.id}\n"
+                        f"[green]rollback ok: {done.id}[/]\n"
                         f"fingerprint {(done.fingerprint_before or '')[:12]}… → "
                         f"{(done.fingerprint_after or '')[:12]}…"
                     )
         except Exception as exc:
-            out.update(f"{op} failed: {exc}")
+            out.update(f"[red]{op} failed: {exc}[/]")
 
 
 def run_tui(project: str | None = None) -> int:

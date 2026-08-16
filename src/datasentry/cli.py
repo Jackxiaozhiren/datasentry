@@ -66,6 +66,17 @@ def _emit(envelope: dict[str, object], fmt: str) -> None:
         print(json.dumps(envelope["data"], ensure_ascii=False, indent=2))
 
 
+def _cli_scan_progress(done: int, total: int, name: str) -> None:
+    """扫描检测器进度（stderr，不污染 stdout 的 JSON 输出；\r 原地刷新）。"""
+    sys.stderr.write(f"\rscan: detector {done + 1}/{total} — {name}  ")
+    sys.stderr.flush()
+
+
+def _cli_scan_done() -> None:
+    sys.stderr.write("\r" + " " * 80 + "\r")
+    sys.stderr.flush()
+
+
 def _issue_lines(issue: Issue) -> list[str]:
     return [
         f"  {issue.id} [{issue.severity.value}] {issue.title} "
@@ -209,6 +220,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
             table_name=args.table,
             config=config,
             references=contract.references if contract is not None else None,
+            on_progress=_cli_scan_progress,
         )
     except FileNotFoundError as exc:
         _emit(_envelope("scan", {"error": str(exc)}), args.format)
@@ -220,6 +232,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         # Step 55：PG 连接失败等运行期源错误（凭据已净化）→ 源不可用
         _emit(_envelope("scan", {"error": str(exc)}), args.format)
         return EXIT_SOURCE_UNAVAILABLE
+    _cli_scan_done()
     summary = {
         "scan_run_id": scan_run.id,
         "dataset_id": scan_run.dataset_id,

@@ -92,10 +92,31 @@ datasentry-server                       # Web UI + REST API at http://localhost:
 ```
 
 Run `datasentry` with no arguments to open the interactive terminal
-UI (Textual): four tabs — a dashboard of your recent scans, guided
-scanning with progress, severity-colored issues with evidence chains,
-and a repair workbench (`propose → preview → apply → rollback`, same
+UI (Textual): four tabs — a dashboard of your recent scans with
+quality trends, guided scanning with live detector progress and
+CSV preview, filterable/sortable issues with evidence chains, and a
+repair workbench (`propose → preview → apply → rollback`, same
 AI-suggests / human-approves / always-reversible semantics as the CLI).
+
+TUI keyboard cheatsheet:
+
+```
+1 / 2 / 3 / 4     switch view: dashboard / scan / issues / repair
+j / k             move up / down in the issue or scan list
+Enter             select an issue row (evidence chain below)
+/                 filter issues: keyword, severity:high, column:order_id,
+                  type:missing, detector:… (space-separated AND)
+s                 cycle sort: priority / affected / confidence
+ctrl+p            command palette (scan / switch view / help / quit)
+?                 help dialog with all shortcuts
+r                 refresh view
+q                 quit (confirmation dialog, Enter = cancel)
+```
+
+`datasentry scan` also streams live detector progress to stderr
+(`scan: detector 12/39 — IQR Outlier`), so scripts can keep stdout
+clean JSON while humans watch the scan run.
+
 Every CLI command stays available for scripts and CI.
 
 Scheduled jobs on remote workers (multi-worker pool with

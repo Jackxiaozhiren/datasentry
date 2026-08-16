@@ -4,7 +4,18 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.27.1] - 2026-08-16
+## [0.28.0] - 2026-08-16
+
+### 新增
+
+- CLI scan 实时进度：检测器逐个上报到 stderr
+  （"scan: detector 12/39 — IQR Outlier"， 原地刷新），
+  stdout JSON 保持纯净，脚本/CI 不受影响。
+- README 新增 TUI 快捷键速查表。
+- TUI 修复页结果语义色：成功绿色（propose/preview/apply/
+  rollback ok）、失败红色、无提案提示红色。
+
+
 
 ### 修复（TUI 流畅度）
 
