@@ -272,6 +272,50 @@ async def test_scan_progress_and_csv_preview(tmp_path: Path) -> None:
         assert progress[0].total == progress[-1].total
 
 
+async def test_scan_auto_selects_first_issue(tmp_path: Path) -> None:
+    """扫描完成后自动选中首个 issue（按 4 即可直接修复，无需先手动选中）。"""
+    app = _app(tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.press("2")
+        input_w = app.query_one("#scan-input")
+        input_w.value = str(DEMO_CSV)
+        await pilot.click("#scan-button")
+        await _scan_ready(app, pilot)
+        assert app._issues
+        await pilot.pause(0.3)
+        assert app.current_issue is not None
+        assert app.current_issue.id == app._issues[0].id
+        assert app.query_one("#issue-table", DataTable).cursor_row == 0
+
+
+async def test_filter_keeps_cursor_selection(tmp_path: Path) -> None:
+    """过滤/排序重建列表后光标与选中保持。"""
+    app = _app(tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.press("2")
+        input_w = app.query_one("#scan-input")
+        input_w.value = str(DEMO_CSV)
+        await pilot.click("#scan-button")
+        await _scan_ready(app, pilot)
+        assert app._issues
+
+        table = app.query_one("#issue-table", DataTable)
+        table.focus()
+        await pilot.press("j")
+        await pilot.press("j")
+        assert table.cursor_row == 2
+
+        filt = app.query_one("#issue-filter")
+        filt.value = "severity:medium"
+        await pilot.pause()
+        assert table.cursor_row == 2
+        assert app.current_issue is not None
+
+        filt.value = ""
+        await pilot.pause()
+        assert table.cursor_row == 2
+
+
 async def test_status_bar_shows_context(tmp_path: Path) -> None:
     app = _app(tmp_path)
     async with app.run_test() as pilot:

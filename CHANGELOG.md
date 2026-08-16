@@ -4,7 +4,16 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.27.0] - 2026-08-16
+## [0.27.1] - 2026-08-16
+
+### 修复（TUI 流畅度）
+
+- 扫描完成后自动选中首个 issue（直接按 4 即可 propose，无需先手动选中）。
+- 过滤/排序重建列表后保持光标位置与选中（不再跳回顶部）。
+- TabbedContent 显式 height:1fr，状态条不再被挤出屏幕（小终端）。
+- 排序逻辑抽为 _sorted_issues，扫描后自动选中与列表展示排序一致。
+
+
 
 ### 新增（TUI 交互大升级，学习现代 CLI 交互模式）
 

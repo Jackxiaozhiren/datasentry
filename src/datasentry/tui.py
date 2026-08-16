@@ -558,6 +558,7 @@ class DataSentryApp(App[None]):
 
     def _render_issues(self) -> None:
         table = self.query_one("#issue-table", DataTable)
+        previous_row = table.cursor_row if table.row_count else -1
         if not table.columns:
             table.add_column("severity", key="sev", width=8)
             table.add_column("type", key="typ", width=24)
@@ -566,7 +567,7 @@ class DataSentryApp(App[None]):
             table.add_column("conf", key="conf", width=6)
             table.add_column("priority", key="pri", width=8)
         table.clear()
-        issues = self._filter_issues()
+        issues = self._sorted_issues()
         if not issues:
             if self._filter_text:
                 table.add_row("— 没有匹配的 issue，改一下过滤条件 —", "", "", "", "", "")
@@ -574,17 +575,6 @@ class DataSentryApp(App[None]):
                 table.add_row("— 没有问题，去扫描点什么 —", "", "", "", "", "")
             self._render_issue_detail()
             return
-        sort = _SORT_KEYS.index(self._sort_key)
-        issues = sorted(
-            issues,
-            key=lambda it: (
-                it.priority_score,
-                it.affected_count,
-                it.confidence,
-                it.issue_type,
-            )[sort],
-            reverse=True,
-        )
         for issue in issues:
             table.add_row(
                 issue.severity,
@@ -595,7 +585,26 @@ class DataSentryApp(App[None]):
                 f"{issue.priority_score:.0f}",
                 key=issue.id,
             )
+        if issues and previous_row >= 0 and previous_row < len(issues):
+            table.move_cursor(row=previous_row)
+            self.current_issue = issues[previous_row]
         self._render_issue_detail()
+
+    def _sorted_issues(self) -> list[Issue]:
+        issues = self._filter_issues()
+        if not issues:
+            return issues
+        sort = _SORT_KEYS.index(self._sort_key)
+        return sorted(
+            issues,
+            key=lambda it: (
+                it.priority_score,
+                it.affected_count,
+                it.confidence,
+                it.issue_type,
+            )[sort],
+            reverse=True,
+        )
 
     def _filter_issues(self) -> list[Issue]:
         text = self._filter_text.strip()
@@ -776,7 +785,13 @@ class DataSentryApp(App[None]):
         self.query_one("#scan-progress", ProgressBar).styles.display = "none"
         self.refresh_view()
         self._set_tab("tab-issues")
-        self.query_one("#issue-table", DataTable).focus()
+        table = self.query_one("#issue-table", DataTable)
+        table.focus()
+        sorted_issues = self._sorted_issues()
+        if sorted_issues:
+            table.move_cursor(row=0)
+            self.current_issue = sorted_issues[0]
+            self._render_issue_detail()
 
     def on_scan_error(self, message: ScanError) -> None:
         self._flash(f"扫描失败: {message.text}")
