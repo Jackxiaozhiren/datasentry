@@ -292,6 +292,33 @@ def _dimension_lines(points: list[ScanPoint]) -> str:
     )
 
 
+def _dimension_table(points: list[ScanPoint], *, lang: str = "en") -> str:
+    """V26：维度数值表（行=扫描，列=六维分；None 显示 —）。"""
+    dims: set[str] = set()
+    for p in points:
+        if p.dimensions:
+            dims.update(p.dimensions)
+    dims_sorted = sorted(dims)
+    if not dims_sorted or not any(p.dimensions for p in points):
+        return ""
+    header = (
+        f"<tr><th>{escape(t(lang, 'ui.run_id'))}</th>"
+        + "".join(f"<th>{escape(d)}</th>" for d in dims_sorted)
+        + "</tr>"
+    )
+    rows = []
+    for p in points:
+        cells = []
+        for d in dims_sorted:
+            v = (p.dimensions or {}).get(d)
+            cells.append(f"<td>{v:.1f}</td>" if v is not None else '<td class="meta">—</td>')
+        rows.append(
+            f'<tr><td><a href="/ui/scans/{escape(p.run_id)}">'
+            f"{escape(p.run_id)}</a></td>{''.join(cells)}</tr>"
+        )
+    return f'<table class="dim-table">{header}{"".join(rows)}</table>'
+
+
 def _delta_cell(point: ScanPoint, previous: ScanPoint | None) -> str:
     """run 行 Δ badge（对前一 run，首行 —）：Step 67，ADR-067。"""
     if previous is None:
@@ -341,6 +368,7 @@ def render_trends(trends: list[DatasetTrend], *, lang: str = "en") -> str:
             f"{latest:.1f} · {escape(t(lang, 'ui.latest_issues'))} {trend.latest_issues}</p>"
             + _sparkline([p.score for p in points])
             + _dimension_lines(points)
+            + _dimension_table(points, lang=lang)
             + '<div class="trend-bars">'
             + "".join(bars)
             + "</div>"

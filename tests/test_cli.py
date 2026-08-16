@@ -327,6 +327,56 @@ class TestCli:
         assert payload["data"]["quality_score"] is not None
         assert payload["llm_usage"] == {"calls": 0, "tokens": 0}
 
+    def test_scan_batch_two_files(self, sample_csv: Path, workspace: Path, capsys) -> None:
+        """V26：逗号分隔多文件 → batch 汇总。"""
+        second = workspace / "second.csv"
+        second.write_text(sample_csv.read_text(encoding="utf-8"), encoding="utf-8")
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "scan",
+                f"{sample_csv}, {second}",
+            ]
+        )
+        assert code == 0
+        data = json.loads(capsys.readouterr().out)["data"]
+        assert data["files_scanned"] == 2
+        assert data["files_failed"] == 0
+        assert len(data["batch"]) == 2
+        assert data["total_issues"] == 2 * data["batch"][0]["total_issues"]
+
+    def test_scan_batch_partial_failure_exit_4(
+        self, sample_csv: Path, workspace: Path, capsys
+    ) -> None:
+        """V26：部分文件失败 → 成功部分照常输出，退出码 4。"""
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "scan",
+                f"{sample_csv}, {workspace / 'nope.csv'}",
+            ]
+        )
+        assert code == 4
+        data = json.loads(capsys.readouterr().out)["data"]
+        assert data["files_scanned"] == 1
+        assert data["files_failed"] == 1
+        assert data["errors"][0]["path"].endswith("nope.csv")
+
+    def test_scan_glob_expands(self, sample_csv: Path, workspace: Path, capsys) -> None:
+        """V26：* 通配由 CLI 展开（引号内 shell 不展开）。"""
+        (workspace / "g1.csv").write_text(sample_csv.read_text(encoding="utf-8"), encoding="utf-8")
+        (workspace / "g2.csv").write_text(sample_csv.read_text(encoding="utf-8"), encoding="utf-8")
+        code = main(["--project", str(workspace), "--format", "json", "scan", f"{workspace}/*.csv"])
+        assert code == 0
+        data = json.loads(capsys.readouterr().out)["data"]
+        assert data["files_scanned"] == 2
+
     def test_scan_missing_file_exit_4(self, workspace: Path, capsys) -> None:
         code = main(["--project", str(workspace), "scan", str(workspace / "nope.csv")])
         assert code == 4

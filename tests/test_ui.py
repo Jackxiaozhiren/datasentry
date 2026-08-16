@@ -192,6 +192,16 @@ class TestTrendsPage:
         assert "completeness" in resp.text and "validity" in resp.text
         assert 'aria-label="quality dimensions over time"' in resp.text
 
+    def test_trends_dimension_table(self, tmp_path: Path) -> None:
+        """V26：维度数值表（行=run，列=维度分）。"""
+        client = TestClient(create_app(project=tmp_path))
+        _scan(client, tmp_path)
+        _scan(client, tmp_path)
+        resp = client.get("/ui/trends")
+        assert 'class="dim-table"' in resp.text
+        assert "<th>completeness</th>" in resp.text
+        assert 'href="/ui/scans/' in resp.text
+
     def test_home_nav_links_to_trends(self, tmp_path: Path) -> None:
         client = TestClient(create_app(project=tmp_path))
         resp = client.get("/ui/")

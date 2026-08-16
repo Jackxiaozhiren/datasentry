@@ -10,8 +10,10 @@ JSON 统一 envelope（22.1）：{"ok", "command", "data", "warnings", "llm_usag
 from __future__ import annotations
 
 import argparse
+import glob as _glob
 import json
 import os
+import re
 import sys
 import uuid
 from collections.abc import Callable
@@ -214,9 +216,13 @@ def _cmd_scan(args: argparse.Namespace) -> int:
             return EXIT_CONFIG
         if contract.rules:
             config.custom_rules = contract.rules
+    paths = _expand_cli_paths(args.path)
+    if len(paths) > 1:
+        return _scan_many(client, args, config, contract, paths)
+    target = paths[0] if paths else args.path
     try:
         scan_run, runs, issues = client.scan_file(
-            args.path,
+            target,
             table_name=args.table,
             config=config,
             references=contract.references if contract is not None else None,
@@ -252,6 +258,100 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         return EXIT_GATE_FAILED if not gate_result.passed else EXIT_OK
     _emit(_envelope("scan", summary), args.format)
     return EXIT_OK
+
+
+def _expand_cli_paths(raw: str) -> list[str]:
+    """CLI 批量路径解析（V26）：逗号/分号/换行分隔 + glob 展开 + 去重保序。
+
+    不存在的路径保留原样（交给 scan_file 报错），保持单文件语义。
+    """
+    seen: set[str] = set()
+    paths: list[str] = []
+    for part in re.split(r"[,\n;]+", raw):
+        part = part.strip().strip("\"'")
+        if not part or part in seen:
+            continue
+        seen.add(part)
+        expanded = _glob.glob(str(Path(part).expanduser()))
+        for c in expanded or [part]:
+            if c not in paths:
+                paths.append(c)
+    return paths
+
+
+def _scan_many(
+    client: DataSentry,
+    args: argparse.Namespace,
+    config: ScanConfig,
+    contract: Contract | None,
+    paths: list[str],
+) -> int:
+    """V26：批量扫描多文件 → 逐文件汇总；失败文件记入 errors，任一失败退出码 4。
+
+    gate（--fail-on/契约）对每个文件求值，任一不通过退出码 1。
+    """
+    results: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+    gate_failed = False
+    for path in paths:
+        p = Path(path)
+
+        def on_progress(done: int, total: int, name: str, _path: Path = p) -> None:
+            sys.stderr.write(f"\rscan {_path.name}: detector {done + 1}/{total} — {name}  ")
+            sys.stderr.flush()
+
+        try:
+            scan_run, runs, issues = client.scan_file(
+                path,
+                table_name=args.table,
+                config=config,
+                references=contract.references if contract is not None else None,
+                on_progress=on_progress,
+            )
+        except (FileNotFoundError, DataSourceNotFoundError, ConnectorError) as exc:
+            errors.append({"path": path, "error": str(exc)})
+            continue
+        sys.stderr.write("\r" + " " * 80 + "\r")
+        sys.stderr.flush()
+        item: dict[str, Any] = {
+            "scan_run_id": scan_run.id,
+            "dataset_id": scan_run.dataset_id,
+            "status": scan_run.status,
+            "row_count": scan_run.fingerprint.row_count,
+            "total_issues": len(issues),
+            "detector_runs": len(runs),
+            "quality_score": scan_run.quality_score.overall if scan_run.quality_score else None,
+        }
+        if args.contract is not None or args.fail_on is not None:
+            gate_result = _evaluate_gate(issues, args, contract, client, scan_run.dataset_id)
+            item["gate"] = {"passed": gate_result.passed, "failed_count": gate_result.failed_count}
+            if not gate_result.passed:
+                gate_failed = True
+        results.append(item)
+    if not results:
+        detail = "; ".join(f"{e['path']}: {e['error']}" for e in errors)
+        _emit(_envelope("scan", {"batch": [], "errors": errors, "error": detail}), args.format)
+        return EXIT_SOURCE_UNAVAILABLE
+    summary: dict[str, Any] = {
+        "batch": results,
+        "errors": errors,
+        "files_scanned": len(results),
+        "files_failed": len(errors),
+        "total_issues": sum(int(r["total_issues"]) for r in results),
+    }
+    if args.format == "text" and results:
+        for r in results:
+            print(
+                f"{r['dataset_id']}: run={r['scan_run_id']} issues={r['total_issues']} "
+                f"score={r['quality_score'] if r['quality_score'] is not None else '—'}"
+            )
+        if errors:
+            print(f"{len(errors)} file(s) failed:", file=sys.stderr)
+            for e in errors:
+                print(f"  {e['path']}: {e['error']}", file=sys.stderr)
+    else:
+        _emit(_envelope("scan", summary), args.format)
+    return EXIT_GATE_FAILED if gate_failed else (EXIT_SOURCE_UNAVAILABLE if errors else EXIT_OK)
 
 
 def _load_contract(path: str, fmt: str) -> Contract | None:

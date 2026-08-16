@@ -84,8 +84,9 @@ datasentry                     # interactive terminal UI (TUI): dashboard / scan
 datasentry ui                  # same TUI, explicit entry
 
 datasentry scan orders.csv               # detect → fuse → score → persist, one step
+datasentry scan "a.csv, b.csv, data/*.csv"  # batch scan (comma/newline separated, globs)
 datasentry issues list                   # issues by severity / dimension
-datasentry score <run_id>                # six-dimension quality score
+datasentry score <run_id>                # six-dimension quality score (defaults to latest)
 datasentry repair propose <issue_id> --file orders.csv   # fix proposal
 datasentry drift latest orders           # drift between the two latest scans
 datasentry-server                       # Web UI + REST API at http://localhost:8000
@@ -121,7 +122,8 @@ defaults to the most recent scan (`datasentry score`).
 The Web UI (`datasentry-server`, http://localhost:8000) scans with a
 live progress bar, accepts multiple files per scan (comma/newline
 separated or `*.csv` globs — a batch scan lands on the scan list),
-and its trends page plots each quality dimension over time.
+and its trends page plots each quality dimension over time with a
+dimension-by-dimension score table.
 
 Every CLI command stays available for scripts and CI.
 

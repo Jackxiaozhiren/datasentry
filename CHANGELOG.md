@@ -4,7 +4,18 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.31.0] - 2026-08-16
+## [0.32.0] - 2026-08-16
+
+### 新增
+
+- CLI 批量扫描：`datasentry scan "a.csv, b.csv, data/*.csv"`——
+  逗号/分号/换行分隔 + glob 展开 + 去重；text 逐文件汇总行，
+  json 输出 data.batch 数组。部分失败不中断（errors 记录，
+  退出码 4）；任一文件门禁不通过退出码 1。
+- 趋势页维度数值表：每扫描一行的六维分数表（行=run，列=维度，
+  空值显示 —，run 可点击跳详情）。
+
+
 
 ### 新增
 

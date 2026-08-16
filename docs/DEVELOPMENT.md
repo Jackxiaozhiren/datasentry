@@ -253,7 +253,28 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
 回车需处理 Input.Submitted 才触发扫描；③ 完成信息写 flash 会被
 立即切 tab 抢走下一帧渲染而永不上屏——改全局 notify()（跨视图
 可见）。调试方法：文件日志（写 /tmp，避免被屏幕重绘覆盖）定位
-到 worker 正常、消息正常，最终确认是渲染时序问题；v0.27.1——发布教训：版本 bump 脚本曾用全局字符串替换
+到 worker 正常、消息正常，最终确认是渲染时序问题；v0.26.2——Web UI 扫描实时进度（V25）与批量扫描（V26）：
+
+- V25 进度模式：api.py 模块级线程安全进度槽
+  _SCAN_PROGRESS（path → 快照，含 _ts 时间戳），on_progress
+  回调写入，GET /scans/progress?path= 与 /scans/progress/latest
+  轮询读取；前端零框架内联 JS 轮询渲染进度条。快照含 path
+  字段供批量场景显示当前文件。
+- V26 批量模式：CLI/TUI/Web 三端统一路径解析
+  （逗号/分号/换行分隔 + glob 展开 + 去重保序）：
+  CLI 走 _expand_cli_paths（缺失路径保留原样交给 scan_file
+  报错）；Web 走 _expand_scan_paths（缺失路径过滤并记入
+  _last_missing_paths 供错误页）；TUI 走 _parse_paths。
+  批量语义：部分失败不中断，汇总 errors 数组；退出码
+  4 = 有文件失败，1 = 任一文件门禁不通过，0 = 全成功。
+- CLI 批量输出：json 模式 data = {batch: [...], errors, ...}；
+  text 模式逐文件一行汇总（dataset: run=.. issues=.. score=..）。
+- 测试注意：进度槽是模块级全局，跨 TestClient 用例共享，
+  需要隔离时直接 _SCAN_PROGRESS.clear()。
+- ScanPoint 增加可选 dimensions 字段（默认 None 向后兼容），
+  趋势页据此渲染六维 SVG 折线与数值表。
+
+v0.27.1——发布教训：版本 bump 脚本曾用全局字符串替换
 （'0.27.0'→'0.27.1'），误伤 uv.lock 中恰好同版本号的第三方
 依赖（typer==0.27.0 → 0.27.1 不存在 → CI 依赖安装 404）。
 此后 bump 必须只改 datasentry-ai 自己的 pyproject/__init__/段
