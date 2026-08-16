@@ -253,7 +253,13 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
 回车需处理 Input.Submitted 才触发扫描；③ 完成信息写 flash 会被
 立即切 tab 抢走下一帧渲染而永不上屏——改全局 notify()（跨视图
 可见）。调试方法：文件日志（写 /tmp，避免被屏幕重绘覆盖）定位
-到 worker 正常、消息正常，最终确认是渲染时序问题；v0.27.0——现代 CLI UX：
+到 worker 正常、消息正常，最终确认是渲染时序问题；v0.27.1——发布教训：版本 bump 脚本曾用全局字符串替换
+（'0.27.0'→'0.27.1'），误伤 uv.lock 中恰好同版本号的第三方
+依赖（typer==0.27.0 → 0.27.1 不存在 → CI 依赖安装 404）。
+此后 bump 必须只改 datasentry-ai 自己的 pyproject/__init__/段
+（name="datasentry-ai" 块内的 version 行），不可全局替换；
+bump 后立即 grep 确认无其他包版本被改。
+v0.27.0——现代 CLI UX：v0.27.0——现代 CLI UX：
 命令面板用 App.COMMANDS + Provider（search/discover 双实现）；App 级
 j/k/? 绑定仅在不聚焦输入框时生效（Input 自然吞字符）；Ctrl+Tab 在
 run_test 可驱动、pty 需专有转义序列（真实用户键盘没问题）；扫描
