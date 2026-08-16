@@ -121,11 +121,28 @@ defaults to the most recent scan (`datasentry score`).
 
 The Web UI (`datasentry-server`, http://localhost:8000) scans with a
 live progress bar, accepts multiple files per scan (comma/newline
-separated or `*.csv` globs — a batch scan lands on the scan list),
-and its trends page plots each quality dimension over time with a
-dimension-by-dimension score table.
+separated or `*.csv` globs — a batch scan lands on the scan list with
+a per-file summary banner and failed-file reasons), the scan list shows
+a six-dimension mini-bar per run, and its trends page plots each
+quality dimension over time with a dimension-by-dimension score table.
 
 Every CLI command stays available for scripts and CI.
+
+### Performance benchmark
+
+Reproduce local end-to-end scan timing:
+
+```bash
+uv run python scripts/benchmark.py
+```
+
+Measured on this machine (Apple Silicon, local CSV):
+
+| rows | seconds | rows/s | overall |
+| ---: | ---: | ---: | ---: |
+| 10,000 | 5.14 | 1,944 | 94.4 |
+| 100,000 | 8.05 | 12,428 | 94.9 |
+| 300,000 | 9.52 | 31,496 | 94.9 |
 
 Scheduled jobs on remote workers (multi-worker pool with
 failover; jobs stay in the scheduler's SQLite queue, execution is

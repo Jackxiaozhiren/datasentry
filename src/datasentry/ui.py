@@ -14,7 +14,7 @@ Column Explorer / 跨扫描趋势归 V1（MVP 只做问题定位闭环）。
 from __future__ import annotations
 
 from html import escape
-from typing import Any
+from typing import Any, cast
 
 from datasentry.trends import DatasetTrend, ScanPoint
 from datasentry_core.models.issue import Issue
@@ -28,6 +28,11 @@ _CSS = """
 :root { color-scheme: light; }
 body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 2rem auto;
        max-width: 960px; color: #1f2328; line-height: 1.5; }
+.batch-banner { padding: 0.7rem 1rem; border-radius: 6px; margin-bottom: 1rem;
+                background: #e8f5e9; border: 1px solid #a5d6a7; }
+.batch-banner.warn { background: #fff3e0; border-color: #ffcc80; }
+.batch-banner ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+.batch-banner li { font-size: 0.9rem; }
 h1 { border-bottom: 2px solid #0969da; padding-bottom: .3rem; }
 h2 { margin-top: 2rem; border-bottom: 1px solid #d0d7de; padding-bottom: .2rem; }
 table { border-collapse: collapse; width: 100%; margin: .5rem 0; }
@@ -107,6 +112,59 @@ def _page(title: str, body: str, *, active: str = "", lang: str = "en") -> str:
     )
 
 
+_DIM_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
+
+
+def _dim_strip(scan: ScanRun) -> str:
+    """V27：扫描列表行内六维迷你条（色同趋势图，悬停显示维度分数）。"""
+    if not scan.quality_score or not scan.quality_score.dimensions:
+        return ""
+    dims_sorted = sorted(scan.quality_score.dimensions)
+    segments = []
+    for idx, dim in enumerate(dims_sorted):
+        value = scan.quality_score.dimensions[dim]
+        if value is None:
+            continue
+        segments.append(
+            f'<span style="display:inline-block;height:6px;flex:0 0 {value:.1f}%;'
+            f"background:{_DIM_COLORS[idx % len(_DIM_COLORS)]}"
+            f'" title="{escape(dim)} {value:.1f}"></span>'
+        )
+    if not segments:
+        return ""
+    joined = "".join(segments)
+    return f'<div class="dim-strip" style="display:flex;gap:1px;max-width:120px">{joined}</div>'
+
+
+def _batch_banner(batch: dict[str, object] | None, *, lang: str = "en") -> str:
+    """V27：批量扫描汇总横幅（成功绿 / 有失败橙），一次渲染后清除。"""
+    if not batch:
+        return ""
+    failed = cast(list[dict[str, str]], batch.get("errors") or [])
+    if failed:
+        detail = "".join(
+            f"<li>{escape(str(e['path']))}: {escape(str(e['error']))}</li>" for e in failed
+        )
+        tone = "batch-banner warn"
+    else:
+        detail = ""
+        tone = "batch-banner"
+    summary = t(
+        lang,
+        "ui.batch_done" if not failed else "ui.batch_done_partial",
+    ).format(
+        files=batch["files_scanned"],
+        issues=batch["total_issues"],
+        score=batch.get("avg_score") if batch.get("avg_score") is not None else "—",
+        failed=len(failed) if failed else 0,
+    )
+    return (
+        f'<div class="{tone}"><strong>{escape(summary)}</strong>'
+        + (f"<ul>{detail}</ul>" if detail else "")
+        + "</div>"
+    )
+
+
 def _scan_table(scans: list[ScanRun], *, lang: str = "en") -> str:
     if not scans:
         return f'<p class="meta">{escape(t(lang, "ui.no_scans"))}</p>'
@@ -118,7 +176,7 @@ def _scan_table(scans: list[ScanRun], *, lang: str = "en") -> str:
             f'<td><a href="/ui/scans/{escape(scan.id)}">{escape(scan.id)}</a></td>'
             f"<td>{escape(scan.dataset_id)}</td>"
             f"<td>{scan.fingerprint.row_count} × {scan.fingerprint.column_count}</td>"
-            f'<td class="priority">{overall}</td>'
+            f'<td class="priority">{overall}{_dim_strip(scan)}</td>'
             f"<td>{escape(scan.status)}</td>"
             f"<td>{scan.started_at:%Y-%m-%d %H:%M}</td>"
             "</tr>"
@@ -132,10 +190,16 @@ def _scan_table(scans: list[ScanRun], *, lang: str = "en") -> str:
     )
 
 
-def render_home(scans: list[ScanRun], *, lang: str = "en") -> str:
+def render_home(
+    scans: list[ScanRun],
+    *,
+    batch: dict[str, object] | None = None,
+    lang: str = "en",
+) -> str:
     scan_label = escape(t(lang, "ui.scan_button"))
     body = [
         f"<h2>{escape(t(lang, 'ui.workspace_overview'))}</h2>",
+        _batch_banner(batch, lang=lang),
         _scan_table(scans, lang=lang),
         f"<h2>{escape(t(lang, 'ui.new_scan'))}</h2>",
         '<form method="post" action="/ui/scans" id="scan-form">'

@@ -202,6 +202,41 @@ class TestTrendsPage:
         assert "<th>completeness</th>" in resp.text
         assert 'href="/ui/scans/' in resp.text
 
+    def test_scans_list_dim_strip(self, tmp_path: Path) -> None:
+        """V27：扫描列表每行渲染六维迷你条。"""
+        client = TestClient(create_app(project=tmp_path))
+        _scan(client, tmp_path)
+        resp = client.get("/ui/scans")
+        assert 'class="dim-strip"' in resp.text
+        assert 'title="completeness' in resp.text
+
+    def test_ui_scan_batch_banner(self, tmp_path: Path) -> None:
+        """V27：批量扫描完成 → 汇总横幅（消费式，一次渲染后清除）。"""
+        client = TestClient(create_app(project=tmp_path), follow_redirects=False)
+        csv = _sample_csv(tmp_path)
+        second = tmp_path / "orders2.csv"
+        second.write_text(csv.read_text(encoding="utf-8"), encoding="utf-8")
+        resp = client.post("/ui/scans", data={"path": f"{csv}, {second}"})
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/ui/scans"
+        page = client.get("/ui/scans")
+        assert "Batch scan complete" in page.text
+        assert "2 files" in page.text
+        after = client.get("/ui/scans")
+        assert 'class="batch-banner' not in after.text
+
+    def test_ui_scan_batch_partial_failure(self, tmp_path: Path) -> None:
+        """V27：批量部分失败 → 横幅含失败文件与原因，成功 run 照常落库。"""
+        client = TestClient(create_app(project=tmp_path), follow_redirects=False)
+        csv = _sample_csv(tmp_path)
+        resp = client.post("/ui/scans", data={"path": f"{csv}, {tmp_path / 'nope.csv'}"})
+        assert resp.status_code == 303
+        page = client.get("/ui/scans")
+        assert "1 failed" in page.text
+        assert "nope.csv" in page.text
+        assert 'class="batch-banner warn"' in page.text
+        assert '<td><a href="/ui/scans/' in page.text
+
     def test_home_nav_links_to_trends(self, tmp_path: Path) -> None:
         client = TestClient(create_app(project=tmp_path))
         resp = client.get("/ui/")

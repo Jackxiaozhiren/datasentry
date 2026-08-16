@@ -253,7 +253,24 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
 回车需处理 Input.Submitted 才触发扫描；③ 完成信息写 flash 会被
 立即切 tab 抢走下一帧渲染而永不上屏——改全局 notify()（跨视图
 可见）。调试方法：文件日志（写 /tmp，避免被屏幕重绘覆盖）定位
-到 worker 正常、消息正常，最终确认是渲染时序问题；v0.26.2——Web UI 扫描实时进度（V25）与批量扫描（V26）：
+到 worker 正常、消息正常，最终确认是渲染时序问题；v0.27——Web 批量结果视图与基准（V27）：
+
+- Web 批量部分失败语义：_expand_scan_paths 过滤缺失文件并记入
+  _last_missing_paths；ui_create_scan 将缺失路径并入 failed 列表
+  （error="file not found"）——避免批量输入含缺失文件时静默降级
+  成单文件跳转。全部失败 404 错误页（detail 列出各文件原因）；
+  部分成功 303 /ui/scans + 汇总横幅。
+- _last_batch 为模块级消费式横幅：POST /ui/scans 写入，GET
+  /ui/scans 渲染后置 None（测试跨用例共享，注意先后依赖）。
+- 扫描列表每行渲染六维迷你条（_dim_strip，色同趋势图，悬停
+  title 显示维度分数），QualityScore.dimensions 缺失时不渲染。
+- 性能基准 scripts/benchmark.py：标准库零依赖，生成脏数据
+  (10k/100k/300k 行) 端到端计时，markdown 表输出；实测
+  Apple Silicon 300k 行约 9.5s（31.5k 行/s）。
+- 横幅文案走 i18n 表（ui.batch_done / ui.batch_done_partial，
+  .format 占位符 {files}/{issues}/{score}/{failed}）。
+
+v0.26.2——Web UI 扫描实时进度（V25）与批量扫描（V26）：
 
 - V25 进度模式：api.py 模块级线程安全进度槽
   _SCAN_PROGRESS（path → 快照，含 _ts 时间戳），on_progress

@@ -97,6 +97,7 @@ def _expand_scan_paths(raw: str) -> list[str]:
 
 
 _last_missing_paths: list[str] = []
+_last_batch: dict[str, object] | None = None
 
 
 def _publish_progress(path: str, done: int, total: int, name: str, scanning: bool) -> None:
@@ -587,6 +588,8 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
 
     @app.post("/ui/scans", response_class=HTMLResponse, tags=["ui"])
     def ui_create_scan(path: str = Form()) -> Response:
+        global _last_batch
+        _last_batch = None
         paths = _expand_scan_paths(path)
         if not paths:
             detail = (
@@ -597,28 +600,44 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             return HTMLResponse(
                 ui.render_error(_t("en", "ui.scan_failed"), detail), status_code=404
             )
-        try:
-            run = None
-            for p in paths:
+        run = None
+        scanned: list[ScanRun] = []
+        failed: list[dict[str, str]] = [
+            {"path": p, "error": "file not found"} for p in _last_missing_paths
+        ]
+        for p in paths:
+            try:
                 scan, _runs, _issues = client.scan_file(p, on_progress=_on_progress_for(p))
-                run = scan
-                _publish_progress(p, len(_runs), len(_runs), "", False)
-        except Exception as exc:
-            _publish_progress(path, 0, 0, "", False)
-            return HTMLResponse(
-                ui.render_error(_t("en", "ui.scan_failed"), str(exc)), status_code=404
-            )
-        if len(paths) == 1 and run is not None:
-            return RedirectResponse(url=f"/ui/scans/{run.id}", status_code=303)
+            except Exception as exc:
+                failed.append({"path": p, "error": str(exc)})
+                _publish_progress(p, 0, 0, "", False)
+                continue
+            run = scan
+            scanned.append(scan)
+            _publish_progress(p, len(_runs), len(_runs), "", False)
         if run is None:
+            detail = "; ".join(f"{e['path']}: {e['error']}" for e in failed) or "no scan produced"
             return HTMLResponse(
-                ui.render_error(_t("en", "ui.scan_failed"), "no scan produced"), status_code=404
+                ui.render_error(_t("en", "ui.scan_failed"), detail), status_code=404
             )
+        if len(paths) == 1 and not failed:
+            return RedirectResponse(url=f"/ui/scans/{run.id}", status_code=303)
+        scores = [s.quality_score.overall for s in scanned if s.quality_score]
+        _last_batch = {
+            "run_ids": [s.id for s in scanned],
+            "files_scanned": len(scanned),
+            "files_failed": len(failed),
+            "errors": failed,
+            "total_issues": sum(v for s in scanned for v in s.issues_count.values()),
+            "avg_score": round(sum(scores) / len(scores), 1) if scores else None,
+        }
         return RedirectResponse(url="/ui/scans", status_code=303)
 
     @app.get("/ui/scans", response_class=HTMLResponse, tags=["ui"])
     def ui_scans_list(lang: str = Query(default="en")) -> HTMLResponse:
-        return HTMLResponse(ui.render_home(client.list_scan_runs(), lang=lang))
+        global _last_batch
+        batch, _last_batch = _last_batch, None
+        return HTMLResponse(ui.render_home(client.list_scan_runs(), batch=batch, lang=lang))
 
     @app.get("/ui/trends", response_class=HTMLResponse, tags=["ui"])
     def ui_trends(lang: str = Query(default="en")) -> HTMLResponse:
