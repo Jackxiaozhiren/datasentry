@@ -237,6 +237,18 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
   （94.94% 覆盖，1226 测试），mypy --strict 通过；下一阶段候选：
   异步触发协议（异步化 cancel/状态查询）、报告交互增强、webhook
   事件去重
+- **V24 已完成（v0.26.0）**：交互式终端界面（ADR-118）——
+  Textual TUI：`datasentry`（无子命令）/ `datasentry ui` 启动，
+  四视图（工作台/扫描/问题/修复），扫描后台线程 + 不定进度条
+  完成自动跳转，问题证据链详情，修复工作台 propose/preview/
+  apply/rollback（沿用同一客户端语义：AI 建议、人工审批、可回
+  滚）；Pilot 无头测试 +5（tests/test_tui.py）；踩坑记录——
+  Textual 8 的 run_test 不支持 thread worker（改 asyncio.
+  to_thread）、TabPane 内 widget 获焦会回写 active（切 tab 后
+  把焦点移入目标 pane 的表格）、pilot.click 对超屏 widget 不
+  命中（Input 1fr 挤爆按钮，显式 width 修复）；CI 全绿
+  （94.94% 覆盖，1234 测试），mypy --strict 通过
+
 - **V23 已完成（v0.25.0）**：CLI 可用性——score `latest` 解析为
   最近一次扫描（started_at 倒序首条，空库 EXIT_CONFIG）+ score
   信封补 `scan_run_id` 字段（与 scan 信封命名对齐）+ `issues list

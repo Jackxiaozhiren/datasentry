@@ -2841,3 +2841,32 @@
   issues list --limit 截断）。
 - **依据**：V23 增长计划实测摩擦（demo 录制）；契约向后兼容
   （仅新增参数与信封字段，无既有行为变更）。
+
+## ADR-118：交互式终端界面（TUI）（V24，Step 118）
+- **背景**：增长期反馈——命令行好用但冷启动有门槛：新手不知
+  先跑哪个命令、`scan` 长跑时无进度反馈、问题列表要人肉翻
+  证据。需求：像 Claude Code/Codex 那样的交互式终端界面，
+  一个入口覆盖主要工作流。
+- **决策**：
+  - 引入 Textual（`textual>=6.0`，装得 8.2.8）作为 TUI 框架；
+    CLI 保持零依赖偏好不变（Textual 仅 TUI 路径依赖）；
+  - 入口：`datasentry`（无子命令）与 `datasentry ui` 均启动
+    TUI；既有子命令全部保留（脚本/CI 兼容，无参数行为从
+    usage error 变为 TUI——无依赖方）；
+  - 四视图（TabbedContent）：工作台（最近 12 次扫描评分概览）/
+    扫描（路径输入 + 目录树浏览 + 不定进度条，扫描在后台线程
+    跑，完成自动跳转问题视图）/ 问题（严重级着色 + 证据链
+    详情）/ 修复（propose → preview → apply → rollback 引导，
+    沿用 CLI 同一 DataSentry 客户端，AI 建议、人工审批、可回
+    滚语义不变）；
+  - 后台扫描用 `asyncio.to_thread` 而非 Textual thread worker
+    （后者在无头测试环境 run_test 不支持）；
+  - 修复源文件路径由「修复」视图输入框给出，默认取最近一次
+    扫描的文件。
+- **测试**：+5（tests/test_tui.py，Textual Pilot 无头驱动：四
+  视图启动 / 退出确认对话框 / 扫描流程跳转问题视图 / 选中
+  issue 展示证据链 / propose 操作）；发现并规避 Textual 8 两
+  个陷阱——TabPane 内 widget 获焦会回写 active（切 tab 后把
+  焦点移入目标 pane 的表格）、run_test 不支持 thread worker。
+- **依据**：V24 需求（用户点名 Claude Code/Codex 风格 CLI）；
+  Textual 官方 Pilot 测试文档。

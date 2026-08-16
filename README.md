@@ -80,6 +80,9 @@ before/after so a human decides what gets applied.
 ```bash
 pip install datasentry-ai     # or: uv sync (source checkout)
 
+datasentry                     # interactive terminal UI (TUI): dashboard / scan / issues / repair
+datasentry ui                  # same TUI, explicit entry
+
 datasentry scan orders.csv               # detect → fuse → score → persist, one step
 datasentry issues list                   # issues by severity / dimension
 datasentry score <run_id>                # six-dimension quality score
@@ -87,6 +90,13 @@ datasentry repair propose <issue_id> --file orders.csv   # fix proposal
 datasentry drift latest orders           # drift between the two latest scans
 datasentry-server                       # Web UI + REST API at http://localhost:8000
 ```
+
+Run `datasentry` with no arguments to open the interactive terminal
+UI (Textual): four tabs — a dashboard of your recent scans, guided
+scanning with progress, severity-colored issues with evidence chains,
+and a repair workbench (`propose → preview → apply → rollback`, same
+AI-suggests / human-approves / always-reversible semantics as the CLI).
+Every CLI command stays available for scripts and CI.
 
 Scheduled jobs on remote workers (multi-worker pool with
 failover; jobs stay in the scheduler's SQLite queue, execution is

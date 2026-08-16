@@ -4,6 +4,24 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [0.26.0] - 2026-08-16
+
+### 变更（Step 118，交互式终端界面 TUI，ADR-118）
+
+- 新增 Textual TUI：`datasentry`（无子命令）或 `datasentry ui`
+  启动交互式界面；四视图——工作台（最近扫描评分概览）/ 扫描
+  （路径输入 + 目录树浏览 + 不定进度条，完成自动跳转）/ 问题
+  （严重级着色 + 证据链详情）/ 修复（propose → preview → apply
+  → rollback 引导式操作，沿用同一 DataSentry 客户端语义）；
+- 既有 CLI 子命令全部保留（脚本/CI 兼容）；无参数行为从
+  usage error 变为启动 TUI；
+- 新增依赖：textual>=6.0（仅 TUI 路径）；开发依赖：
+  pytest-asyncio==1.4.0（Pilot 无头测试）。
+
+### 修复
+
+- （无行为修复；本轮为功能新增）
+
 ## [0.25.0] - 2026-08-15
 
 ### 变更（Step 117，CLI 可用性：score latest + issues list --limit，ADR-117）

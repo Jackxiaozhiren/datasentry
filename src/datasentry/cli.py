@@ -173,6 +173,13 @@ def _cmd_secrets_rm(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_ui(args: argparse.Namespace) -> int:
+    """118：进入交互式终端界面（Textual，ADR-118）。"""
+    from datasentry.tui import run_tui
+
+    return run_tui(args.project)
+
+
 def _cmd_scan(args: argparse.Namespace) -> int:
     """22.1 scan：导入 → 扫描 → 评分 → 落库；数据源缺失退出码 4；门禁失败退出码 1。
 
@@ -1304,10 +1311,18 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["en", "zh"],
         help="CLI text output language (en|zh, Step 74/ADR-074; default: en)",
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
 
     p_init = sub.add_parser("init", help="initialize workspace (.datasentry/ + .gitignore)")
     p_init.set_defaults(func=_cmd_init)
+
+    p_ui = sub.add_parser(
+        "ui",
+        help=(
+            "interactive terminal UI (Textual; also the default when run with no command, Step 118)"
+        ),
+    )
+    p_ui.set_defaults(func=_cmd_ui)
 
     p_scan = sub.add_parser(
         "scan",
@@ -1706,6 +1721,11 @@ def main(argv: list[str] | None = None) -> int:
         args = parser.parse_args(argv)
     except SystemExit as exc:  # --version(0) / 用法错误(2) 由 argparse 直接退出
         return int(exc.code or EXIT_OK)
+    if not hasattr(args, "func"):
+        # 无子命令 → 交互式终端界面（Step 118，ADR-118）
+        from datasentry.tui import run_tui
+
+        return run_tui(getattr(args, "project", None))
     try:
         func = cast("Callable[[argparse.Namespace], int]", args.func)
         return func(args)
