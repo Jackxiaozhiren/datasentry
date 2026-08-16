@@ -217,12 +217,15 @@ class DataSentryApp(App[None]):
 
     def action_tab_scan(self) -> None:
         self._set_tab("tab-scan")
+        self.query_one("#scan-input", Input).focus()
 
     def action_tab_issues(self) -> None:
         self._set_tab("tab-issues")
+        self.query_one("#issue-table", DataTable).focus()
 
     def action_tab_repair(self) -> None:
         self._set_tab("tab-repair")
+        self.query_one("#repair-file", Input).focus()
 
     def _set_tab(self, name: str) -> None:
         self.query_one(TabbedContent).active = name
@@ -335,6 +338,10 @@ class DataSentryApp(App[None]):
     def on_directory_tree_file_selected(self, event: DirectoryTree.FileSelected) -> None:
         self.query_one("#scan-input", Input).value = str(event.path)
 
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "scan-input":
+            self._start_scan()
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id
         if bid == "scan-button":
@@ -373,9 +380,11 @@ class DataSentryApp(App[None]):
         self.post_message(ScanResult(run, issues))
 
     def on_scan_result(self, message: ScanResult) -> None:
-        self._flash(
-            f"完成: {message.run.dataset_id} — {len(message.issues)} issues, "
-            f"score {_fmt_score(message.run.quality_score)}"
+        self.notify(
+            f"{message.run.dataset_id} — {len(message.issues)} issues, "
+            f"score {_fmt_score(message.run.quality_score)}",
+            title="扫描完成",
+            timeout=6,
         )
         self.query_one("#scan-progress", ProgressBar).styles.display = "none"
         self.refresh_view()
