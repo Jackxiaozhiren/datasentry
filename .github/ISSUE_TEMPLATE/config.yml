@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Detector ideas & roadmap chat
+    url: https://github.com/Jackxiaozhiren/datasentry/discussions
+    about: Ideas, questions and roadmap discussion live in GitHub Discussions.

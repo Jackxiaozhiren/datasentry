@@ -124,6 +124,26 @@ jobs:
               c.close()
           EOF
 
+      - name: 8b · demo asset guard (record-demo.sh --csv is reproducible + scannable)
+        run: |
+          set -e
+          bash docs/demo/record-demo.sh --csv
+          git diff --exit-code -- demo-data/orders.csv >/dev/null || {
+            echo "demo-data/orders.csv drifted from the committed deterministic sample"; exit 1; }
+          uv run python - <<'EOF'
+          from datasentry import DataSentry
+          from pathlib import Path
+          c = DataSentry(project=Path("demo-data") / "ws-ci")
+          try:
+              run, _, issues = c.scan_file("demo-data/orders.csv")
+              assert run.quality_score is not None
+              assert len(issues) >= 5, f"expected >=5 issues in demo data, got {len(issues)}"
+              print(f"demo data ok: {len(issues)} issues, score {run.quality_score}")
+          finally:
+              c.close()
+          EOF
+          rm -rf demo-data/ws-ci
+
       - name: 9 · API + UI smoke (container-free)
         run: |
           set -e

@@ -16,7 +16,7 @@ make check-all          # 门禁 + M9 Demo + 性能基准
 | 目标 | 内容 |
 | --- | --- |
 | `make lint` | ruff check + ruff format --check |
-| `make type` | mypy --strict（datasentry_core + datasentry，69+ 文件 0 错误） |
+| `make type` | mypy --strict（datasentry_core + datasentry，108 文件 0 错误） |
 | `make test` | pytest 全套 + coverage 门禁（--cov-fail-under=85） |
 | 3 连绿 | 提交前连续 3 次全量门禁通过（防 flaky） |
 
@@ -42,7 +42,7 @@ make check-all          # 门禁 + M9 Demo + 性能基准
 1. 在 `packages/core/src/datasentry_core/detectors/` 实现（含规则元数据）
 2. 加入 DETECTOR_REGISTRY 与 BenchRunner 预算表（ADR-007）
 3. 测试：detector 单测 + 集成回归（tests/test_integration.py 同款）
-4. README 检测器表格更新计数（当前 36）
+4. README 检测器表格更新计数（当前 39）
 
 ## 性能与基准
 
