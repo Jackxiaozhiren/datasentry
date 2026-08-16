@@ -182,6 +182,16 @@ class TestTrendsPage:
         assert 'class="meta">—</td>' in resp.text  # 首行无前一 run
         assert "delta-up" in resp.text or "delta-down" in resp.text or "0.0" in resp.text
 
+    def test_trends_dimension_lines(self, tmp_path: Path) -> None:
+        """V25：六维折线 SVG 随趋势页渲染（含图例）。"""
+        client = TestClient(create_app(project=tmp_path))
+        _scan(client, tmp_path)
+        _scan(client, tmp_path)
+        resp = client.get("/ui/trends")
+        assert 'class="dim-lines"' in resp.text
+        assert "completeness" in resp.text and "validity" in resp.text
+        assert 'aria-label="quality dimensions over time"' in resp.text
+
     def test_home_nav_links_to_trends(self, tmp_path: Path) -> None:
         client = TestClient(create_app(project=tmp_path))
         resp = client.get("/ui/")

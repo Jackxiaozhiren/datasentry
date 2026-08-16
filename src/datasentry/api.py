@@ -29,7 +29,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
+import time
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -65,6 +67,38 @@ _SCAN_PROGRESS: dict[str, dict[str, object]] = {}
 _PROGRESS_LOCK = threading.Lock()
 
 
+def _expand_scan_paths(raw: str) -> list[str]:
+    """Web 批量扫描路径解析：逗号/分号/换行分隔 + glob 展开 + 存在校验 + 去重。
+
+    缺失文件不进入结果，但记录在 _last_missing_paths 供错误页展示。
+    """
+    global _last_missing_paths
+    import glob as _glob
+
+    seen: set[str] = set()
+    paths: list[str] = []
+    missing: list[str] = []
+    for part in re.split(r"[,\n;]+", raw):
+        part = part.strip().strip("\"'")
+        if not part:
+            continue
+        expanded = _glob.glob(str(Path(part).expanduser()))
+        candidates = [str(p) for p in expanded] if expanded else [part]
+        for c in candidates:
+            if c in seen:
+                continue
+            seen.add(c)
+            if Path(c).exists():
+                paths.append(c)
+            else:
+                missing.append(c)
+    _last_missing_paths = missing
+    return paths
+
+
+_last_missing_paths: list[str] = []
+
+
 def _publish_progress(path: str, done: int, total: int, name: str, scanning: bool) -> None:
     with _PROGRESS_LOCK:
         _SCAN_PROGRESS[path] = {
@@ -72,12 +106,25 @@ def _publish_progress(path: str, done: int, total: int, name: str, scanning: boo
             "done": done,
             "total": total,
             "detector": name,
+            "path": path,
+            "_ts": time.monotonic(),
         }
 
 
 def _progress_for(path: str) -> dict[str, object]:
     with _PROGRESS_LOCK:
         return dict(_SCAN_PROGRESS.get(path, {}))
+
+
+def _latest_progress() -> dict[str, object]:
+    with _PROGRESS_LOCK:
+        if not _SCAN_PROGRESS:
+            return {}
+        latest_path = max(
+            _SCAN_PROGRESS, key=lambda k: cast(float, _SCAN_PROGRESS[k].get("_ts", 0.0))
+        )
+        latest = _SCAN_PROGRESS[latest_path]
+        return {k: v for k, v in latest.items() if k != "_ts"}
 
 
 def _on_progress_for(path: str) -> Any:
@@ -372,6 +419,14 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             raise HTTPException(status_code=404, detail=f"no scan progress for path: {path}")
         return progress
 
+    @app.get("/scans/progress/latest", tags=["scans"])
+    def scan_progress_latest() -> dict[str, object]:
+        """V25：最近更新的扫描进度（批量场景前端按文件轮询）。"""
+        latest = _latest_progress()
+        if not latest:
+            raise HTTPException(status_code=404, detail="no scan progress yet")
+        return latest
+
     @app.get("/scans/{run_id}", response_model=ScanRun, tags=["scans"])
     def get_scan(run_id: str) -> ScanRun:
         try:
@@ -532,15 +587,34 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
 
     @app.post("/ui/scans", response_class=HTMLResponse, tags=["ui"])
     def ui_create_scan(path: str = Form()) -> Response:
+        paths = _expand_scan_paths(path)
+        if not paths:
+            detail = (
+                f"not found: {_last_missing_paths[0]}"
+                if _last_missing_paths
+                else "no parseable path"
+            )
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.scan_failed"), detail), status_code=404
+            )
         try:
-            scan, _runs, _issues = client.scan_file(path, on_progress=_on_progress_for(path))
+            run = None
+            for p in paths:
+                scan, _runs, _issues = client.scan_file(p, on_progress=_on_progress_for(p))
+                run = scan
+                _publish_progress(p, len(_runs), len(_runs), "", False)
         except Exception as exc:
             _publish_progress(path, 0, 0, "", False)
             return HTMLResponse(
                 ui.render_error(_t("en", "ui.scan_failed"), str(exc)), status_code=404
             )
-        _publish_progress(path, len(_runs), len(_runs), "", False)
-        return RedirectResponse(url=f"/ui/scans/{scan.id}", status_code=303)
+        if len(paths) == 1 and run is not None:
+            return RedirectResponse(url=f"/ui/scans/{run.id}", status_code=303)
+        if run is None:
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.scan_failed"), "no scan produced"), status_code=404
+            )
+        return RedirectResponse(url="/ui/scans", status_code=303)
 
     @app.get("/ui/scans", response_class=HTMLResponse, tags=["ui"])
     def ui_scans_list(lang: str = Query(default="en")) -> HTMLResponse:

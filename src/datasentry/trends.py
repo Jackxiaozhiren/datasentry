@@ -26,6 +26,7 @@ class ScanPoint:
     score: float
     issues_total: int
     finished_at: datetime
+    dimensions: dict[str, float | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -94,6 +95,7 @@ def build_trends(scans: list[ScanRun]) -> list[DatasetTrend]:
                 score=scan.quality_score.overall,
                 issues_total=sum(int(v) for v in scan.issues_count.values()),
                 finished_at=finished,
+                dimensions=dict(scan.quality_score.dimensions),
             )
         )
     trends = []

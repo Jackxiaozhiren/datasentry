@@ -153,7 +153,7 @@ def render_home(scans: list[ScanRun], *, lang: str = "en") -> str:
 
 
 def _scan_progress_script() -> str:
-    """V25：扫描表单 AJAX + 轮询 /scans/progress 渲染实时进度条。"""
+    """V25：扫描表单 AJAX + 轮询进度渲染实时进度条（批量走 latest 端点）。"""
     return """<script>
 (function () {
   var form = document.getElementById("scan-form");
@@ -166,26 +166,32 @@ def _scan_progress_script() -> str:
     ev.preventDefault();
     var path = document.getElementById("path").value.trim();
     if (!path) return;
+    var batch = /[,;\\n\\r*?]/.test(path);
     btn.disabled = true;
     box.hidden = false;
     text.textContent = "starting…";
     var timer = setInterval(function () {
-      fetch("/scans/progress?path=" + encodeURIComponent(path), {cache: "no-store"})
+      var url = batch
+        ? "/scans/progress/latest"
+        : "/scans/progress?path=" + encodeURIComponent(path);
+      fetch(url, {cache: "no-store"})
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (p) {
           if (!p) return;
           var pct = p.total > 0 ? Math.round(100 * p.done / p.total) : 0;
           bar.style.width = pct + "%";
-          text.textContent = p.scanning
-            ? "detector " + p.done + "/" + p.total + " — " + (p.detector || "")
+          var label = p.path ? p.path.replace(/^.*[\\/\\\\]/, "") : "";
+          var pctText = p.scanning
+            ? (label ? label + " · " : "") + "detector " + p.done + "/" + p.total
+              + " — " + (p.detector || "")
             : "done (" + p.done + "/" + p.total + ")";
+          text.textContent = pctText;
           if (!p.scanning) { clearInterval(timer); }
         }).catch(function () {});
     }, 400);
     fetch("/ui/scans", {method: "POST", body: new FormData(form)})
       .then(function (r) {
         if (r.redirected) { window.location.href = r.url; return; }
-        if (!r.ok) { return r.text(); }
         return r.text();
       })
       .then(function (body) {
@@ -237,6 +243,55 @@ def _sparkline(scores: list[float]) -> str:
     )
 
 
+def _dimension_lines(points: list[ScanPoint]) -> str:
+    """六维质量折线（V25，内联 SVG 零依赖）：每个维度一条线，y 轴 0-100。
+
+    仅当至少一个点带维度分且维度 >1 时渲染；None 段跳过（断开）。
+    """
+    dims: set[str] = set()
+    for p in points:
+        if p.dimensions:
+            dims.update(p.dimensions)
+    if not dims or not any(p.dimensions for p in points):
+        return ""
+    dims_sorted = sorted(dims)
+    if len(points) < 2:
+        return ""
+    width, height, pad = 480, 140, 8
+    step = (width - 2 * pad) / (len(points) - 1)
+    colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
+    lines_svg: list[str] = []
+    for idx, dim in enumerate(dims_sorted):
+        coords: list[str] = []
+        for i, point in enumerate(points):
+            value = (point.dimensions or {}).get(dim)
+            if value is None:
+                continue
+            x = pad + i * step
+            y = height - pad - (min(max(value, 0.0), 100.0) / 100.0) * (height - 2 * pad)
+            coords.append(f"{x:.1f},{y:.1f}")
+        if len(coords) < 2:
+            continue
+        color = colors[idx % len(colors)]
+        lines_svg.append(
+            f'<polyline points="{" ".join(coords)}" fill="none" '
+            f'stroke="{color}" stroke-width="1.6" opacity="0.9"/>'
+        )
+    if not lines_svg:
+        return ""
+    legend = " ".join(
+        f'<span style="color:{colors[i % len(colors)]}">▬ {escape(d)}</span>'
+        for i, d in enumerate(dims_sorted)
+    )
+    return (
+        f'<svg class="dim-lines" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}" role="img" aria-label="quality dimensions over time">'
+        + "".join(lines_svg)
+        + "</svg>"
+        f'<p class="meta dim-legend">{legend}</p>'
+    )
+
+
 def _delta_cell(point: ScanPoint, previous: ScanPoint | None) -> str:
     """run 行 Δ badge（对前一 run，首行 —）：Step 67，ADR-067。"""
     if previous is None:
@@ -285,6 +340,7 @@ def render_trends(trends: list[DatasetTrend], *, lang: str = "en") -> str:
             f"{escape(t(lang, 'ui.latest_score'))} "
             f"{latest:.1f} · {escape(t(lang, 'ui.latest_issues'))} {trend.latest_issues}</p>"
             + _sparkline([p.score for p in points])
+            + _dimension_lines(points)
             + '<div class="trend-bars">'
             + "".join(bars)
             + "</div>"

@@ -63,6 +63,45 @@ class TestApiApp:
         assert prog.status_code == 200
         assert prog.json()["scanning"] is False
 
+    def test_scan_progress_latest(self, tmp_path: Path) -> None:
+        """V25：GET /scans/progress/latest 返回最近更新快照（含 path）。"""
+        from datasentry.api import _SCAN_PROGRESS
+
+        _SCAN_PROGRESS.clear()
+        csv = _sample_csv(tmp_path)
+        client = TestClient(create_app(project=tmp_path))
+        assert client.get("/scans/progress/latest").status_code == 404
+        resp = client.post("/scans", json={"path": str(csv)})
+        assert resp.status_code == 201
+        latest = client.get("/scans/progress/latest")
+        assert latest.status_code == 200
+        body = latest.json()
+        assert body["path"] == str(csv)
+        assert body["scanning"] is False
+        assert body["done"] == 39
+
+    def test_ui_scan_batch_multi_file(self, tmp_path: Path) -> None:
+        """V25：/ui/scans 逗号分隔多文件 → 批量扫描 → 跳列表页。"""
+        csv1 = _sample_csv(tmp_path)
+        csv2 = tmp_path / "b.csv"
+        csv2.write_text(
+            "name,status,price\nx,Active,10\ny,n/a,9999\nz,inactive,250\n",
+            encoding="utf-8",
+        )
+        client = TestClient(create_app(project=tmp_path), follow_redirects=False)
+        resp = client.post("/ui/scans", data={"path": f"{csv1}, {csv2}"})
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/ui/scans", "批量完成跳列表页"
+        assert len(client.get("/scans").json()) == 2
+
+    def test_ui_scan_glob_expands(self, tmp_path: Path) -> None:
+        """V25：/ui/scans 支持 * 通配展开。"""
+        _sample_csv(tmp_path)
+        client = TestClient(create_app(project=tmp_path), follow_redirects=False)
+        resp = client.post("/ui/scans", data={"path": f"{tmp_path / '*.csv'}"})
+        assert resp.status_code == 303
+        assert len(client.get("/scans").json()) == 1
+
     def test_scan_full_cycle(self, tmp_path: Path) -> None:
         csv = _sample_csv(tmp_path)
         client = TestClient(create_app(project=tmp_path))

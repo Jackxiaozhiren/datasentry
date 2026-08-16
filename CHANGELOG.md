@@ -4,7 +4,18 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.30.0] - 2026-08-16
+## [0.31.0] - 2026-08-16
+
+### 新增
+
+- Web UI 批量扫描：扫描表单支持逗号/分号/换行分隔 + `*` 通配
+  glob；服务端顺序扫描（缺失文件报错页），批量完成跳转扫描
+  列表页；进度条显示当前文件 + 检测器（GET /scans/progress/latest
+  轮询端点，快照含 path 字段）。
+- 趋势页六维折线图：每数据集内联 SVG 展示六维质量分随扫描
+  变化（零依赖，含图例）；ScanPoint 扩展 dimensions 字段。
+
+
 
 ### 新增
 

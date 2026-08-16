@@ -115,7 +115,13 @@ q                 quit (confirmation dialog, Enter = cancel)
 
 `datasentry scan` also streams live detector progress to stderr
 (`scan: detector 12/39 — IQR Outlier`), so scripts can keep stdout
-clean JSON while humans watch the scan run.
+clean JSON while humans watch the scan run. `datasentry score`
+defaults to the most recent scan (`datasentry score`).
+
+The Web UI (`datasentry-server`, http://localhost:8000) scans with a
+live progress bar, accepts multiple files per scan (comma/newline
+separated or `*.csv` globs — a batch scan lands on the scan list),
+and its trends page plots each quality dimension over time.
 
 Every CLI command stays available for scripts and CI.
 
