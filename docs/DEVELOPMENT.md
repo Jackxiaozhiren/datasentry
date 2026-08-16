@@ -247,7 +247,13 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
   to_thread）、TabPane 内 widget 获焦会回写 active（切 tab 后
   把焦点移入目标 pane 的表格）、pilot.click 对超屏 widget 不
   命中（Input 1fr 挤爆按钮，显式 width 修复）；CI 全绿
-  （94.94% 覆盖，1234 测试），mypy --strict 通过
+  （94.94% 覆盖，1234 测试），mypy --strict 通过；v0.26.1 补丁——
+真实 TTY 端到端（pty 脚本）暴露三处可用性缺陷并修复：① 数字键
+切视图后焦点需进目标控件（否则 Input 吞掉后续按键）；② 输入框
+回车需处理 Input.Submitted 才触发扫描；③ 完成信息写 flash 会被
+立即切 tab 抢走下一帧渲染而永不上屏——改全局 notify()（跨视图
+可见）。调试方法：文件日志（写 /tmp，避免被屏幕重绘覆盖）定位
+到 worker 正常、消息正常，最终确认是渲染时序问题
 
 - **V23 已完成（v0.25.0）**：CLI 可用性——score `latest` 解析为
   最近一次扫描（started_at 倒序首条，空库 EXIT_CONFIG）+ score
