@@ -133,17 +133,74 @@ def _scan_table(scans: list[ScanRun], *, lang: str = "en") -> str:
 
 
 def render_home(scans: list[ScanRun], *, lang: str = "en") -> str:
+    scan_label = escape(t(lang, "ui.scan_button"))
     body = [
         f"<h2>{escape(t(lang, 'ui.workspace_overview'))}</h2>",
         _scan_table(scans, lang=lang),
         f"<h2>{escape(t(lang, 'ui.new_scan'))}</h2>",
-        '<form method="post" action="/ui/scans">'
+        '<form method="post" action="/ui/scans" id="scan-form">'
         f'<label for="path">{escape(t(lang, "ui.data_file_path"))}</label>'
         '<input type="text" id="path" name="path" required placeholder="data/customers.csv">'
-        f'<button type="submit">{escape(t(lang, "ui.scan_button"))}</button>',
+        f'<button type="submit" id="scan-btn">{scan_label}</button>',
         "</form>",
+        '<div id="scan-progress" hidden><p id="scan-progress-text"></p>'
+        '<div style="border:1px solid #999;height:14px;width:100%;max-width:480px">'
+        '<div id="scan-progress-bar" style="height:14px;width:0%;background:#4caf50"></div>'
+        "</div></div>",
+        _scan_progress_script(),
     ]
     return _page(t(lang, "ui.home_title"), "\n".join(body), lang=lang)
+
+
+def _scan_progress_script() -> str:
+    """V25：扫描表单 AJAX + 轮询 /scans/progress 渲染实时进度条。"""
+    return """<script>
+(function () {
+  var form = document.getElementById("scan-form");
+  if (!form) return;
+  var bar = document.getElementById("scan-progress-bar");
+  var text = document.getElementById("scan-progress-text");
+  var box = document.getElementById("scan-progress");
+  var btn = document.getElementById("scan-btn");
+  form.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var path = document.getElementById("path").value.trim();
+    if (!path) return;
+    btn.disabled = true;
+    box.hidden = false;
+    text.textContent = "starting…";
+    var timer = setInterval(function () {
+      fetch("/scans/progress?path=" + encodeURIComponent(path), {cache: "no-store"})
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (p) {
+          if (!p) return;
+          var pct = p.total > 0 ? Math.round(100 * p.done / p.total) : 0;
+          bar.style.width = pct + "%";
+          text.textContent = p.scanning
+            ? "detector " + p.done + "/" + p.total + " — " + (p.detector || "")
+            : "done (" + p.done + "/" + p.total + ")";
+          if (!p.scanning) { clearInterval(timer); }
+        }).catch(function () {});
+    }, 400);
+    fetch("/ui/scans", {method: "POST", body: new FormData(form)})
+      .then(function (r) {
+        if (r.redirected) { window.location.href = r.url; return; }
+        if (!r.ok) { return r.text(); }
+        return r.text();
+      })
+      .then(function (body) {
+        if (!body) return;
+        clearInterval(timer);
+        box.hidden = false;
+        text.textContent = "scan failed";
+        bar.style.background = "#e53935";
+        var m = body.match(/<h1>([^<]*)</);
+        if (m && m[1]) text.textContent = m[1];
+      })
+      .catch(function () { clearInterval(timer); btn.disabled = false; });
+  });
+})();
+</script>"""
 
 
 def _direction_badge(direction: str, *, lang: str = "en") -> str:

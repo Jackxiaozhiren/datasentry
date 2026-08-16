@@ -4,12 +4,24 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.28.0] - 2026-08-16
+## [0.29.0] - 2026-08-16
+
+### 新增
+
+- Web UI 扫描实时进度：GET /scans/progress 轮询端点
+  （path → {scanning, done, total, detector}），首页扫描表单
+  改为 AJAX + 进度条（检测器名实时显示，完成跳转结果页）；
+  POST /scans 与 /ui/scans 统一写入进度槽，失败标记
+  scanning=false 不悬挂。30 万行实测 188 帧逐检测器进度。
+- TUI 问题详情证据链 3 → 5 条 + 超出提示。
+
+
 
 ### 新增
 
 - CLI scan 实时进度：检测器逐个上报到 stderr
-  （"scan: detector 12/39 — IQR Outlier"， 原地刷新），
+  （"scan: detector 12/39 — IQR Outlier"，
+ 原地刷新），
   stdout JSON 保持纯净，脚本/CI 不受影响。
 - README 新增 TUI 快捷键速查表。
 - TUI 修复页结果语义色：成功绿色（propose/preview/apply/

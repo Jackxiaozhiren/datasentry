@@ -59,6 +59,30 @@ from datasentry_core.reporting.i18n import t as _t
 
 logger = logging.getLogger(__name__)
 
+# 扫描实时进度（V25）：path → 进度快照；线程池中 on_progress 回调写入，
+# Web UI 通过 GET /scans/progress 轮询读取。
+_SCAN_PROGRESS: dict[str, dict[str, object]] = {}
+_PROGRESS_LOCK = threading.Lock()
+
+
+def _publish_progress(path: str, done: int, total: int, name: str, scanning: bool) -> None:
+    with _PROGRESS_LOCK:
+        _SCAN_PROGRESS[path] = {
+            "scanning": scanning,
+            "done": done,
+            "total": total,
+            "detector": name,
+        }
+
+
+def _progress_for(path: str) -> dict[str, object]:
+    with _PROGRESS_LOCK:
+        return dict(_SCAN_PROGRESS.get(path, {}))
+
+
+def _on_progress_for(path: str) -> Any:
+    return lambda done, total, name: _publish_progress(path, done, total, name, True)
+
 
 class ScanRequest(BaseModel):
     """POST /scans 请求体：源文件路径（workspace 相对或绝对）+ 扫描配置。"""
@@ -332,10 +356,21 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
                 dataset_id=req.dataset_id,
                 table_name=req.table_name,
                 config=_config_from(req),
+                on_progress=_on_progress_for(req.path),
             )
         except Exception as exc:
+            _publish_progress(req.path, 0, 0, "", False)
             raise _handle(exc) from exc
+        _publish_progress(req.path, len(runs), len(runs), "", False)
         return ScanResponse(run=scan, detector_runs=runs, issues=issues)
+
+    @app.get("/scans/progress", tags=["scans"])
+    def scan_progress(path: str = Query(min_length=1)) -> dict[str, object]:
+        """V25：Web UI 轮询扫描进度（path → {scanning, done, total, detector}）。"""
+        progress = _progress_for(path)
+        if not progress:
+            raise HTTPException(status_code=404, detail=f"no scan progress for path: {path}")
+        return progress
 
     @app.get("/scans/{run_id}", response_model=ScanRun, tags=["scans"])
     def get_scan(run_id: str) -> ScanRun:
@@ -498,11 +533,13 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
     @app.post("/ui/scans", response_class=HTMLResponse, tags=["ui"])
     def ui_create_scan(path: str = Form()) -> Response:
         try:
-            scan, _runs, _issues = client.scan_file(path)
+            scan, _runs, _issues = client.scan_file(path, on_progress=_on_progress_for(path))
         except Exception as exc:
+            _publish_progress(path, 0, 0, "", False)
             return HTMLResponse(
                 ui.render_error(_t("en", "ui.scan_failed"), str(exc)), status_code=404
             )
+        _publish_progress(path, len(_runs), len(_runs), "", False)
         return RedirectResponse(url=f"/ui/scans/{scan.id}", status_code=303)
 
     @app.get("/ui/scans", response_class=HTMLResponse, tags=["ui"])

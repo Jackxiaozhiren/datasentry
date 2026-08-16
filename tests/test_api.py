@@ -36,6 +36,33 @@ class TestApiApp:
         assert resp.status_code == 200
         assert "POST /scans" in resp.json()["endpoints"]
 
+    def test_scan_progress_endpoint(self, tmp_path: Path) -> None:
+        """V25：GET /scans/progress 返回扫描进度快照（完成态 39/39）。"""
+        csv = _sample_csv(tmp_path)
+        client = TestClient(create_app(project=tmp_path))
+        resp = client.post("/scans", json={"path": str(csv)})
+        assert resp.status_code == 201
+        prog = client.get("/scans/progress", params={"path": str(csv)})
+        assert prog.status_code == 200
+        body = prog.json()
+        assert body["scanning"] is False
+        assert body["done"] == body["total"] == 39
+        assert body["detector"] == ""
+
+    def test_scan_progress_missing_path(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        resp = client.get("/scans/progress", params={"path": "/nonexistent.csv"})
+        assert resp.status_code == 404
+
+    def test_scan_progress_failure_marked(self, tmp_path: Path) -> None:
+        """V25：扫描失败时进度槽标记 scanning=false（不悬挂）。"""
+        client = TestClient(create_app(project=tmp_path))
+        resp = client.post("/scans", json={"path": str(tmp_path / "nope.csv")})
+        assert resp.status_code in (404, 500)
+        prog = client.get("/scans/progress", params={"path": str(tmp_path / "nope.csv")})
+        assert prog.status_code == 200
+        assert prog.json()["scanning"] is False
+
     def test_scan_full_cycle(self, tmp_path: Path) -> None:
         csv = _sample_csv(tmp_path)
         client = TestClient(create_app(project=tmp_path))

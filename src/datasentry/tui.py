@@ -650,8 +650,10 @@ class DataSentryApp(App[None]):
             f"confidence={issue.confidence:.2f}  priority={issue.priority_score:.1f}  "
             f"detectors={', '.join(issue.detector_ids or [])}",
         ]
-        for ev in issue.evidence[:3]:
+        for ev in issue.evidence[:5]:
             lines.append(f"  evidence: {ev.description}")
+        if len(issue.evidence) > 5:
+            lines.append(f"  … 共 {len(issue.evidence)} 条证据（issue 详情/报告可看全部）")
         static.update("\n".join(lines))
 
     def _sev_class(self, severity: str) -> str:
