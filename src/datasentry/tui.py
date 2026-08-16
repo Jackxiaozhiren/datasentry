@@ -75,6 +75,7 @@ class QuitScreen(ModalScreen[bool]):
     """退出确认（防止误触 q 丢会话）。"""
 
     BINDINGS = [("escape", "cancel", "取消")]
+    AUTO_FOCUS = "#quit-cancel"
 
     def compose(self) -> ComposeResult:
         yield Vertical(
@@ -89,6 +90,34 @@ class QuitScreen(ModalScreen[bool]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss(event.button.id == "quit-confirm")
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
+class RollbackConfirmScreen(ModalScreen[bool]):
+    """回滚二次确认（rollback 会撤销最近一次已应用的修复，需用户明确同意）。"""
+
+    BINDINGS = [("escape", "cancel", "取消")]
+    AUTO_FOCUS = "#rrb-cancel"
+
+    def compose(self) -> ComposeResult:
+        yield Vertical(
+            Label("回滚最近一次修复？", id="quit-title"),
+            Label(
+                "回滚将撤销最近一次 apply 的修复，把数据恢复为修复前的状态"
+                "（基于回滚工件）。该操作不可逆，确认后原修复会失效。",
+                id="quit-hint",
+            ),
+            Horizontal(
+                Button("确认回滚", id="rrb-confirm", variant="error"),
+                Button("取消", id="rrb-cancel"),
+            ),
+            id="quit-dialog",
+        )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(event.button.id == "rrb-confirm")
 
     def action_cancel(self) -> None:
         self.dismiss(False)
@@ -149,6 +178,9 @@ class DataSentryApp(App[None]):
     }
     #quit-title { text-style: bold; }
     #quit-hint { color: $text-muted; }
+    #repair-actions { height: auto; padding: 0 1; }
+    #rollback-zone { height: 7; padding: 0 1; margin: 0 1; border: round #5a2323; }
+    #rollback-hint { color: $text-muted; }
     .sev-high { color: #ff6b6b; text-style: bold; }
     .sev-medium { color: #ffd93d; }
     .sev-low { color: #6bcb77; }
@@ -196,7 +228,11 @@ class DataSentryApp(App[None]):
                     yield Button("propose", id="r-propose")
                     yield Button("preview", id="r-preview")
                     yield Button("apply", id="r-apply")
-                    yield Button("rollback", id="r-rollback")
+                with Vertical(id="rollback-zone"):
+                    yield Label(
+                        "危险区：撤销最近一次已应用的修复（需二次确认）", id="rollback-hint"
+                    )
+                    yield Button("回滚修复", id="r-rollback", variant="error")
                 yield Static(
                     "在「问题」视图选中一个 issue，再在这里操作（AI 建议、人工审批、可回滚）",
                     id="repair-out",
@@ -353,7 +389,10 @@ class DataSentryApp(App[None]):
         elif bid == "r-apply":
             self._repair_op("apply")
         elif bid == "r-rollback":
-            self._repair_op("rollback")
+            if self.current_issue is None:
+                self.query_one("#repair-out", Static).update("先在「问题」视图选中一个 issue")
+                return
+            self.push_screen(RollbackConfirmScreen(), callback=self._on_rollback)
 
     # ---- 扫描 --------------------------------------------------------------
 
@@ -405,6 +444,10 @@ class DataSentryApp(App[None]):
             self.query_one("#repair-file", Input).value = self._last_scan_path
             return self._last_scan_path
         return None
+
+    def _on_rollback(self, confirmed: bool | None) -> None:
+        if confirmed:
+            self._repair_op("rollback")
 
     def _repair_op(self, op: str) -> None:
         issue = self.current_issue
