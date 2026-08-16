@@ -253,7 +253,11 @@ datasentry rules approve <rule_id> --file orders.csv --force         # 危险规
 回车需处理 Input.Submitted 才触发扫描；③ 完成信息写 flash 会被
 立即切 tab 抢走下一帧渲染而永不上屏——改全局 notify()（跨视图
 可见）。调试方法：文件日志（写 /tmp，避免被屏幕重绘覆盖）定位
-到 worker 正常、消息正常，最终确认是渲染时序问题
+到 worker 正常、消息正常，最终确认是渲染时序问题；v0.26.2——回滚防误触：
+回滚按钮移出主操作行、独立"危险区"（Vertical 需显式 height，
+Horizontal 里 Label 会挤掉按钮），二次确认弹窗（复用 ModalScreen
+模式），且确认弹窗默认焦点=取消（AUTO_FOCUS，回车=取消，防误
+触）——退出确认同步处理
 
 - **V23 已完成（v0.25.0）**：CLI 可用性——score `latest` 解析为
   最近一次扫描（started_at 倒序首条，空库 EXIT_CONFIG）+ score
