@@ -14,6 +14,7 @@ usually data-dependent, so a concrete example is the fastest path to a fix.
 
 ```python
 from datasentry import DataSentry
+
 c = DataSentry(project="repro-ws")
 run, runs, issues = c.scan_file("small.csv")  # or the CLI command you used
 print(run, issues)

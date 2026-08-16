@@ -65,7 +65,7 @@ DataSentry scans your data (CSV / Parquet / JSONL / XLSX / DuckDB / SQLite / Pos
 from datasentry import DataSentry
 
 sentry = DataSentry()
-run, runs, issues = sentry.scan_file("orders.csv")          # 39 detectors + six-dimension score
+run, runs, issues = sentry.scan_file("orders.csv")  # 39 detectors + six-dimension score
 dupes = [i for i in issues if i.issue_type == "uniqueness"]
 outliers = [i for i in issues if i.issue_type in ("numeric_outlier", "distribution_anomaly")]
 print(run.id, "—", len(dupes), "duplicate", len(outliers), "outlier issues, all with evidence")
