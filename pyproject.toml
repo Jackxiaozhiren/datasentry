@@ -36,8 +36,6 @@ Homepage = "https://github.com/Jackxiaozhiren/datasentry"
 Documentation = "https://jackxiaozhiren.github.io/datasentry/"
 Source = "https://github.com/Jackxiaozhiren/datasentry"
 Issues = "https://github.com/Jackxiaozhiren/datasentry/issues"
-Source = "https://github.com/Jackxiaozhiren/datasentry"
-Issues = "https://github.com/Jackxiaozhiren/datasentry/issues"
 
 [project.scripts]
 datasentry = "datasentry.cli:main"
