@@ -4,7 +4,18 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.34.0] - 2026-08-16
+## [0.35.0] - 2026-08-16
+
+### 新增
+
+- 对比页问题级 diff：按 (issue_type, columns) 分组三类——新增
+  （NEW 红标 + 示例列表，链接到 run 详情）、已消失（FIXED 绿标）、
+  持续（Δ 计数着色）；每组附当前侧前 3 条示例（标题/严重度/
+  影响行数）。
+- README 架构图刷新：批量扫描（CLI/TUI/Web）与 run 对比/趋势
+  汇入流程。
+
+
 
 ### 新增
 

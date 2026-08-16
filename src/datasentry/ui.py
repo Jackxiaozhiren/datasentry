@@ -629,10 +629,97 @@ def render_workbench(
     return _page(t(lang, "ui.workbench_title"), "\n".join(body), lang=lang)
 
 
+def _issue_diff_table(
+    issues_ref: list[Issue],
+    issues_cur: list[Issue],
+    *,
+    lang: str = "en",
+) -> str:
+    """V29：两 run 问题级 diff——按 (issue_type, columns) 分组三类：
+
+    new（ref 无/cur 有，红 NEW）、fixed（ref 有/cur 无，绿 FIXED）、
+    persistent（两者都有，Δ 计数）；每组附 cur 侧前 3 个示例。
+    """
+
+    def key(issue: Issue) -> tuple[str, str]:
+        return (issue.issue_type, ",".join(issue.columns))
+
+    from collections import Counter
+
+    ref_counts = Counter(key(i) for i in issues_ref)
+    cur_counts = Counter(key(i) for i in issues_cur)
+    cur_examples: dict[tuple[str, str], list[Issue]] = {}
+    for issue in issues_cur:
+        cur_examples.setdefault(key(issue), []).append(issue)
+
+    def rows_for(group: list[tuple[tuple[str, str], int]], kind: str) -> str:
+        rows = []
+        for k, cur_total in group:
+            issue_type, columns = k
+            before = ref_counts.get(k, 0)
+            delta = cur_total - before
+            if kind == "new":
+                badge = '<span class="badge badge-critical">NEW</span>'
+            elif kind == "fixed":
+                badge = '<span class="badge badge-ok">FIXED</span>'
+                delta = before - cur_total
+            else:
+                badge = ""
+                delta = cur_total - before
+            tone = "pos" if delta < 0 else ("neg" if delta > 0 else "flat")
+            examples = ""
+            for ex in cur_examples.get(k, [])[:3]:
+                link = f"/ui/scans/{escape(ex.scan_run_id)}?severity={ex.severity.value}"
+                examples += (
+                    f'<li><a href="{link}">{escape(ex.title)}</a>'
+                    f" · {_severity_badge(ex.severity.value)} · "
+                    f"{ex.affected_count} rows</li>"
+                )
+            rows.append(
+                f"<tr><td>{escape(issue_type)}</td><td>{escape(columns)}</td>"
+                f"<td>{before}</td><td>{cur_total}</td>"
+                f'<td class="delta {tone}">{badge}'
+                f"{'+' if delta > 0 else ''}{delta}</td></tr>"
+                + (
+                    f'<tr class="examples"><td colspan="5"><ul>{examples}</ul></td></tr>'
+                    if examples
+                    else ""
+                ),
+            )
+        return "".join(rows)
+
+    new_rows = rows_for([(k, v) for k, v in cur_counts.items() if ref_counts.get(k, 0) == 0], "new")
+    fixed_keys = [k for k in ref_counts if cur_counts.get(k, 0) == 0]
+    fixed_rows = rows_for([(k, ref_counts[k]) for k in fixed_keys], "fixed")
+    persistent = [(k, cur_counts[k]) for k in ref_counts if cur_counts.get(k, 0) > 0]
+    persistent_rows = rows_for(persistent, "persistent")
+
+    def section(title: str, rows: str) -> str:
+        return (
+            f"<h3>{escape(title)}</h3>"
+            "<table><tr><th>type</th><th>columns</th><th>ref</th><th>cur</th><th>Δ</th></tr>"
+            + (
+                rows
+                or '<tr><td colspan="5" class="meta">'
+                + f"{escape(t(lang, 'ui.no_issue_diff'))}</td></tr>"
+            )
+            + "</table>"
+        )
+
+    return (
+        f"<h2>{escape(t(lang, 'ui.issue_diff'))}</h2>"
+        + section(t(lang, "ui.new_issues"), new_rows)
+        + section(t(lang, "ui.fixed_issues"), fixed_rows)
+        + section(t(lang, "ui.persistent_issues"), persistent_rows)
+    )
+
+
 def render_compare(
     reference: ScanRun,
     current: ScanRun,
     report: DriftReport,
+    issues_ref: list[Issue],
+    issues_cur: list[Issue],
     *,
     lang: str = "en",
 ) -> str:
@@ -719,6 +806,7 @@ def render_compare(
         "<table><tr><th></th><th>ref</th><th>cur</th><th>Δ</th></tr>"
         + "".join(severity_rows)
         + "</table>",
+        _issue_diff_table(issues_ref, issues_cur, lang=lang),
         f"<h2>{escape(t(lang, 'ui.column_drifts'))}</h2>",
         "<table><tr><th>column</th><th>type</th><th>metric</th><th>value / threshold</th>"
         "<th>direction</th><th></th></tr>"

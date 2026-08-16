@@ -227,8 +227,12 @@ flowchart LR
     Score --> Gate[Quality gate]
     Gate --> Report[JSON / MD / HTML / JUnit / SARIF]
     Report --> UI[Web UI + trends]
+    UI --> Compare[Run compare: dimension / severity / issue-level diff]
+    UI --> BatchWeb[Batch scan: glob + comma paths, live progress]
     Report --> MCP[MCP stdio server]
     Report --> CLI[CLI / REST]
+    CLI --> BatchCLI[Batch scan: comma + newline + glob, per-file summary]
+    TUI[Terminal UI] --> BatchTUI[Batch scan + issue center + repair workflow]
     subgraph Scheduling
         Q[(SQLite job queue)] --> Sched[Scheduler + worker thread]
         Sched -->|dispatch| Pool[Worker pool: round-robin + failover + parallel]

@@ -239,6 +239,23 @@ class TestTrendsPage:
         resp = client.get(f"/ui/compare?runs={run_a}&runs=scan_nope")
         assert resp.status_code == 404
 
+    def test_compare_page_issue_diff(self, tmp_path: Path) -> None:
+        """V29：问题级 diff——新数据引入新问题 → NEW 分组渲染。"""
+        client = TestClient(create_app(project=tmp_path))
+        run_a = _scan(client, tmp_path)
+        csv = tmp_path / "dirty.csv"
+        csv.write_text(
+            "name,status,price\nx,Active,10\ny,n/a,9999\n,,\nz,Active,-5\n",
+            encoding="utf-8",
+        )
+        resp = client.post("/scans", json={"path": str(csv)})
+        run_b = resp.json()["run"]["id"]
+        page = client.get(f"/ui/compare?runs={run_a}&runs={run_b}").text
+        assert "Issue-level diff" in page
+        assert "NEW" in page
+        assert "FIXED" in page
+        assert "Persistent issues" in page
+
     def test_ui_scan_batch_banner(self, tmp_path: Path) -> None:
         """V27：批量扫描完成 → 汇总横幅（消费式，一次渲染后清除）。"""
         client = TestClient(create_app(project=tmp_path), follow_redirects=False)

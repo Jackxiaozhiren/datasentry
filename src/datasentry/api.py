@@ -659,7 +659,16 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
                 ui.render_error(_t("en", "ui.scan_failed"), "scan run not found"),
                 status_code=404,
             )
-        return HTMLResponse(ui.render_compare(reference, current, report, lang=lang))
+        return HTMLResponse(
+            ui.render_compare(
+                reference,
+                current,
+                report,
+                client.list_issues(scan_run_id=runs[0]),
+                client.list_issues(scan_run_id=runs[1]),
+                lang=lang,
+            )
+        )
 
     @app.get("/ui/trends", response_class=HTMLResponse, tags=["ui"])
     def ui_trends(lang: str = Query(default="en")) -> HTMLResponse:
