@@ -1022,3 +1022,14 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - 踩坑 2：run.id 前缀即 "rep_"——锚点 id 直接 {run.id}，别再拼 "rep-"
   前缀（否则 id="rep-rep_xxx"）。
 - i18n 新 key：ui.fixed_by（en "fixed by" / zh "由修复"）。
+
+
+## V38：回滚 POST 化 + list --run（v0.43）
+
+- 单条回滚端点 GET /ui/repairs/{id}/rollback → POST；历史页与
+  批量应用结果页改 <form method="post"><button class="linklike">。
+- 发现并修复：render_batch_apply 的单条回滚链接 href 打的是 POST
+  端点 → 405（v0.31 遗留 bug）。
+- repair list --run <scan_run_id>：按 get_scan(run).dataset_id 过滤。
+- 语义：所有写数据操作（apply/rollback 单条与批量）均为 POST，
+  链接 GET 只用于纯导航。
