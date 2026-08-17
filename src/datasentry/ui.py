@@ -484,6 +484,66 @@ def _sampling_enabled(config: ScanConfig) -> bool:
     )
 
 
+def render_batch_repair(
+    run_id: str,
+    issues: list[Issue],
+    proposals: dict[str, RepairProposal],
+    errors: dict[str, str],
+    *,
+    source_path: str = "",
+    lang: str = "en",
+) -> str:
+    """V30：批量修复提案结果页（只生成提案，不应用——apply 走单条工作台）。"""
+    rows = []
+    for issue in issues:
+        prop = proposals.get(issue.id)
+        err = errors.get(issue.id)
+        if prop is not None:
+            badge = f'<td class="badge badge-ok">{escape(t(lang, "ui.proposed"))}</td>'
+            cells = (
+                f"<td>{escape(prop.operation)}</td>"
+                f"<td>{escape(', '.join(prop.target_columns))}</td>"
+                f"<td>{escape(prop.risk_level.value)}</td>"
+                f"<td>{prop.estimated_rows_changed}</td>"
+            )
+        elif err:
+            badge = f'<td class="badge badge-critical">{escape(t(lang, "ui.error"))}</td>'
+            cells = f'<td colspan="4" class="meta">{escape(err)}</td>'
+        else:
+            badge = f'<td class="badge">{escape(t(lang, "ui.unsupported"))}</td>'
+            cells = f'<td colspan="4" class="meta">{escape(t(lang, "ui.no_proposal_hint"))}</td>'
+        title_cell = escape(mask_text_pii(translate_title(lang, issue.title, issue.issue_type)))
+        rows.append(
+            "<tr>"
+            f'<td><a href="/ui/scans/{escape(run_id)}/issues/{escape(issue.id)}">'
+            f"{escape(issue.id)}</a></td>"
+            f"<td>{title_cell}</td>"
+            + badge
+            + cells
+            + f"<td><a href='/ui/scans/{escape(run_id)}/issues/{escape(issue.id)}'>"
+            f"{escape(t(lang, 'ui.apply_repair'))}</a></td>"
+            "</tr>"
+        )
+    summary = (
+        f'<p class="meta">{escape(t(lang, "ui.batch_repair_summary"))}: '
+        f"{len(proposals)} / {len(issues)} · {escape(source_path)}</p>"
+    )
+    body = [
+        '<p class="meta">'
+        f'<a href="/ui/scans/{escape(run_id)}">{escape(t(lang, "ui.back_to_scan"))}</a></p>',
+        summary,
+        "<table><tr><th>issue</th><th>title</th><th>status</th><th>operation</th>"
+        "<th>columns</th><th>risk</th><th>rows</th><th></th></tr>" + "".join(rows) + "</table>",
+        f'<p class="meta">{escape(t(lang, "ui.batch_propose_note"))}</p>',
+    ]
+    return _page(
+        t(lang, "ui.batch_repair_title"),
+        "\n".join(body),
+        active="scans",
+        lang=lang,
+    )
+
+
 def _issue_rows(issues: list[Issue], run_id: str, *, lang: str = "en") -> str:
     if not issues:
         return f'<p class="meta">{escape(t(lang, "ui.no_issues"))}</p>'
@@ -492,6 +552,8 @@ def _issue_rows(issues: list[Issue], run_id: str, *, lang: str = "en") -> str:
         cols = ", ".join(escape(c) for c in issue.columns) or "—"
         rows.append(
             '<div class="issue-card">'
+            f'<input type="checkbox" name="issue_ids" value="{escape(issue.id)}" '
+            'class="issue-check" aria-label="select issue">'
             f"<h3>{_severity_badge(issue.severity.value)} "
             f"{escape(mask_text_pii(translate_title(lang, issue.title, issue.issue_type)))}</h3>"
             f'<p class="meta">{escape(t(lang, "ui.priority"))} {issue.priority_score:.1f} · '
@@ -548,7 +610,25 @@ def render_scan_detail(
             for level in ("critical", "high", "medium", "low", "info")
         )
         + "</div>",
+        '<form method="post" '
+        f'action="/ui/scans/{escape(scan.id)}/repairs/batch-propose" '
+        'id="batch-repair-form">'
+        f'<label for="batch-source-path">{escape(t(lang, "ui.source_path"))}</label>'
+        '<input type="text" id="batch-source-path" name="source_path" '
+        'placeholder="data/orders.csv" required>'
+        f'<button type="submit" id="batch-propose-btn" disabled>'
+        f"{escape(t(lang, 'ui.batch_propose'))}</button>"
+        "</form>",
         _issue_rows(issues, scan.id, lang=lang),
+        "<script>(function () {"
+        'var btn = document.getElementById("batch-propose-btn");'
+        "if (!btn) return;"
+        "function sync() {"
+        "var n = document.querySelectorAll('.issue-check:checked').length;"
+        "btn.disabled = n === 0;"
+        "}"
+        "document.addEventListener('change', sync);"
+        "})();</script>",
         f'<p class="meta"><a href="/api/reports/">{escape(t(lang, "ui.json_report"))}</a> &middot; '
         f'<a href="/scans/{escape(scan.id)}/report.html">'
         f"{escape(t(lang, 'ui.interactive_report'))}</a></p>",

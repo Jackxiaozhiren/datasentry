@@ -639,6 +639,45 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         batch, _last_batch = _last_batch, None
         return HTMLResponse(ui.render_home(client.list_scan_runs(), batch=batch, lang=lang))
 
+    @app.post(
+        "/ui/scans/{run_id}/repairs/batch-propose",
+        response_class=HTMLResponse,
+        tags=["ui"],
+    )
+    def ui_batch_repair_propose(
+        run_id: str,
+        issue_ids: Annotated[list[str] | None, Form()] = None,
+        source_path: str = Form(),
+    ) -> HTMLResponse:
+        """V30：批量修复提案（只 propose，不 apply；写路径仍走单条工作台）。"""
+        issue_ids = issue_ids or []
+        if not issue_ids:
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.scan_failed"), "no issues selected"),
+                status_code=400,
+            )
+        proposals: dict[str, object] = {}
+        errors: dict[str, str] = {}
+        for issue_id in issue_ids:
+            try:
+                prop = client.repair_propose(issue_id, source_path)
+                if prop is not None:
+                    proposals[issue_id] = prop
+            except Exception as exc:
+                errors[issue_id] = str(exc)
+        issues = client.list_issues(scan_run_id=run_id)
+        by_id = {i.id: i for i in issues}
+        selected = [by_id[i] for i in issue_ids if i in by_id]
+        return HTMLResponse(
+            ui.render_batch_repair(
+                run_id,
+                selected,
+                cast(dict[str, Any], proposals),
+                errors,
+                source_path=source_path,
+            )
+        )
+
     @app.get("/ui/compare", response_class=HTMLResponse, tags=["ui"])
     def ui_compare(
         runs: Annotated[list[str], Query(min_length=2, max_length=2)],

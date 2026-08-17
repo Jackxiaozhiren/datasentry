@@ -256,6 +256,42 @@ class TestTrendsPage:
         assert "FIXED" in page
         assert "Persistent issues" in page
 
+    def test_scan_detail_batch_propose_form(self, tmp_path: Path) -> None:
+        """V30：详情页含批量提案表单（source_path + issue 勾选 + 按钮）。"""
+        client = TestClient(create_app(project=tmp_path))
+        run_id = _scan(client, tmp_path)
+        page = client.get(f"/ui/scans/{run_id}").text
+        assert 'action="/ui/scans/' in page
+        assert "batch-propose" in page
+        assert 'name="issue_ids"' in page
+        assert "batch-propose-btn" in page
+
+    def test_batch_propose_flow(self, tmp_path: Path) -> None:
+        """V30：批量提案端点 → 结果页（proposed/unsupported 状态、apply 入口）。"""
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        issues = client.get(f"/scans/{run_id}/issues").json()
+        ids = [i["id"] for i in issues[:2]]
+        resp = client.post(
+            f"/ui/scans/{run_id}/repairs/batch-propose",
+            data={"source_path": str(csv), "issue_ids": ids},
+        )
+        assert resp.status_code == 200
+        assert "Batch repair proposals" in resp.text
+        assert "proposed" in resp.text or "unsupported" in resp.text
+        assert "Apply repair" in resp.text
+
+    def test_batch_propose_no_selection(self, tmp_path: Path) -> None:
+        """V30：未选 issue → 400。"""
+        client = TestClient(create_app(project=tmp_path))
+        run_id = _scan(client, tmp_path)
+        resp = client.post(
+            f"/ui/scans/{run_id}/repairs/batch-propose",
+            data={"source_path": "orders.csv"},
+        )
+        assert resp.status_code == 400
+
     def test_ui_scan_batch_banner(self, tmp_path: Path) -> None:
         """V27：批量扫描完成 → 汇总横幅（消费式，一次渲染后清除）。"""
         client = TestClient(create_app(project=tmp_path), follow_redirects=False)

@@ -4,7 +4,19 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.35.0] - 2026-08-16
+## [0.36.0] - 2026-08-16
+
+### 新增
+
+- Web 批量修复工作台（保守版）：扫描详情页 issue 中心新增勾选
+  列 + 批量提案表单（source_path 必填）；POST
+  /ui/scans/{run}/repairs/batch-propose 对选中 issue 批量生成
+  规则引擎提案（不依赖 LLM），结果页按 proposed / unsupported /
+  error 分组展示（操作/列/风险/影响行数），每条附修复工作台
+  入口。提案不写数据——apply 仍走单条工作台（写路径零新增）。
+- 未选 issue 提交 → 400。
+
+
 
 ### 新增
 
