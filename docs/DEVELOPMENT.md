@@ -1009,3 +1009,16 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - 测试坑：`--all` 需显式注册（argparse store_true），getattr 兜底会静默
   走 ValueError→EXIT_CONFIG(2)；--all 对 apply 必须跳过无提案 issue，
   否则整组 error。
+
+
+## V37：对比页 FIXED 修复上下文（v0.42）
+
+- 对比页 FIXED 组显示关联 applied 修复：匹配 repair.dataset_id ==
+  ref run dataset_id 且 {op.column} 与组 columns 交集非空；显示
+  run id/操作/日期，链接 /ui/repairs#{run.id}。
+- 修复历史页每行 `<tr id="{run.id}">` 支持深链。
+- 踩坑 1：组 key 的 columns 是逗号连接字符串——set("name") 会拆成
+  字符集导致交集恒空；须先 split(",") 再取 set。
+- 踩坑 2：run.id 前缀即 "rep_"——锚点 id 直接 {run.id}，别再拼 "rep-"
+  前缀（否则 id="rep-rep_xxx"）。
+- i18n 新 key：ui.fixed_by（en "fixed by" / zh "由修复"）。
