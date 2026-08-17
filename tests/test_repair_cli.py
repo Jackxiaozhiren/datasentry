@@ -222,6 +222,34 @@ class TestRepairCli:
         assert out["failed"] == 0
         assert all(r["status"] == "rolled_back" for r in out["rolled_back"])
 
+    def test_repair_list_run_filter_cli(
+        self, repair_csv: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """V38：repair list --run 只返回该 run 数据集上的修复。"""
+        scan = _scan_run(repair_csv, workspace)
+        client = _client(workspace)
+        issue = _issue_for_detector(repair_csv, workspace, "leading_or_trailing_whitespace")
+        client.repair_apply(issue.id, repair_csv)
+        client.close()
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "repair",
+                "list",
+                "--run",
+                scan,
+            ]
+        )
+        assert code == 0
+        listing = json.loads(capsys.readouterr().out)["data"]["runs"]
+        assert listing, "expected at least one repair for the run's dataset"
+        assert all(
+            r["dataset_id"] == "customers.csv" or r["dataset_id"] == "customers" for r in listing
+        )
+
     def test_repair_apply_batch_unknown_issue_partial(
         self, repair_csv: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

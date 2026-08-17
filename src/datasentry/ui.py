@@ -704,7 +704,11 @@ def render_batch_apply(
                 f"<td>{escape(run.id)}</td>"
                 f"<td>{escape(ops)}</td>"
                 f"<td>{rows_changed}</td>"
-                f'<td><a href="{rollback}">{escape(t(lang, "ui.rollback_link"))}</a></td>'
+                "<td>"
+                f'<form method="post" action="{rollback}">'
+                f'<button class="linklike" type="submit">'
+                f"{escape(t(lang, 'ui.rollback_link'))}</button>"
+                "</form></td>"
             )
             check = (
                 f'<td><input type="checkbox" name="repair_run_ids" '

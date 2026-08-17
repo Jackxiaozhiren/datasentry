@@ -746,7 +746,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         """V32：修复历史页——所有修复 run + 回滚入口。"""
         return HTMLResponse(ui.render_repairs(client.list_repair_runs(), lang=lang))
 
-    @app.get("/ui/repairs/{repair_run_id}/rollback", response_class=HTMLResponse, tags=["ui"])
+    @app.post("/ui/repairs/{repair_run_id}/rollback", response_class=HTMLResponse, tags=["ui"])
     def ui_repairs_rollback(repair_run_id: str) -> Response:
         try:
             client.repair_rollback(repair_run_id)

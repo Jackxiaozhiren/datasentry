@@ -4,7 +4,16 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.42.0] - 2026-08-17
+## [0.43.0] - 2026-08-17
+
+### 新增
+
+- 单条回滚从 GET 链接改为 POST 表单（写操作不再由 GET 触发）：
+  修复历史页与批量应用结果页均为表单按钮；顺带修复批量应用
+  结果页单条回滚链接指向 POST 端点导致 405 的问题。
+- `repair list --run <scan_run_id>`：按 run 数据集过滤修复记录。
+
+
 
 ### 新增
 

@@ -798,9 +798,14 @@ def _resolve_issue_ids(client: DataSentry, args: argparse.Namespace) -> list[str
 
 
 def _cmd_repair_list(args: argparse.Namespace) -> int:
-    """列出修复执行记录。"""
+    """列出修复执行记录（--run 过滤到单个扫描 run 的修复）。"""
     client = DataSentry(args.project)
     runs = client.list_repair_runs()
+    if getattr(args, "run", None):
+        target = client.get_scan(args.run)
+        if target is None:
+            raise ValueError(f"scan run not found: {args.run}")
+        runs = [r for r in runs if r.dataset_id == target.dataset_id]
     data = {
         "runs": [
             {
@@ -1727,6 +1732,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_rollback_batch.add_argument("run_ids", type=str, help="comma-separated repair run ids")
     p_rollback_batch.set_defaults(func=_cmd_repair_rollback_batch)
     p_runs = repair_sub.add_parser("list", help="list repair runs")
+    p_runs.add_argument("--run", type=str, default="", help="filter to a scan run's dataset")
     p_runs.set_defaults(func=_cmd_repair_list)
 
     p_job = sub.add_parser(

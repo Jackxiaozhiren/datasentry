@@ -339,7 +339,7 @@ class TestTrendsPage:
         m = re.search(r"/ui/repairs/(rep_[0-9a-f]+)/rollback", resp.text)
         assert m is not None
         repair_run_id = m.group(1)
-        back = client.get(f"/ui/repairs/{repair_run_id}/rollback")
+        back = client.post(f"/ui/repairs/{repair_run_id}/rollback")
         assert back.status_code == 303
         assert back.headers["location"] == "/ui/repairs"
         after = client.get("/ui/repairs")
