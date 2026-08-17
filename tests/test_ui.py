@@ -292,6 +292,47 @@ class TestTrendsPage:
         )
         assert resp.status_code == 400
 
+    def test_batch_apply_flow(self, tmp_path: Path) -> None:
+        """V31：提案页勾选 → 批量 apply → 结果页（applied + 回滚链接 + 文件已修复）。"""
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        issues = client.get(f"/scans/{run_id}/issues").json()
+        ids = [i["id"] for i in issues[:2]]
+        propose = client.post(
+            f"/ui/scans/{run_id}/repairs/batch-propose",
+            data={"source_path": str(csv), "issue_ids": ids},
+        )
+        assert propose.status_code == 200
+        assert "batch-apply-form" in propose.text
+        assert "batch-apply-btn" in propose.text
+        before = csv.read_text()
+        resp = client.post(
+            f"/ui/scans/{run_id}/repairs/batch-apply",
+            data={"source_path": str(csv), "issue_ids": ids},
+        )
+        assert resp.status_code == 200
+        assert "Batch repair — applied" in resp.text
+        assert "applied" in resp.text
+        assert "rollback" in resp.text
+        assert csv.read_text() == before
+        copies = list((tmp_path / ".datasentry" / "repairs").glob("rep_*.csv"))
+        assert len(copies) >= 1
+        assert " alice " not in copies[0].read_text()
+
+    def test_batch_apply_no_selection(self, tmp_path: Path) -> None:
+        """V31：未选 issue → 400，且不写文件。"""
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        before = csv.read_text()
+        resp = client.post(
+            f"/ui/scans/{run_id}/repairs/batch-apply",
+            data={"source_path": str(csv)},
+        )
+        assert resp.status_code == 400
+        assert csv.read_text() == before
+
     def test_ui_scan_batch_banner(self, tmp_path: Path) -> None:
         """V27：批量扫描完成 → 汇总横幅（消费式，一次渲染后清除）。"""
         client = TestClient(create_app(project=tmp_path), follow_redirects=False)

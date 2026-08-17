@@ -493,7 +493,10 @@ def render_batch_repair(
     source_path: str = "",
     lang: str = "en",
 ) -> str:
-    """V30：批量修复提案结果页（只生成提案，不应用——apply 走单条工作台）。"""
+    """V30：批量修复提案结果页（只生成提案，不应用——apply 走单条工作台）。
+
+    V31：提案行可勾选 → 批量 apply（写数据，需用户显式提交）。
+    """
     rows = []
     for issue in issues:
         prop = proposals.get(issue.id)
@@ -506,16 +509,21 @@ def render_batch_repair(
                 f"<td>{escape(prop.risk_level.value)}</td>"
                 f"<td>{prop.estimated_rows_changed}</td>"
             )
+            check = (
+                f'<td><input type="checkbox" name="issue_ids" '
+                f'value="{escape(issue.id)}" class="apply-check"></td>'
+            )
         elif err:
             badge = f'<td class="badge badge-critical">{escape(t(lang, "ui.error"))}</td>'
             cells = f'<td colspan="4" class="meta">{escape(err)}</td>'
+            check = "<td></td>"
         else:
             badge = f'<td class="badge">{escape(t(lang, "ui.unsupported"))}</td>'
             cells = f'<td colspan="4" class="meta">{escape(t(lang, "ui.no_proposal_hint"))}</td>'
+            check = "<td></td>"
         title_cell = escape(mask_text_pii(translate_title(lang, issue.title, issue.issue_type)))
         rows.append(
-            "<tr>"
-            f'<td><a href="/ui/scans/{escape(run_id)}/issues/{escape(issue.id)}">'
+            "<tr>" + check + f'<td><a href="/ui/scans/{escape(run_id)}/issues/{escape(issue.id)}">'
             f"{escape(issue.id)}</a></td>"
             f"<td>{title_cell}</td>"
             + badge
@@ -532,12 +540,83 @@ def render_batch_repair(
         '<p class="meta">'
         f'<a href="/ui/scans/{escape(run_id)}">{escape(t(lang, "ui.back_to_scan"))}</a></p>',
         summary,
-        "<table><tr><th>issue</th><th>title</th><th>status</th><th>operation</th>"
-        "<th>columns</th><th>risk</th><th>rows</th><th></th></tr>" + "".join(rows) + "</table>",
+        '<form method="post" '
+        f'action="/ui/scans/{escape(run_id)}/repairs/batch-apply" '
+        'id="batch-apply-form">'
+        f'<input type="hidden" name="source_path" value="{escape(source_path)}">'
+        f'<p class="meta">{escape(t(lang, "ui.batch_apply_note"))}</p>'
+        "<table><tr><th></th><th>issue</th><th>title</th><th>status</th><th>operation</th>"
+        "<th>columns</th><th>risk</th><th>rows</th><th></th></tr>" + "".join(rows) + "</table>"
+        f'<button type="submit" id="batch-apply-btn" disabled>'
+        f"{escape(t(lang, 'ui.batch_apply'))}</button>"
+        "</form>"
+        "<script>(function () {"
+        'var btn = document.getElementById("batch-apply-btn");'
+        "if (!btn) return;"
+        "function sync() {"
+        "var n = document.querySelectorAll('.apply-check:checked').length;"
+        "btn.disabled = n === 0;"
+        "}"
+        "document.addEventListener('change', sync);"
+        "})();</script>",
         f'<p class="meta">{escape(t(lang, "ui.batch_propose_note"))}</p>',
     ]
     return _page(
         t(lang, "ui.batch_repair_title"),
+        "\n".join(body),
+        active="scans",
+        lang=lang,
+    )
+
+
+def render_batch_apply(
+    run_id: str,
+    issues: list[Issue],
+    runs: dict[str, RepairRun],
+    errors: dict[str, str],
+    *,
+    source_path: str = "",
+    lang: str = "en",
+) -> str:
+    """V31：批量 apply 结果页——每行 applied（含回滚链接）或 error。"""
+    rows = []
+    for issue in issues:
+        run = runs.get(issue.id)
+        err = errors.get(issue.id)
+        if run is not None:
+            rollback = f"/ui/scans/{escape(run_id)}/repairs/{escape(run.id)}/rollback"
+            ops = ", ".join(sorted({str(op.operation) for op in run.operations})) or "—"
+            rows_changed = len(run.operations)
+            status_cell = (
+                f'<td class="badge badge-ok">{escape(t(lang, "ui.applied"))}</td>'
+                f"<td>{escape(run.id)}</td>"
+                f"<td>{escape(ops)}</td>"
+                f"<td>{rows_changed}</td>"
+                f'<td><a href="{rollback}">{escape(t(lang, "ui.rollback_link"))}</a></td>'
+            )
+        else:
+            status_cell = (
+                f'<td class="badge badge-critical">{escape(t(lang, "ui.error"))}</td>'
+                f'<td colspan="4" class="meta">{escape(err or "")}</td>'
+            )
+        title_cell = escape(mask_text_pii(translate_title(lang, issue.title, issue.issue_type)))
+        rows.append(
+            "<tr>"
+            f'<td><a href="/ui/scans/{escape(run_id)}/issues/{escape(issue.id)}">'
+            f"{escape(issue.id)}</a></td>"
+            f"<td>{title_cell}</td>" + status_cell + "</tr>"
+        )
+    body = [
+        f'<p class="meta">{escape(t(lang, "ui.batch_apply_summary"))}: '
+        f"{len(runs)} / {len(issues)} · {escape(source_path)}</p>",
+        '<p class="meta">'
+        f'<a href="/ui/scans/{escape(run_id)}">{escape(t(lang, "ui.back_to_scan"))}</a></p>',
+        "<table><tr><th>issue</th><th>title</th><th>status</th><th>run id</th>"
+        "<th>operation</th><th>rows</th><th></th></tr>" + "".join(rows) + "</table>",
+        f'<p class="meta">{escape(t(lang, "ui.batch_apply_done_note"))}</p>',
+    ]
+    return _page(
+        t(lang, "ui.batch_apply_title"),
         "\n".join(body),
         active="scans",
         lang=lang,

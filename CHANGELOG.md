@@ -4,7 +4,21 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.36.0] - 2026-08-16
+## [0.37.0] - 2026-08-16
+
+### 新增
+
+- Web 批量应用修复（保守增强）：批量提案结果页新增勾选列
+  + “应用所选（写入数据）”按钮（≥1 勾选才可用）→ POST
+  /ui/scans/{run}/repairs/batch-apply 逐条执行修复，结果页按
+  applied / error 分组展示（操作/行数/run id），每条含回滚
+  链接（复用既有回滚端点）。源文件永不覆盖——每次应用生成
+  修复副本与 before 快照。
+- 新增 i18n：ui.batch_apply / ui.batch_apply_note /
+  ui.batch_apply_summary / ui.batch_apply_title /
+  ui.batch_apply_done_note / ui.applied / ui.rollback_link（en/zh）。
+
+
 
 ### 新增
 

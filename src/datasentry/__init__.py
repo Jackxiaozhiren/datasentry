@@ -2,6 +2,6 @@
 
 from datasentry.client import DataSentry
 
-__version__ = "0.36.0"
+__version__ = "0.37.0"
 
 __all__ = ["DataSentry", "__version__"]
