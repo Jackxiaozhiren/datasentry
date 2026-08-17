@@ -546,18 +546,33 @@ def render_batch_repair(
         'id="batch-apply-form">'
         f'<input type="hidden" name="source_path" value="{escape(source_path)}">'
         f'<p class="meta">{escape(t(lang, "ui.batch_apply_note"))}</p>'
-        "<table><tr><th></th><th>issue</th><th>title</th><th>status</th><th>operation</th>"
+        "<table><tr><th>"
+        '<input type="checkbox" id="select-all" aria-label="select all">'
+        "</th><th>issue</th><th>title</th><th>status</th><th>operation</th>"
         "<th>columns</th><th>risk</th><th>rows</th><th></th></tr>" + "".join(rows) + "</table>"
         f'<button type="submit" id="batch-apply-btn" disabled>'
         f"{escape(t(lang, 'ui.batch_apply'))}</button>"
         "</form>"
         "<script>(function () {"
         'var btn = document.getElementById("batch-apply-btn");'
-        "if (!btn) return;"
+        'var all = document.getElementById("select-all");'
+        "if (!btn || !all) return;"
         "function sync() {"
-        "var n = document.querySelectorAll('.apply-check:checked').length;"
-        "btn.disabled = n === 0;"
+        "var checks = document.querySelectorAll('.apply-check');"
+        "var n = 0;"
+        "for (var i = 0; i < checks.length; i++) {"
+        "if (checks[i].checked) n++;"
         "}"
+        "btn.disabled = n === 0;"
+        "all.checked = n > 0 && n === checks.length;"
+        "}"
+        "all.addEventListener('change', function () {"
+        "var checks = document.querySelectorAll('.apply-check');"
+        "for (var i = 0; i < checks.length; i++) {"
+        "checks[i].checked = all.checked;"
+        "}"
+        "sync();"
+        "});"
         "document.addEventListener('change', sync);"
         "})();</script>",
         f'<p class="meta">{escape(t(lang, "ui.batch_propose_note"))}</p>',
@@ -566,6 +581,50 @@ def render_batch_repair(
         t(lang, "ui.batch_repair_title"),
         "\n".join(body),
         active="scans",
+        lang=lang,
+    )
+
+
+def render_batch_rollback(
+    runs: list[RepairRun],
+    errors: dict[str, str],
+    *,
+    lang: str = "en",
+) -> str:
+    """V34：批量回滚结果页——每行 rolled back 或 error。"""
+    rows = []
+    for run in runs:
+        err = errors.get(run.id)
+        if err is None:
+            status_cell = (
+                f'<td class="badge">{escape(t(lang, "ui.repair_status_rolled_back"))}</td>'
+                "<td>—</td>"
+            )
+        else:
+            status_cell = (
+                f'<td class="badge badge-critical">{escape(t(lang, "ui.error"))}</td>'
+                f'<td colspan="2" class="meta">{escape(err)}</td>'
+            )
+        ops = ", ".join(sorted({str(op.operation) for op in run.operations})) or "—"
+        rows.append(
+            "<tr>"
+            f"<td>{escape(run.id)}</td>"
+            f"<td>{escape(run.dataset_id)}</td>"
+            f"<td>{escape(ops)}</td>" + status_cell + "</tr>"
+        )
+    body = [
+        f'<p class="meta">{escape(t(lang, "ui.batch_rollback_summary"))}: '
+        f"{len(runs) - len(errors)} / {len(runs)}</p>",
+        '<p class="meta">'
+        f'<a href="/ui/repairs">{escape(t(lang, "ui.repairs_title"))}</a>'
+        f" · <a href='/ui/scans'>{escape(t(lang, 'ui.nav_scans'))}</a></p>",
+        "<table><tr><th>run id</th><th>dataset</th><th>operation</th><th>status</th>"
+        "<th>rows</th></tr>" + "".join(rows) + "</table>",
+    ]
+    return _page(
+        t(lang, "ui.batch_rollback_title"),
+        "\n".join(body),
+        active="repairs",
         lang=lang,
     )
 
@@ -628,7 +687,10 @@ def render_batch_apply(
     source_path: str = "",
     lang: str = "en",
 ) -> str:
-    """V31：批量 apply 结果页——每行 applied（含回滚链接）或 error。"""
+    """V31：批量 apply 结果页——每行 applied（含回滚链接）或 error。
+
+    V34：applied 行可勾选 → 批量回滚（写数据，需用户显式提交）。
+    """
     rows = []
     for issue in issues:
         run = runs.get(issue.id)
@@ -644,15 +706,19 @@ def render_batch_apply(
                 f"<td>{rows_changed}</td>"
                 f'<td><a href="{rollback}">{escape(t(lang, "ui.rollback_link"))}</a></td>'
             )
+            check = (
+                f'<td><input type="checkbox" name="repair_run_ids" '
+                f'value="{escape(run.id)}" class="rollback-check"></td>'
+            )
         else:
             status_cell = (
                 f'<td class="badge badge-critical">{escape(t(lang, "ui.error"))}</td>'
                 f'<td colspan="4" class="meta">{escape(err or "")}</td>'
             )
+            check = "<td></td>"
         title_cell = escape(mask_text_pii(translate_title(lang, issue.title, issue.issue_type)))
         rows.append(
-            "<tr>"
-            f'<td><a href="/ui/scans/{escape(run_id)}/issues/{escape(issue.id)}">'
+            "<tr>" + check + f'<td><a href="/ui/scans/{escape(run_id)}/issues/{escape(issue.id)}">'
             f"{escape(issue.id)}</a></td>"
             f"<td>{title_cell}</td>" + status_cell + "</tr>"
         )
@@ -661,8 +727,24 @@ def render_batch_apply(
         f"{len(runs)} / {len(issues)} · {escape(source_path)}</p>",
         '<p class="meta">'
         f'<a href="/ui/scans/{escape(run_id)}">{escape(t(lang, "ui.back_to_scan"))}</a></p>',
-        "<table><tr><th>issue</th><th>title</th><th>status</th><th>run id</th>"
-        "<th>operation</th><th>rows</th><th></th></tr>" + "".join(rows) + "</table>",
+        '<form method="post" '
+        f'action="/ui/scans/{escape(run_id)}/repairs/batch-rollback" '
+        'id="batch-rollback-form">'
+        f'<p class="meta">{escape(t(lang, "ui.batch_rollback_note"))}</p>'
+        "<table><tr><th></th><th>issue</th><th>title</th><th>status</th><th>run id</th>"
+        "<th>operation</th><th>rows</th><th></th></tr>" + "".join(rows) + "</table>"
+        f'<button type="submit" id="batch-rollback-btn" disabled>'
+        f"{escape(t(lang, 'ui.rollback_selected'))}</button>"
+        "</form>"
+        "<script>(function () {"
+        'var btn = document.getElementById("batch-rollback-btn");'
+        "if (!btn) return;"
+        "function sync() {"
+        "var n = document.querySelectorAll('.rollback-check:checked').length;"
+        "btn.disabled = n === 0;"
+        "}"
+        "document.addEventListener('change', sync);"
+        "})();</script>",
         f'<p class="meta">{escape(t(lang, "ui.batch_apply_done_note"))}</p>',
     ]
     return _page(

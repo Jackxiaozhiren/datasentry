@@ -716,6 +716,31 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             )
         )
 
+    @app.post(
+        "/ui/scans/{run_id}/repairs/batch-rollback",
+        response_class=HTMLResponse,
+        tags=["ui"],
+    )
+    def ui_batch_repair_rollback(
+        run_id: str,
+        repair_run_ids: Annotated[list[str] | None, Form()] = None,
+    ) -> HTMLResponse:
+        """V34：批量回滚（写数据；结果页含状态）。"""
+        repair_run_ids = repair_run_ids or []
+        if not repair_run_ids:
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.scan_failed"), "no repair runs selected"),
+                status_code=400,
+            )
+        runs: list[RepairRun] = []
+        errors: dict[str, str] = {}
+        for repair_run_id in repair_run_ids:
+            try:
+                runs.append(client.repair_rollback(repair_run_id))
+            except Exception as exc:
+                errors[repair_run_id] = str(exc)
+        return HTMLResponse(ui.render_batch_rollback(runs, errors))
+
     @app.get("/ui/repairs", response_class=HTMLResponse, tags=["ui"])
     def ui_repairs(lang: str = "en") -> HTMLResponse:
         """V32：修复历史页——所有修复 run + 回滚入口。"""

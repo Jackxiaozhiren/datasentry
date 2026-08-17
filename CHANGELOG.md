@@ -4,7 +4,19 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.39.0] - 2026-08-16
+## [0.40.0] - 2026-08-16
+
+### 新增
+
+- 批量回滚：批量 apply 结果页 applied 行新增勾选列 +「Roll back
+  selected (writes data)」按钮（≥1 勾选才可用）→ POST
+  /ui/scans/{run}/repairs/batch-rollback 逐条回滚，结果页按
+  rolled back / error 分组，附历史页与扫描页回链。
+- 批量提案页表头全选 checkbox（联动勾选列与按钮状态）。
+- 新增 i18n：ui.batch_rollback_note / ui.rollback_selected /
+  ui.batch_rollback_title / ui.batch_rollback_summary（en/zh）。
+
+
 
 ### 新增
 

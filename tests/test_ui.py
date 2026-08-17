@@ -353,6 +353,51 @@ class TestTrendsPage:
         assert resp.status_code == 200
         assert "No repairs yet" in resp.text
 
+    def test_batch_rollback_flow(self, tmp_path: Path) -> None:
+        """V34：批量 apply 后勾选 → 批量回滚 → 结果页 + 历史页全部 rolled back。"""
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        issues = client.get(f"/scans/{run_id}/issues").json()
+        ids = [i["id"] for i in issues[:2]]
+        apply = client.post(
+            f"/ui/scans/{run_id}/repairs/batch-apply",
+            data={"source_path": str(csv), "issue_ids": ids},
+        )
+        assert apply.status_code == 200
+        assert "batch-rollback-form" in apply.text
+        assert "batch-rollback-btn" in apply.text
+        import re as _re
+
+        run_ids = _re.findall(r'name="repair_run_ids" value="(rep_[0-9a-f]+)"', apply.text)
+        assert len(run_ids) >= 1
+        copies_before = list((tmp_path / ".datasentry" / "repairs").glob("rep_*.csv"))
+        resp = client.post(
+            f"/ui/scans/{run_id}/repairs/batch-rollback",
+            data={"repair_run_ids": run_ids},
+        )
+        assert resp.status_code == 200
+        assert "Batch rollback" in resp.text
+        assert "rolled back" in resp.text
+        history = client.get("/ui/repairs")
+        assert "rolled back" in history.text
+        copies_after = list((tmp_path / ".datasentry" / "repairs").glob("rep_*.csv"))
+        assert len(copies_after) > len(copies_before), "rollback snapshots expected"
+
+    def test_batch_propose_select_all(self, tmp_path: Path) -> None:
+        """V34：提案页表头全选 checkbox。"""
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        issues = client.get(f"/scans/{run_id}/issues").json()
+        ids = [i["id"] for i in issues[:2]]
+        resp = client.post(
+            f"/ui/scans/{run_id}/repairs/batch-propose",
+            data={"source_path": str(csv), "issue_ids": ids},
+        )
+        assert resp.status_code == 200
+        assert 'id="select-all"' in resp.text
+
     def test_batch_apply_flow(self, tmp_path: Path) -> None:
         """V31：提案页勾选 → 批量 apply → 结果页（applied + 回滚链接 + 文件已修复）。"""
         client = TestClient(create_app(project=tmp_path))
