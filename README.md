@@ -268,8 +268,26 @@ flowchart LR
 | Scheduling | cron jobs, manual triggers, run history (pruned), webhooks, quality gates, change-aware skip — CLI / REST / MCP 三面同语义 |
 | Distributed | `datasentry worker` nodes; pool routing with failover + cooldown + health checks; parallel dispatch (`DATASENTRY_MAX_WORKERS`) |
 | Plugins | `plugin.yaml` metadata, install/uninstall, integrity locks, test sandbox (three-state exit codes) |
-| Interfaces | CLI · REST API · Web UI (`/ui`, `/ui/trends`) · MCP stdio (20 tools) |
+| Interfaces | CLI · REST API · Web UI (`/ui`, `/ui/scans`, `/ui/trends`, `/ui/compare`, `/ui/repairs`) · MCP stdio (20 tools) |
 | Engineering | 11-stage CI, wheel build + isolated install smoke, 1e6-row benchmark gate |
+
+## Web repair workflow
+
+The web UI closes the full loop — **scan → compare → propose → apply → rollback** — all batchable:
+
+1. **Scan** a file (`POST /scans` or the web form); batch paths with commas / newlines / globs.
+2. **Compare** two runs (`/ui/compare?runs=a&runs=b`) — dimension deltas, severity shifts,
+   column drift, schema changes, and an issue-level diff split into **NEW / FIXED / persistent**;
+   every NEW group carries a one-click **propose repair** button (issue ids + source path prefilled).
+3. **Propose** repairs in batch (`POST /ui/scans/{run}/repairs/batch-propose`) — checkbox-select
+   issues on the scan detail page (source path prefilled from the scan), select-all supported.
+   Proposals are rule-engine generated and **never write data**.
+4. **Apply** selected proposals (`POST /ui/scans/{run}/repairs/batch-apply`) — each repair writes a
+   repaired copy + `before` snapshot under `.datasentry/repairs/`; the source file is never overwritten.
+5. **Roll back** any applied repair, individually (`/ui/repairs/{run}/rollback`) or in batch
+   (`POST /ui/scans/{run}/repairs/batch-rollback`) — every apply is undoable via its snapshot.
+6. **Audit** everything on the repair history page (`/ui/repairs`): run id, dataset, operations,
+   rows touched, status (applied / rolled back / failed), timestamps.
 
 ## Documentation
 
@@ -284,6 +302,7 @@ flowchart LR
 
 - [Detecting data quality issues with LLM-assisted tooling](.growth/blog-1-detect-quality-en.md) — why detection stays statistical while LLMs translate and suggest; a full walkthrough on real data. (中文版：[用 LLM 做数据质量检测，我把「检测」和「建议」分开了](.growth/blog-1-detect-quality-zh.md))
 - [Great Expectations vs DataSentry: two ways to care about data quality](.growth/blog-2-ge-vs-datasentry-en.md) — assertion frameworks vs detection frameworks, and where they complement each other.
+- [Detect → fix → verify: the data quality loop](.growth/blog-3-repair-loop-en.md) — how the batch repair workbench (v0.30–v0.40) closes the loop with proposals, applied copies, and rollbacks. (中文版：[检测 → 修复 → 验证：数据质量闭环](.growth/blog-3-repair-loop-zh.md))
 
 ## Development
 

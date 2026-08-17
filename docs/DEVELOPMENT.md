@@ -988,3 +988,11 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
   - 凭据 grep 审计命令（发布前跑）：
     `grep -rInE --exclude-dir={.git,__pycache__,.venv} "postgresql://[^:]+:[^@/ ]+@|mysql://[^:]+:[^@/ ]+@|passwd=[^ ]+" src packages tests examples docs`
     预期仅剩净化正则与占位符（user:pass / testpass / minioadmin）
+
+
+## V35：Web 修复闭环与文档（v0.40）
+
+- v0.31–v0.40 批量修复工作流：提案零写 → 应用写副本（源文件永不覆盖）
+  → 回滚单条/批量；source_path 持久化（schema v9，scan_runs.source_path）。
+- 对比页 NEW 组一键提案：hidden issue ids + 预填源路径。
+- README 新增「Web repair workflow」小节；blog-3（en/zh）总结闭环。
