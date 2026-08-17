@@ -4,7 +4,21 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.40.0] - 2026-08-16
+## [0.41.0] - 2026-08-16
+
+### 新增
+
+- CLI 批量修复命令（脚本/CI 闭环，与 Web 批量工作流同语义）：
+  - `repair propose-batch <run> --file <path> [--issues a,b | --all]`
+    逐 issue 生成规则引擎提案（unsupported 单独标记）；
+  - `repair apply-batch <run> --file <path> [--issues a,b | --all]`
+    逐条写修复副本 + before 快照（源文件不覆盖；无提案 issue
+    跳过并标记 no_proposal，不视为错误）；
+  - `repair rollback-batch <run_ids>` 逐条回滚。
+  - 部分失败退出码 4（EXIT_SOURCE_UNAVAILABLE），json 输出
+    applied/issues + errors 明细。
+
+
 
 ### 新增
 

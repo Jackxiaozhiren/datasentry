@@ -696,6 +696,107 @@ def _cmd_repair_rollback(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_repair_propose_batch(args: argparse.Namespace) -> int:
+    """V36：批量提案——run 下多个 issue（--issues 逗号分隔或 --all）。"""
+    client = DataSentry(args.project)
+    issue_ids = _resolve_issue_ids(client, args)
+    results: list[dict[str, Any]] = []
+    errors: dict[str, str] = {}
+    for issue_id in issue_ids:
+        try:
+            proposal = client.repair_propose(issue_id, args.file)
+        except Exception as exc:
+            errors[issue_id] = str(exc)
+            continue
+        if proposal is None:
+            results.append({"issue_id": issue_id, "proposed": False})
+            continue
+        results.append(
+            {
+                "issue_id": issue_id,
+                "proposed": True,
+                "operation": proposal.operation.value,
+                "target_columns": proposal.target_columns,
+                "estimated_rows_changed": proposal.estimated_rows_changed,
+                "rationale": proposal.rationale,
+            }
+        )
+    _emit(
+        _envelope(
+            "repair propose-batch",
+            {"issues": results, "errors": errors, "failed": len(errors)},
+        ),
+        args.format,
+    )
+    return EXIT_SOURCE_UNAVAILABLE if errors else EXIT_OK
+
+
+def _cmd_repair_apply_batch(args: argparse.Namespace) -> int:
+    """V36：批量应用——逐条写修复副本 + before 快照（源文件不覆盖）。"""
+    client = DataSentry(args.project)
+    issue_ids = _resolve_issue_ids(client, args)
+    results: list[dict[str, Any]] = []
+    errors: dict[str, str] = {}
+    for issue_id in issue_ids:
+        try:
+            if client.repair_propose(issue_id, args.file) is None:
+                results.append({"issue_id": issue_id, "applied": False, "reason": "no_proposal"})
+                continue
+            run = client.repair_apply(issue_id, args.file)
+        except Exception as exc:
+            errors[issue_id] = str(exc)
+            continue
+        results.append(
+            {
+                "issue_id": issue_id,
+                "applied": True,
+                "run_id": run.id,
+                "fingerprint_before": run.fingerprint_before,
+                "fingerprint_after": run.fingerprint_after,
+                "changed": run.fingerprint_before != run.fingerprint_after,
+            }
+        )
+    _emit(
+        _envelope(
+            "repair apply-batch",
+            {"applied": results, "errors": errors, "failed": len(errors)},
+        ),
+        args.format,
+    )
+    return EXIT_SOURCE_UNAVAILABLE if errors else EXIT_OK
+
+
+def _cmd_repair_rollback_batch(args: argparse.Namespace) -> int:
+    """V36：批量回滚——逐条恢复 before 快照。"""
+    client = DataSentry(args.project)
+    results: list[dict[str, Any]] = []
+    errors: dict[str, str] = {}
+    for run_id in [r.strip() for r in args.run_ids.split(",") if r.strip()]:
+        try:
+            run = client.repair_rollback(run_id)
+        except Exception as exc:
+            errors[run_id] = str(exc)
+            continue
+        results.append({"run_id": run.id, "status": run.status.value})
+    _emit(
+        _envelope(
+            "repair rollback-batch",
+            {"rolled_back": results, "errors": errors, "failed": len(errors)},
+        ),
+        args.format,
+    )
+    return EXIT_SOURCE_UNAVAILABLE if errors else EXIT_OK
+
+
+def _resolve_issue_ids(client: DataSentry, args: argparse.Namespace) -> list[str]:
+    """batch 命令共用：--issues 逗号分隔（缺省 = run 下全部 issues）。"""
+    if getattr(args, "issues", None):
+        return [i.strip() for i in args.issues.split(",") if i.strip()]
+    if getattr(args, "all", False):
+        return [i.id for i in client.list_issues(scan_run_id=args.run)]
+    raise ValueError("specify --issues or --all")
+
+
 def _cmd_repair_list(args: argparse.Namespace) -> int:
     """列出修复执行记录。"""
     client = DataSentry(args.project)
@@ -1606,6 +1707,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_rollback = repair_sub.add_parser("rollback", help="rollback a repair run")
     p_rollback.add_argument("run_id", type=str)
     p_rollback.set_defaults(func=_cmd_repair_rollback)
+    p_propose_batch = repair_sub.add_parser("propose-batch", help="batch proposals for a scan run")
+    p_propose_batch.add_argument("run", type=str, help="scan run id")
+    p_propose_batch.add_argument("--file", type=str, required=True, help="source data file")
+    p_propose_batch.add_argument("--issues", type=str, default="", help="comma-separated issue ids")
+    p_propose_batch.add_argument(
+        "--all", action="store_true", help="all issues of the run (default when no --issues)"
+    )
+    p_propose_batch.set_defaults(func=_cmd_repair_propose_batch)
+    p_apply_batch = repair_sub.add_parser("apply-batch", help="batch apply repairs for a run")
+    p_apply_batch.add_argument("run", type=str, help="scan run id")
+    p_apply_batch.add_argument("--file", type=str, required=True, help="source data file")
+    p_apply_batch.add_argument("--issues", type=str, default="", help="comma-separated issue ids")
+    p_apply_batch.add_argument(
+        "--all", action="store_true", help="all issues of the run (default when no --issues)"
+    )
+    p_apply_batch.set_defaults(func=_cmd_repair_apply_batch)
+    p_rollback_batch = repair_sub.add_parser("rollback-batch", help="batch rollback repair runs")
+    p_rollback_batch.add_argument("run_ids", type=str, help="comma-separated repair run ids")
+    p_rollback_batch.set_defaults(func=_cmd_repair_rollback_batch)
     p_runs = repair_sub.add_parser("list", help="list repair runs")
     p_runs.set_defaults(func=_cmd_repair_list)
 

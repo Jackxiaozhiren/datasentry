@@ -40,6 +40,19 @@ def _issue_for_detector(repair_csv: Path, workspace: Path, detector_id: str):
     return next(i for i in issues if detector_id in i.detector_ids)
 
 
+def _client(workspace: Path) -> DataSentry:
+    return DataSentry(project=workspace)
+
+
+def _scan_run(repair_csv: Path, workspace: Path) -> str:
+    client = _client(workspace)
+    try:
+        run, _, _ = client.scan_file(repair_csv)
+    finally:
+        client.close()
+    return run.id
+
+
 class TestRepairClient:
     def test_propose_creates_trim_proposal(self, repair_csv: Path, workspace: Path) -> None:
         client = DataSentry(project=workspace)
@@ -148,6 +161,94 @@ def _issue_using(client: DataSentry, repair_csv: Path, detector_id: str):
 
 
 class TestRepairCli:
+    def test_repair_propose_apply_batch_cli(
+        self, repair_csv: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """V36：propose-batch → apply-batch 全流程（--all，部分失败退出码）。"""
+        scan = _scan_run(repair_csv, workspace)
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "repair",
+                "propose-batch",
+                scan,
+                "--file",
+                str(repair_csv),
+                "--all",
+            ]
+        )
+        assert code == 0
+        out = json.loads(capsys.readouterr().out)["data"]
+        assert out["failed"] == 0
+        assert any(r["proposed"] for r in out["issues"])
+
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "repair",
+                "apply-batch",
+                scan,
+                "--file",
+                str(repair_csv),
+                "--all",
+            ]
+        )
+        assert code == 0
+        out = json.loads(capsys.readouterr().out)["data"]
+        assert out["failed"] == 0
+        assert len(out["applied"]) >= 1
+        run_ids = [r["run_id"] for r in out["applied"] if r.get("applied") and "run_id" in r]
+        assert run_ids, "at least one applied run expected"
+
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "repair",
+                "rollback-batch",
+                ",".join(run_ids),
+            ]
+        )
+        assert code == 0
+        out = json.loads(capsys.readouterr().out)["data"]
+        assert out["failed"] == 0
+        assert all(r["status"] == "rolled_back" for r in out["rolled_back"])
+
+    def test_repair_apply_batch_unknown_issue_partial(
+        self, repair_csv: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """V36：未知 issue id → 部分失败（退出码 4 + errors 报告）。"""
+        scan = _scan_run(repair_csv, workspace)
+        issues = _client(workspace).list_issues(scan_run_id=scan)
+        real = issues[0].id if issues else ""
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "repair",
+                "apply-batch",
+                scan,
+                "--file",
+                str(repair_csv),
+                "--issues",
+                f"{real},iss_not_exists",
+            ]
+        )
+        assert code == 4
+        out = json.loads(capsys.readouterr().out)["data"]
+        assert "iss_not_exists" in out["errors"]
+        assert out["failed"] >= 1
+
     def test_repair_apply_list_rollback_cli(
         self, repair_csv: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
