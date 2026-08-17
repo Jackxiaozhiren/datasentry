@@ -134,7 +134,8 @@
       <div class="card"><h3>Six-dimension scoring</h3><p>Completeness, validity, uniqueness, consistency,
         integrity, timeliness — explainable weights, per-dimension contributions.</p></div>
       <div class="card"><h3>Human-in-the-loop repair</h3><p>Propose → preview (rules re-run) → apply
-        (fingerprinted copy) → rollback. AI suggests; you decide.</p></div>
+        (fingerprinted copy) → rollback. AI suggests; you decide. Single or batch — proposals are
+        read-only, applies never overwrite the source file, every apply is undoable via its snapshot.</p></div>
       <div class="card"><h3>Drift engine</h3><p>Compare historical scans: schema, row-count, score and
         issue-distribution drift between versions.</p></div>
       <div class="card"><h3>CI quality gates</h3><p><code>scan --fail-on</code> blocks releases; reports as
@@ -193,6 +194,12 @@
 <span class="prompt">$</span> datasentry score scan_3426008c0380
 <span class="prompt">$</span> datasentry repair propose &lt;issue_id&gt; --file orders.csv
 <span class="prompt">$</span> datasentry drift latest orders
+
+<span class="comment"># batch repair loop (propose → apply copies → rollback; partial failures exit 4)</span>
+<span class="prompt">$</span> datasentry repair propose-batch &lt;scan_run_id&gt; --file orders.csv --all
+<span class="prompt">$</span> datasentry repair apply-batch &lt;scan_run_id&gt; --file orders.csv --all
+<span class="prompt">$</span> datasentry repair rollback-batch run_1,run_2
+<span class="prompt">$</span> datasentry repair list --run &lt;scan_run_id&gt;   <span class="comment"># audit</span>
 
 <span class="comment"># scheduled jobs + distributed workers</span>
 <span class="prompt">$</span> datasentry job create nightly --cron "0 9 * * *" orders.csv
