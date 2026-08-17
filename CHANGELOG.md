@@ -4,7 +4,19 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.37.0] - 2026-08-16
+## [0.38.0] - 2026-08-16
+
+### 新增
+
+- 修复历史页（/ui/repairs）：列出全部修复 run（run id、数据集、
+  操作、行数、状态 applied / rolled_back / failed、创建时间），
+  已应用行含回滚入口（GET /ui/repairs/{run}/rollback，303 回历史页）。
+- 导航栏新增「Repairs / 修复历史」入口。
+- 新增 i18n：ui.nav_repairs / ui.repairs_title / ui.repairs_empty /
+  ui.repair_status_applied / ui.repair_status_rolled_back /
+  ui.repair_status_failed（en/zh）。
+
+
 
 ### 新增
 

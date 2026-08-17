@@ -18,7 +18,7 @@ from typing import Any, cast
 
 from datasentry.trends import DatasetTrend, ScanPoint
 from datasentry_core.models.drift import DriftReport
-from datasentry_core.models.enums import Severity
+from datasentry_core.models.enums import RepairRunStatus, Severity
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
 from datasentry_core.models.scan import ScanConfig, ScanRun
@@ -106,6 +106,7 @@ def _page(title: str, body: str, *, active: str = "", lang: str = "en") -> str:
             f'<a href="/ui/">{escape(t(lang, "ui.nav_home"))}</a>'
             f'<a href="/ui/scans">{escape(t(lang, "ui.nav_scans"))}</a>'
             f'<a href="/ui/trends">{escape(t(lang, "ui.nav_trends"))}</a>'
+            f'<a href="/ui/repairs">{escape(t(lang, "ui.nav_repairs"))}</a>'
             f'<a href="/ui/pii">{escape(t(lang, "ui.nav_pii"))}</a>'
             f'<a href="/api/docs">{escape(t(lang, "ui.nav_api_docs"))}</a>'
             "</nav>",
@@ -565,6 +566,55 @@ def render_batch_repair(
         t(lang, "ui.batch_repair_title"),
         "\n".join(body),
         active="scans",
+        lang=lang,
+    )
+
+
+def render_repairs(
+    runs: list[RepairRun],
+    *,
+    lang: str = "en",
+) -> str:
+    """V32：修复历史页——所有修复 run（状态/操作/行数/时间/回滚入口）。"""
+    if not runs:
+        body = f'<p class="meta">{escape(t(lang, "ui.repairs_empty"))}</p>'
+    else:
+        rows = []
+        for run in sorted(runs, key=lambda r: r.created_at, reverse=True):
+            ops = ", ".join(sorted({str(op.operation) for op in run.operations})) or "—"
+            rows_changed = len(run.operations)
+            if run.status == RepairRunStatus.APPLIED:
+                status_cell = (
+                    f'<td class="badge badge-ok">{escape(t(lang, "ui.repair_status_applied"))}</td>'
+                    f'<td><a href="/ui/repairs/{escape(run.id)}/rollback">'
+                    f"{escape(t(lang, 'ui.rollback_link'))}</a></td>"
+                )
+            elif run.status == RepairRunStatus.ROLLED_BACK:
+                status_cell = (
+                    f'<td class="badge">{escape(t(lang, "ui.repair_status_rolled_back"))}</td>'
+                    "<td></td>"
+                )
+            else:
+                failed_badge = escape(t(lang, "ui.repair_status_failed"))
+                status_cell = f'<td class="badge badge-critical">{failed_badge}</td><td></td>'
+            rows.append(
+                "<tr>"
+                f"<td>{escape(run.id)}</td>"
+                f"<td>{escape(run.dataset_id)}</td>"
+                f"<td>{escape(ops)}</td>"
+                f"<td>{rows_changed}</td>"
+                + status_cell
+                + f"<td>{escape(run.created_at.strftime('%Y-%m-%d %H:%M'))}</td>"
+                "</tr>"
+            )
+        body = (
+            "<table><tr><th>run id</th><th>dataset</th><th>operation</th><th>rows</th>"
+            "<th>status</th><th></th><th>created</th></tr>" + "".join(rows) + "</table>"
+        )
+    return _page(
+        t(lang, "ui.repairs_title"),
+        body,
+        active="repairs",
         lang=lang,
     )
 

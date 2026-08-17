@@ -716,6 +716,21 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             )
         )
 
+    @app.get("/ui/repairs", response_class=HTMLResponse, tags=["ui"])
+    def ui_repairs(lang: str = "en") -> HTMLResponse:
+        """V32：修复历史页——所有修复 run + 回滚入口。"""
+        return HTMLResponse(ui.render_repairs(client.list_repair_runs(), lang=lang))
+
+    @app.get("/ui/repairs/{repair_run_id}/rollback", response_class=HTMLResponse, tags=["ui"])
+    def ui_repairs_rollback(repair_run_id: str) -> Response:
+        try:
+            client.repair_rollback(repair_run_id)
+        except Exception as exc:
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.rollback_failed"), str(exc)), status_code=404
+            )
+        return RedirectResponse(url="/ui/repairs", status_code=303)
+
     @app.get("/ui/compare", response_class=HTMLResponse, tags=["ui"])
     def ui_compare(
         runs: Annotated[list[str], Query(min_length=2, max_length=2)],

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -292,6 +293,39 @@ class TestTrendsPage:
         )
         assert resp.status_code == 400
 
+    def test_repairs_page_flow(self, tmp_path: Path) -> None:
+        """V32：apply 后修复历史页列出 run（applied + 回滚入口）；回滚后状态翻转。"""
+        client = TestClient(create_app(project=tmp_path), follow_redirects=False)
+        csv = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        issues = client.get(f"/scans/{run_id}/issues").json()
+        ids = [i["id"] for i in issues[:2]]
+        client.post(
+            f"/ui/scans/{run_id}/repairs/batch-apply",
+            data={"source_path": str(csv), "issue_ids": ids},
+        )
+        resp = client.get("/ui/repairs")
+        assert resp.status_code == 200
+        assert "Repair history" in resp.text
+        assert "applied" in resp.text
+        assert "/rollback" in resp.text
+        m = re.search(r"/ui/repairs/(rep_[0-9a-f]+)/rollback", resp.text)
+        assert m is not None
+        repair_run_id = m.group(1)
+        back = client.get(f"/ui/repairs/{repair_run_id}/rollback")
+        assert back.status_code == 303
+        assert back.headers["location"] == "/ui/repairs"
+        after = client.get("/ui/repairs")
+        assert "rolled back" in after.text
+        assert "/rollback" not in after.text
+
+    def test_repairs_page_empty(self, tmp_path: Path) -> None:
+        """V32：无修复记录 → 空态文案。"""
+        client = TestClient(create_app(project=tmp_path))
+        resp = client.get("/ui/repairs")
+        assert resp.status_code == 200
+        assert "No repairs yet" in resp.text
+
     def test_batch_apply_flow(self, tmp_path: Path) -> None:
         """V31：提案页勾选 → 批量 apply → 结果页（applied + 回滚链接 + 文件已修复）。"""
         client = TestClient(create_app(project=tmp_path))
@@ -318,7 +352,9 @@ class TestTrendsPage:
         assert csv.read_text() == before
         copies = list((tmp_path / ".datasentry" / "repairs").glob("rep_*.csv"))
         assert len(copies) >= 1
-        assert " alice " not in copies[0].read_text()
+        fixed = [c for c in copies if ".before." not in c.name]
+        assert fixed, "repaired copy missing"
+        assert " alice " not in fixed[0].read_text()
 
     def test_batch_apply_no_selection(self, tmp_path: Path) -> None:
         """V31：未选 issue → 400，且不写文件。"""
