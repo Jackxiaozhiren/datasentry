@@ -286,8 +286,26 @@ The web UI closes the full loop — **scan → compare → propose → apply →
    repaired copy + `before` snapshot under `.datasentry/repairs/`; the source file is never overwritten.
 5. **Roll back** any applied repair, individually (`/ui/repairs/{run}/rollback`) or in batch
    (`POST /ui/scans/{run}/repairs/batch-rollback`) — every apply is undoable via its snapshot.
-6. **Audit** everything on the repair history page (`/ui/repairs`): run id, dataset, operations,
-   rows touched, status (applied / rolled back / failed), timestamps.
+ 6. **Audit** everything on the repair history page (`/ui/repairs`): run id, dataset, operations,
+    rows touched, status (applied / rolled back / failed), timestamps.
+
+The same loop is available from the CLI, for scripts and CI — same semantics, no UI:
+
+```bash
+# propose repairs for every issue of a run (or a specific subset)
+datasentry repair propose-batch <run_id> --file data.csv --all
+datasentry repair propose-batch <run_id> --file data.csv --issues iss_1,iss_2
+
+# apply only what was proposable; issues without a proposal are
+# skipped as no_proposal instead of failing (source file never overwritten)
+datasentry repair apply-batch <run_id> --file data.csv --all
+
+# roll back applied repairs, individually or as a list
+datasentry repair rollback-batch run_1,run_2
+```
+
+Batch commands exit `0` when everything succeeded, `4` on partial failure (each failure
+reported under `errors` in the JSON envelope — add `--format json` to machine-read it).
 
 ## Documentation
 
