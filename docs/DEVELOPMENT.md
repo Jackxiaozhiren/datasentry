@@ -996,3 +996,16 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
   → 回滚单条/批量；source_path 持久化（schema v9，scan_runs.source_path）。
 - 对比页 NEW 组一键提案：hidden issue ids + 预填源路径。
 - README 新增「Web repair workflow」小节；blog-3（en/zh）总结闭环。
+
+
+## V36：CLI 批量修复（v0.41）
+
+- `repair propose-batch <run> --file <path> [--issues | --all]`：
+  run 下多 issue 提案，无提案 issue 单独标记，不进 errors。
+- `repair apply-batch <run> --file <path> [--issues | --all]`：
+  先 propose 后 apply；无提案 → skipped(no_proposal)；真异常进 errors。
+- `repair rollback-batch <run_ids>`：逗号分隔逐条回滚。
+- 部分失败退出码 = EXIT_SOURCE_UNAVAILABLE(4)；json envelope 含 failed 计数。
+- 测试坑：`--all` 需显式注册（argparse store_true），getattr 兜底会静默
+  走 ValueError→EXIT_CONFIG(2)；--all 对 apply 必须跳过无提案 issue，
+  否则整组 error。
