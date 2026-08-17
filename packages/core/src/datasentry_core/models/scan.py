@@ -99,6 +99,7 @@ class ScanRun(BaseModel):
 
     id: str
     dataset_id: str
+    source_path: str | None = None
     contract_id: str | None = None
     status: Literal["queued", "running", "completed", "failed", "cancelled"] = "queued"
     config: ScanConfig

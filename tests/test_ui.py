@@ -267,6 +267,33 @@ class TestTrendsPage:
         assert 'name="issue_ids"' in page
         assert "batch-propose-btn" in page
 
+    def test_scan_detail_batch_form_default_path(self, tmp_path: Path) -> None:
+        """V33：扫描详情批量表单的源路径默认值 = 该次扫描的 source_path（可改）。"""
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        resp = client.get(f"/ui/scans/{run_id}")
+        assert f'value="{csv}"' in resp.text
+
+    def test_compare_new_group_propose(self, tmp_path: Path) -> None:
+        """V33：对比页 NEW 组行内一键批量提案（hidden issue_ids + source_path 预填）。"""
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        ref_id = _scan(client, tmp_path)
+        csv.write_text(
+            "name,status,price,email\n alice ,Active,10,a@b.com\n"
+            "bob,n/a,9999,\ncarol,inactive,250,c@d.com\n",
+            encoding="utf-8",
+        )
+        cur_resp = client.post("/scans", json={"path": str(csv)})
+        assert cur_resp.status_code == 201
+        cur_id = cur_resp.json()["run"]["id"]
+        resp = client.get(f"/ui/compare?runs={ref_id}&runs={cur_id}")
+        assert resp.status_code == 200
+        assert "NEW" in resp.text
+        assert "batch-propose" in resp.text
+        assert f'value="{csv}"' in resp.text
+
     def test_batch_propose_flow(self, tmp_path: Path) -> None:
         """V30：批量提案端点 → 结果页（proposed/unsupported 状态、apply 入口）。"""
         client = TestClient(create_app(project=tmp_path))

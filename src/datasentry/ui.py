@@ -743,7 +743,8 @@ def render_scan_detail(
         f'action="/ui/scans/{escape(scan.id)}/repairs/batch-propose" '
         'id="batch-repair-form">'
         f'<label for="batch-source-path">{escape(t(lang, "ui.source_path"))}</label>'
-        '<input type="text" id="batch-source-path" name="source_path" '
+        f'<input type="text" id="batch-source-path" name="source_path" '
+        f'value="{escape(scan.source_path or "")}" '
         'placeholder="data/orders.csv" required>'
         f'<button type="submit" id="batch-propose-btn" disabled>'
         f"{escape(t(lang, 'ui.batch_propose'))}</button>"
@@ -842,6 +843,8 @@ def _issue_diff_table(
     issues_ref: list[Issue],
     issues_cur: list[Issue],
     *,
+    propose_run_id: str | None = None,
+    source_path: str | None = None,
     lang: str = "en",
 ) -> str:
     """V29：两 run 问题级 diff——按 (issue_type, columns) 分组三类：
@@ -884,13 +887,39 @@ def _issue_diff_table(
                     f" · {_severity_badge(ex.severity.value)} · "
                     f"{ex.affected_count} rows</li>"
                 )
+            propose = ""
+            if kind == "new" and propose_run_id:
+                ids = [i.id for i in cur_examples.get(k, [])]
+                if ids:
+                    hidden = "".join(
+                        f'<input type="hidden" name="issue_ids" value="{escape(i)}">' for i in ids
+                    )
+                    src = (
+                        f'<input type="hidden" name="source_path" '
+                        f'value="{escape(source_path or "")}">'
+                    )
+                    propose = (
+                        "<td>"
+                        '<form method="post" '
+                        f'action="/ui/scans/{escape(propose_run_id)}/repairs/batch-propose">'
+                        f"{hidden}{src}"
+                        f'<button class="linklike" type="submit">'
+                        f"{escape(t(lang, 'ui.propose_repair'))}</button>"
+                        "</form></td>"
+                    )
+                else:
+                    propose = "<td></td>"
+            else:
+                propose = "<td></td>"
             rows.append(
                 f"<tr><td>{escape(issue_type)}</td><td>{escape(columns)}</td>"
                 f"<td>{before}</td><td>{cur_total}</td>"
                 f'<td class="delta {tone}">{badge}'
-                f"{'+' if delta > 0 else ''}{delta}</td></tr>"
+                f"{'+' if delta > 0 else ''}{delta}</td>"
+                + propose
+                + "</tr>"
                 + (
-                    f'<tr class="examples"><td colspan="5"><ul>{examples}</ul></td></tr>'
+                    f'<tr class="examples"><td colspan="6"><ul>{examples}</ul></td></tr>'
                     if examples
                     else ""
                 ),
@@ -906,10 +935,11 @@ def _issue_diff_table(
     def section(title: str, rows: str) -> str:
         return (
             f"<h3>{escape(title)}</h3>"
-            "<table><tr><th>type</th><th>columns</th><th>ref</th><th>cur</th><th>Δ</th></tr>"
+            "<table><tr><th>type</th><th>columns</th><th>ref</th><th>cur</th><th>Δ</th>"
+            "<th></th></tr>"
             + (
                 rows
-                or '<tr><td colspan="5" class="meta">'
+                or '<tr><td colspan="6" class="meta">'
                 + f"{escape(t(lang, 'ui.no_issue_diff'))}</td></tr>"
             )
             + "</table>"
@@ -1015,7 +1045,13 @@ def render_compare(
         "<table><tr><th></th><th>ref</th><th>cur</th><th>Δ</th></tr>"
         + "".join(severity_rows)
         + "</table>",
-        _issue_diff_table(issues_ref, issues_cur, lang=lang),
+        _issue_diff_table(
+            issues_ref,
+            issues_cur,
+            propose_run_id=current.id,
+            source_path=current.source_path,
+            lang=lang,
+        ),
         f"<h2>{escape(t(lang, 'ui.column_drifts'))}</h2>",
         "<table><tr><th>column</th><th>type</th><th>metric</th><th>value / threshold</th>"
         "<th>direction</th><th></th></tr>"

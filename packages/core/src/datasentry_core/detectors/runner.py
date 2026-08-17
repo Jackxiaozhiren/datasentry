@@ -229,9 +229,11 @@ class ScanRunner:
             quality_score = self._quality.score(issues, ran_dimensions=ran_dimensions)
         except ValueError:  # 无任何检测器运行（空白名单）→ 未评分
             quality_score = None
+        source_path = context.handle.source_path
         scan_run = ScanRun(
             id=scan_run_id,
             dataset_id=context.dataset_id,
+            source_path=str(source_path) if source_path else None,
             status=status,
             config=config,
             fingerprint=fingerprint,

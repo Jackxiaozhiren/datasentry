@@ -98,14 +98,15 @@ class MetadataStore:
             self._conn.execute(
                 """
                 INSERT INTO scan_runs (
-                    id, dataset_id, status, config, fingerprint, quality_score,
+                    id, dataset_id, source_path, status, config, fingerprint, quality_score,
                     quality_breakdown, issues_count, started_at, finished_at,
                     error, reproducibility, llm_usage
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     scan_run.id,
                     scan_run.dataset_id,
+                    scan_run.source_path,
                     scan_run.status,
                     scan_run.config.model_dump_json(),
                     scan_run.fingerprint.model_dump_json(),
@@ -424,6 +425,7 @@ class MetadataStore:
         return ScanRun(
             id=d["id"],
             dataset_id=d["dataset_id"],
+            source_path=d["source_path"],
             status=d["status"],
             config=json.loads(d["config"]),
             fingerprint=json.loads(d["fingerprint"]),

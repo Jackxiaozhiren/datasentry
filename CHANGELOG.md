@@ -4,7 +4,17 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.38.0] - 2026-08-16
+## [0.39.0] - 2026-08-16
+
+### 新增
+
+- 源路径持久化（schema v9，scan_runs.source_path）：扫描时记录
+  数据源路径，ScanRun / ScanResponse 均携带。
+- 扫描详情批量提案表单默认预填该次扫描的源路径（可改）。
+- 对比页 NEW 组行内「propose repair」一键批量提案：hidden 携带
+  该组全部 cur 侧 issue id + 预填源路径，直达批量提案结果页。
+
+
 
 ### 新增
 
