@@ -657,7 +657,7 @@ def render_repairs(
                 failed_badge = escape(t(lang, "ui.repair_status_failed"))
                 status_cell = f'<td class="badge badge-critical">{failed_badge}</td><td></td>'
             rows.append(
-                "<tr>"
+                f'<tr id="{escape(run.id)}">'
                 f"<td>{escape(run.id)}</td>"
                 f"<td>{escape(run.dataset_id)}</td>"
                 f"<td>{escape(ops)}</td>"
@@ -921,12 +921,44 @@ def render_workbench(
     return _page(t(lang, "ui.workbench_title"), "\n".join(body), lang=lang)
 
 
+def _fixed_repair_context(
+    key: tuple[str, str],
+    repairs: list[RepairRun] | None,
+    ref_dataset_id: str | None,
+    lang: str,
+) -> str:
+    """V37：FIXED 组显示关联的 applied 修复（dataset + 操作列交集匹配）。"""
+    if not repairs or not ref_dataset_id:
+        return "<td></td>"
+    _, columns = key
+    col_set = set(c.strip() for c in columns.split(","))
+    links = []
+    for run in repairs:
+        if run.status != RepairRunStatus.APPLIED or run.dataset_id != ref_dataset_id:
+            continue
+        run_cols = {op.column for op in run.operations}
+        if not (run_cols & col_set):
+            continue
+        ops = ", ".join(sorted({str(op.operation) for op in run.operations})) or "—"
+        date = run.created_at.strftime("%Y-%m-%d")
+        links.append(
+            f'<a href="/ui/repairs#{escape(run.id)}">{escape(run.id)}</a>'
+            f" · {escape(ops)} · {escape(date)}"
+        )
+    if not links:
+        return "<td></td>"
+    label = escape(t(lang, "ui.fixed_by"))
+    return f"<td><span class='badge badge-info'>{label}</span> " + "<br>".join(links) + "</td>"
+
+
 def _issue_diff_table(
     issues_ref: list[Issue],
     issues_cur: list[Issue],
     *,
     propose_run_id: str | None = None,
     source_path: str | None = None,
+    repairs: list[RepairRun] | None = None,
+    ref_dataset_id: str | None = None,
     lang: str = "en",
 ) -> str:
     """V29：两 run 问题级 diff——按 (issue_type, columns) 分组三类：
@@ -992,7 +1024,7 @@ def _issue_diff_table(
                 else:
                     propose = "<td></td>"
             else:
-                propose = "<td></td>"
+                propose = _fixed_repair_context(k, repairs, ref_dataset_id, lang)
             rows.append(
                 f"<tr><td>{escape(issue_type)}</td><td>{escape(columns)}</td>"
                 f"<td>{before}</td><td>{cur_total}</td>"
@@ -1042,6 +1074,7 @@ def render_compare(
     issues_ref: list[Issue],
     issues_cur: list[Issue],
     *,
+    repairs: list[RepairRun] | None = None,
     lang: str = "en",
 ) -> str:
     """V28：两 run 对比页——六维差值、severity 变化、列漂移、schema 变更。
@@ -1132,6 +1165,8 @@ def render_compare(
             issues_cur,
             propose_run_id=current.id,
             source_path=current.source_path,
+            repairs=repairs,
+            ref_dataset_id=reference.dataset_id,
             lang=lang,
         ),
         f"<h2>{escape(t(lang, 'ui.column_drifts'))}</h2>",

@@ -353,6 +353,34 @@ class TestTrendsPage:
         assert resp.status_code == 200
         assert "No repairs yet" in resp.text
 
+    def test_compare_fixed_group_repair_context(self, tmp_path: Path) -> None:
+        """V37：对比页 FIXED 组显示关联 applied 修复（锚点链接 + 历史页锚）。"""
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        ref_id = _scan(client, tmp_path)
+        issues = client.get(f"/scans/{ref_id}/issues").json()
+        ids = [i["id"] for i in issues if "string_format" in i["issue_type"]]
+        assert ids
+        apply = client.post(
+            f"/ui/scans/{ref_id}/repairs/batch-apply",
+            data={"source_path": str(csv), "issue_ids": ids[:1]},
+        )
+        assert apply.status_code == 200
+        csv.write_text(
+            "name,status,price\nalice,Active,10\nbob,Active,250\ncarol,Inactive,300\n",
+            encoding="utf-8",
+        )
+        cur_resp = client.post("/scans", json={"path": str(csv)})
+        assert cur_resp.status_code == 201
+        cur_id = cur_resp.json()["run"]["id"]
+        resp = client.get(f"/ui/compare?runs={ref_id}&runs={cur_id}")
+        assert resp.status_code == 200
+        assert "FIXED" in resp.text
+        assert "fixed by" in resp.text
+        assert "#rep_" in resp.text
+        history = client.get("/ui/repairs")
+        assert 'id="rep_' in history.text
+
     def test_batch_rollback_flow(self, tmp_path: Path) -> None:
         """V34：批量 apply 后勾选 → 批量回滚 → 结果页 + 历史页全部 rolled back。"""
         client = TestClient(create_app(project=tmp_path))

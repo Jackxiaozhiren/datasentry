@@ -783,6 +783,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
                 report,
                 client.list_issues(scan_run_id=runs[0]),
                 client.list_issues(scan_run_id=runs[1]),
+                repairs=client.list_repair_runs(),
                 lang=lang,
             )
         )

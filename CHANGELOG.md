@@ -4,7 +4,15 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.41.0] - 2026-08-16
+## [0.42.0] - 2026-08-17
+
+### 新增
+
+- 对比页 FIXED 组显示关联修复上下文：匹配 dataset + 操作列交集，
+  显示 applied 修复（run id / 操作 / 日期），链接到修复历史页锚点；
+  历史页每行加 id 锚点支持深链。
+
+
 
 ### 新增
 
