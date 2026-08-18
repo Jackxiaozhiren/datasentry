@@ -593,15 +593,21 @@ def render_batch_repair(
     )
 
 
+def _ops_summary(run: RepairRun) -> str:
+    return ", ".join(sorted({str(op.operation) for op in run.operations})) or "—"
+
+
 def render_batch_rollback(
     runs: list[RepairRun],
     errors: dict[str, str],
     *,
     lang: str = "en",
 ) -> str:
-    """V34：批量回滚结果页——每行 rolled back 或 error。"""
+    """V48：批量回滚结果页——含失败原因细分（快照缺失/未找到等）。"""
     rows = []
+    seen = set()
     for run in runs:
+        seen.add(run.id)
         err = errors.get(run.id)
         if err is None:
             status_cell = (
@@ -613,12 +619,23 @@ def render_batch_rollback(
                 f'<td class="badge badge-critical">{escape(t(lang, "ui.error"))}</td>'
                 f'<td colspan="2" class="meta">{escape(err)}</td>'
             )
-        ops = ", ".join(sorted({str(op.operation) for op in run.operations})) or "—"
         rows.append(
             "<tr>"
             f"<td>{escape(run.id)}</td>"
             f"<td>{escape(run.dataset_id)}</td>"
-            f"<td>{escape(ops)}</td>" + status_cell + "</tr>"
+            f"<td>{escape(_ops_summary(run))}</td>" + status_cell + "</tr>"
+        )
+    for run_id in errors:
+        if run_id in seen:
+            continue
+        rows.append(
+            "<tr>"
+            f"<td>{escape(run_id)}</td>"
+            "<td>—</td>"
+            "<td>—</td>"
+            f'<td class="badge badge-critical">{escape(t(lang, "ui.error"))}</td>'
+            f'<td colspan="2" class="meta">{escape(errors[run_id])}</td>'
+            "</tr>"
         )
     body = [
         f'<p class="meta">{escape(t(lang, "ui.batch_rollback_summary"))}: '

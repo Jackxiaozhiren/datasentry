@@ -435,6 +435,30 @@ class TestTrendsPage:
         copies_after = list((tmp_path / ".datasentry" / "repairs").glob("rep_*.csv"))
         assert len(copies_after) > len(copies_before), "rollback snapshots expected"
 
+    def test_batch_rollback_failure_reasons(self, tmp_path: Path) -> None:
+        """V48：批量回滚失败细分——缺失 run 与缺失快照各自展示原因。"""
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        issues = client.get(f"/scans/{run_id}/issues").json()
+        ids = [i["id"] for i in issues if i["issue_type"] == "string_format"][:1]
+        apply = client.post(
+            f"/ui/scans/{run_id}/repairs/batch-apply",
+            data={"source_path": str(csv), "issue_ids": ids},
+        )
+        import re as _re
+
+        real_run = _re.findall(r'name="repair_run_ids" value="(rep_[0-9a-f]+)"', apply.text)
+        assert len(real_run) >= 1
+        resp = client.post(
+            f"/ui/scans/{run_id}/repairs/batch-rollback",
+            data={"repair_run_ids": [real_run[0], "rep_deadbeef0001"]},
+        )
+        assert resp.status_code == 200
+        assert "rep_deadbeef0001" in resp.text
+        assert "repair run not found" in resp.text
+        assert "rolled back" in resp.text
+
     def test_batch_propose_select_all(self, tmp_path: Path) -> None:
         """V34：提案页表头全选 checkbox。"""
         client = TestClient(create_app(project=tmp_path))

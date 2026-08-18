@@ -4,7 +4,19 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.53.0] - 2026-08-17
+## [0.54.0] - 2026-08-17
+
+### 修复
+
+- 批量回滚结果页此前**吞掉失败原因**（errors 传入了但失败 run 不在
+  runs 列表，页面只渲染成功项）——现在每个失败 run 单独成行，
+  显示具体原因（run not found / snapshot 缺失等），summary 数字不变。
+
+### 重构
+
+- ui 操作列摘要提取 `_ops_summary` 助手，批量回滚结果页复用。
+
+
 
 ### 新增
 
