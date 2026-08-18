@@ -291,6 +291,19 @@ class TestRepairCli:
         )
         assert code == 1
 
+    def test_repair_list_text_table(self, repair_csv: Path, workspace: Path, capsys) -> None:
+        """V45：非 json 模式下 repair list 输出人类可读表格 + summary 行。"""
+        _scan_run(repair_csv, workspace)
+        client = _client(workspace)
+        issue = _issue_for_detector(repair_csv, workspace, "leading_or_trailing_whitespace")
+        client.repair_apply(issue.id, repair_csv)
+        client.close()
+        code = main(["--project", str(workspace), "repair", "list"])
+        assert code == 0
+        out = capsys.readouterr().out
+        assert "run id" in out
+        assert "applied / " in out and "rolled back / " in out
+
     def test_repair_list_dataset_filter_cli(
         self, repair_csv: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

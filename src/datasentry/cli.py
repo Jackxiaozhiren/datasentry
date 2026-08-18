@@ -837,6 +837,12 @@ def _cmd_repair_list(args: argparse.Namespace) -> int:
         runs = [r for r in runs if r.dataset_id == target.dataset_id]
     elif getattr(args, "dataset", None):
         runs = [r for r in runs if r.dataset_id == args.dataset]
+    summary = {
+        "total": len(runs),
+        "applied": sum(1 for r in runs if r.status == RepairRunStatus.APPLIED),
+        "rolled_back": sum(1 for r in runs if r.status == RepairRunStatus.ROLLED_BACK),
+        "failed": sum(1 for r in runs if r.status == RepairRunStatus.FAILED),
+    }
     data = {
         "runs": [
             {
@@ -850,13 +856,24 @@ def _cmd_repair_list(args: argparse.Namespace) -> int:
             }
             for r in runs
         ],
-        "summary": {
-            "total": len(runs),
-            "applied": sum(1 for r in runs if r.status == RepairRunStatus.APPLIED),
-            "rolled_back": sum(1 for r in runs if r.status == RepairRunStatus.ROLLED_BACK),
-            "failed": sum(1 for r in runs if r.status == RepairRunStatus.FAILED),
-        },
+        "summary": summary,
     }
+    if args.format != "json":
+        rows = [f"{'run id':<18} {'dataset':<24} {'status':<12} {'changed rows':<12} {'created'}"]
+        for r in runs:
+            rows.append(
+                f"{r.id:<18} {r.dataset_id:<24} {r.status.value:<12} "
+                f"{len(r.operations):<12} {r.created_at.strftime('%Y-%m-%d %H:%M')}"
+            )
+        rows.append(
+            "summary: "
+            f"{summary['applied']} applied / "
+            f"{summary['rolled_back']} rolled back / "
+            f"{summary['failed']} failed / "
+            f"{summary['total']} total"
+        )
+        print("\n".join(rows))
+        return EXIT_OK
     _emit(_envelope("repair list", data), args.format)
     return EXIT_OK
 

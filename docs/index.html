@@ -107,7 +107,7 @@
       Detect · Explain · Validate · Repair — with statistical evidence,
       AI assistance, and human approval. Your data never leaves your machine.</p>
     <div class="badges">
-      <span class="badge">version <b>0.49.0</b></span>
+      <span class="badge">version <b>0.50.0</b></span>
       <span class="badge">python <b>3.12</b></span>
       <span class="badge">license <b>Apache-2.0</b></span>
       <span class="badge">tests <b>1229 passed</b></span>
@@ -224,6 +224,35 @@
           <li><span class="lbl">detectors</span> — registry incl. plugins</li>
         </ul>
       </div>
+      <div>
+        <h3>MCP tools (24)</h3>
+        <ul>
+          <span class="lbl">scan_file</span> — scan a dataset file (detect issues)
+<span class="lbl">list_issues</span> — list issues for a scan run (filter by severity)
+<span class="lbl">quality_score</span> — 0-100 explainable quality score for a run
+<span class="lbl">detectors_list</span> — list registered detectors (incl. plugins)
+<span class="lbl">drift_latest</span> — drift report for the latest version of a dataset
+<span class="lbl">drift_compare</span> — compare two historical scans
+<span class="lbl">trends_list</span> — quality trends across scans
+<span class="lbl">profiles_get</span> — column profiles for a run
+<span class="lbl">comparison_build</span> — build a regression report between two runs
+<span class="lbl">contract_validate</span> — validate a data contract YAML
+<span class="lbl">repair_propose_batch</span> — propose repairs for all issues of a run
+<span class="lbl">repair_apply_batch</span> — apply repairs (writes repaired copies, never the source)
+<span class="lbl">repair_rollback_batch</span> — roll back applied repairs by run id
+<span class="lbl">repair_verify</span> — re-scan a repaired copy; report fixed/persistent/new
+<span class="lbl">pii_sessions</span> — list PII vault sessions
+<span class="lbl">pii_restore</span> — restore a PII-redacted file
+<span class="lbl">pii_delete_session</span> — delete a PII session
+<span class="lbl">pii_rotate_key</span> — rotate the PII vault key
+<span class="lbl">pii_purge_sessions</span> — purge all PII sessions
+<span class="lbl">job_create</span> — create a scheduled job
+<span class="lbl">job_update</span> — update a scheduled job
+<span class="lbl">job_trigger</span> — trigger a job now
+<span class="lbl">job_remove</span> — remove a scheduled job
+<span class="lbl">jobs_list</span> — list scheduled jobs and run history
+        </ul>
+      </div>
     </div>
   </div>
 </section>
@@ -244,7 +273,7 @@
 
 <footer>
   <div class="wrap">
-    DataSentry 0.49.0 · Apache-2.0 · local-first data quality, built for humans.
+    DataSentry 0.50.0 · Apache-2.0 · local-first data quality, built for humans.
   </div>
 </footer>
 

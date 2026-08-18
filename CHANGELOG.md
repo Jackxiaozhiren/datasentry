@@ -4,7 +4,16 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.49.0] - 2026-08-17
+## [0.50.0] - 2026-08-17
+
+### 新增
+
+- `repair list` 非 json 模式输出人类可读表格（run id / dataset /
+  status / changed rows / created）+ 末尾 summary 行；json 输出不变。
+- Pages 站点新增 MCP 工具表（24 个真实工具名 + 用途），与代码
+  提取名单一致。
+
+
 
 ### 新增
 
