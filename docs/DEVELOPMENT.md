@@ -1090,3 +1090,18 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
   收窄返回类型；TypeError 出在"先 len() 后 join()"的 CLI 分支。
 - CLI 无 --verbose 全局 flag，别引用 args.verbose（AttributeError）。
 - issue_type 与 detector id 不同名（whitespace → "string_format"）。
+
+
+## V43：修复工件 diff 页（v0.48）
+
+- /ui/repairs/{id}/artifact：before 快照 vs 修复副本逐行对比，变更
+  cell .diff-del/.diff-add 红绿高亮；概要卡（操作/列/变更行数）。
+- RepairEngine.table_diff + _read_table（CSV/Parquet/JSONL/XLSX 与
+  _write_table 对称）；client.repair_diff 用 _source_type_for_path
+  推断格式；_repaired_copy_path helper 三处复用（verify/diff/api）。
+- 坑（严重）：engine 方法被 @staticmethod 修饰时，旧字符串匹配
+  'def _write_table(...)' 会把装饰器留在原地——替换后 _write_table
+  失去 staticmethod 变成 3 参数实例方法，apply 全部报
+  "takes 3 positional arguments but 4 were given"。改 staticmethod
+  方法须把 @staticmethod 行一并纳入替换串。
+- ruff B905：zip 需显式 strict=（本项目启用该规则）。
