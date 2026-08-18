@@ -1126,3 +1126,13 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
   （24 个），勿凭印象手写（initial 草案里编造的 issue_list/
   report_render 等不存在；真实有 list_issues/quality_score/
   drift_latest/jobs_list/detectors_list）。
+
+
+## V46：REST verify + diff 端点（v0.51）
+
+- POST /repairs/{id}/verify：JSON 对比报告（复用 client.repair_verify），
+  404/400 语义化；GET /repairs/{id}/diff：仅变更行 JSON
+  （line/before/after 对象，列名键），避免整表传输。
+- 至此 verify 闭环四入口齐备：Web（/ui/repairs/{id}/verify 303 compare）、
+  CLI（repair verify）、MCP（repair_verify）、REST（POST /repairs/{id}/verify）；
+  diff 同理（/ui/repairs/{id}/artifact 页 + GET /repairs/{id}/diff）。
