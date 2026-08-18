@@ -321,6 +321,7 @@ reported under `errors` in the JSON envelope — add `--format json` to machine-
 - [Detecting data quality issues with LLM-assisted tooling](.growth/blog-1-detect-quality-en.md) — why detection stays statistical while LLMs translate and suggest; a full walkthrough on real data. (中文版：[用 LLM 做数据质量检测，我把「检测」和「建议」分开了](.growth/blog-1-detect-quality-zh.md))
 - [Great Expectations vs DataSentry: two ways to care about data quality](.growth/blog-2-ge-vs-datasentry-en.md) — assertion frameworks vs detection frameworks, and where they complement each other.
 - [Detect → fix → verify: the data quality loop](.growth/blog-3-repair-loop-en.md) — how the batch repair workbench (v0.30–v0.40) closes the loop with proposals, applied copies, and rollbacks. (中文版：[检测 → 修复 → 验证：数据质量闭环](.growth/blog-3-repair-loop-zh.md))
+- [Verifying the fix: four ways to prove a repair worked](.growth/blog-4-verify-loop-en.md) — provenance, one-click web verify, a CI gate with exit codes, MCP/REST verify, and row-level diffs on four surfaces (v0.42–v0.52). (中文版：[验证修复：四种方式证明一次修复真的生效了](.growth/blog-4-verify-loop-zh.md))
 
 ## The verify step (v0.46–v0.48)
 

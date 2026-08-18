@@ -1057,7 +1057,7 @@ def _fixed_repair_context(
         ops = ", ".join(sorted({str(op.operation) for op in run.operations})) or "—"
         date = run.created_at.strftime("%Y-%m-%d")
         links.append(
-            f'<a href="/ui/repairs#{escape(run.id)}">{escape(run.id)}</a>'
+            f'<a href="/ui/repairs/{escape(run.id)}/artifact">{escape(run.id)}</a>'
             f" · {escape(ops)} · {escape(date)}"
         )
     if not links:

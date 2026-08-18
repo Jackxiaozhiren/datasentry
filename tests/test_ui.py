@@ -400,7 +400,7 @@ class TestTrendsPage:
         assert resp.status_code == 200
         assert "FIXED" in resp.text
         assert "fixed by" in resp.text
-        assert "#rep_" in resp.text
+        assert "/artifact" in resp.text and "rep_" in resp.text
         history = client.get("/ui/repairs")
         assert 'id="rep_' in history.text
 

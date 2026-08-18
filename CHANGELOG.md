@@ -4,7 +4,16 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.52.0] - 2026-08-17
+## [0.53.0] - 2026-08-17
+
+### 新增
+
+- 对比页 FIXED 组的修复链接从历史页锚点改为直达工件页
+  （/ui/repairs/{id}/artifact）——"修复前问题 → 行级 diff"一目了然。
+- 新增 blog-4（en/zh）：验证闭环四入口（Web 一键验证 / CLI 门禁
+  退出码 / MCP repair_verify / REST 端点）与行级 diff 的故事。
+
+
 
 ### 新增
 
