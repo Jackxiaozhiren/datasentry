@@ -43,6 +43,9 @@ body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 2rem 
 .delta.pos { color: #1a7f37; font-weight: 600; }
 .delta.neg { color: #cf222e; font-weight: 600; }
 .delta.flat { color: #59636e; }
+.diff-del { background: #fde8e8; }
+.diff-add { background: #e8f5e9; }
+.diff-side { font-weight: 600; white-space: nowrap; }
 h1 { border-bottom: 2px solid #0969da; padding-bottom: .3rem; }
 h2 { margin-top: 2rem; border-bottom: 1px solid #d0d7de; padding-bottom: .2rem; }
 table { border-collapse: collapse; width: 100%; margin: .5rem 0; }
@@ -673,7 +676,7 @@ def render_repairs(
                 )
             rows.append(
                 f'<tr id="{escape(run.id)}">'
-                f"<td>{escape(run.id)}</td>"
+                f'<td><a href="/ui/repairs/{escape(run.id)}/artifact">{escape(run.id)}</a></td>'
                 f"<td>{escape(run.dataset_id)}</td>"
                 f"<td>{escape(ops)}</td>"
                 f"<td>{rows_changed}</td>"
@@ -691,6 +694,68 @@ def render_repairs(
         active="repairs",
         lang=lang,
     )
+
+
+def render_repair_artifact(
+    run: RepairRun,
+    columns: list[str],
+    before_rows: list[list[object]],
+    after_rows: list[list[object]],
+    changed_indices: list[int],
+    *,
+    lang: str = "en",
+) -> str:
+    """V43：修复工件页——before 快照 vs 修复副本的逐行 diff（行号 1-based 数据行）。"""
+    ops = ", ".join(sorted({str(op.operation) for op in run.operations})) or "—"
+    rows_changed = len(run.operations)
+    head = (
+        "<table>"
+        f"<tr><th>run id</th><td>{escape(run.id)}</td></tr>"
+        f"<tr><th>dataset</th><td>{escape(run.dataset_id)}</td></tr>"
+        f"<tr><th>{escape(t(lang, 'ui.artifact_ops'))}</th><td>{escape(ops)}</td></tr>"
+        f"<tr><th>{escape(t(lang, 'ui.artifact_columns'))}</th>"
+        f"<td>{escape(', '.join(columns))}</td></tr>"
+        f"<tr><th>{escape(t(lang, 'ui.artifact_changed_rows'))}</th>"
+        f"<td>{rows_changed} / {len(before_rows)}</td></tr>"
+        "</table>"
+    )
+    if not changed_indices:
+        body = f'<p class="meta">{escape(t(lang, "ui.artifact_no_changes"))}</p>'
+    else:
+        thead = "".join(f"<th>{escape(c)}</th>" for c in columns)
+        diff_rows = []
+        for i in changed_indices:
+            before = before_rows[i] if i < len(before_rows) else []
+            after = after_rows[i] if i < len(after_rows) else []
+            line_no = i + 2
+            before_cells = "".join(
+                (
+                    f'<td class="diff-del">{escape(str(v)) if v is not None else "∅"}</td>'
+                    if (i2 < len(before) and i2 < len(after) and before[i2] != after[i2])
+                    else f"<td>{escape(str(v)) if v is not None else '∅'}</td>"
+                )
+                for i2, v in enumerate(before)
+            )
+            after_cells = "".join(
+                (
+                    f'<td class="diff-add">{escape(str(v)) if v is not None else "∅"}</td>'
+                    if (i2 < len(before) and i2 < len(after) and before[i2] != after[i2])
+                    else f"<td>{escape(str(v)) if v is not None else '∅'}</td>"
+                )
+                for i2, v in enumerate(after)
+            )
+            diff_rows.append(
+                '<tr class="diff-row">'
+                f'<td rowspan="2" class="meta">{escape(t(lang, "ui.artifact_line"))} {line_no}</td>'
+                f'<td class="meta diff-side">{escape(t(lang, "ui.artifact_before"))}</td>'
+                f"{before_cells}</tr>"
+            )
+            diff_rows.append(
+                f'<tr><td class="meta diff-side">{escape(t(lang, "ui.artifact_after"))}</td>'
+                f"{after_cells}</tr>"
+            )
+        body = f"<table><tr><th></th><th></th>{thead}</tr>" + "".join(diff_rows) + "</table>"
+    return _page(t(lang, "ui.artifact_title"), head + body, active="repairs", lang=lang)
 
 
 def render_batch_apply(
@@ -718,7 +783,7 @@ def render_batch_apply(
             rows_changed = len(run.operations)
             status_cell = (
                 f'<td class="badge badge-ok">{escape(t(lang, "ui.applied"))}</td>'
-                f"<td>{escape(run.id)}</td>"
+                f'<td><a href="/ui/repairs/{escape(run.id)}/artifact">{escape(run.id)}</a></td>'
                 f"<td>{escape(ops)}</td>"
                 f"<td>{rows_changed}</td>"
                 "<td>"

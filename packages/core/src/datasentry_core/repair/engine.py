@@ -422,6 +422,47 @@ class RepairEngine:
         return mapping.get(context.handle.source_type, ".csv")
 
     @staticmethod
+    def _read_table(path: Path, source_type: DataSourceType) -> pa.Table:
+        """修复工件读取（与 _write_table 格式对称）。"""
+        if source_type == DataSourceType.PARQUET:
+            return pq.read_table(path)
+        if source_type == DataSourceType.JSONL:
+            rows = [
+                json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line
+            ]
+            return pa.Table.from_pylist(rows)
+        if source_type == DataSourceType.XLSX:
+            from openpyxl import load_workbook
+
+            wb = load_workbook(path, read_only=True)
+            ws = wb.active
+            cols = [c.value for c in next(ws.iter_rows())]
+            rows = [[c.value for c in r] for r in ws.iter_rows(min_row=2)]
+            return pa.Table.from_pylist(
+                [
+                    dict(zip(cols, row, strict=False))
+                    for row in rows
+                    if row and any(v is not None for v in row)
+                ]
+            )
+        return pa_csv.read_csv(path)
+
+    @staticmethod
+    def table_diff(
+        before_path: Path, after_path: Path, source_type: DataSourceType
+    ) -> tuple[list[str], list[list[object]], list[list[object]], list[int]]:
+        """V43：修复工件 diff——(列名, before 行, after 行, 变更行索引)。"""
+        before = RepairEngine._read_table(before_path, source_type)
+        after = RepairEngine._read_table(after_path, source_type)
+        columns = list(after.column_names)
+        before_rows = [[row.get(name) for name in columns] for row in before.to_pylist()]
+        after_rows = [[row.get(name) for name in columns] for row in after.to_pylist()]
+        changed = [
+            i for i, (b, a) in enumerate(zip(before_rows, after_rows, strict=False)) if b != a
+        ]
+        return columns, before_rows, after_rows, changed
+
+    @staticmethod
     def _write_table(path: Path, table: pa.Table, context: DetectionContext) -> None:
         """修复副本写入（格式与源一致）。"""
         source_type = context.handle.source_type

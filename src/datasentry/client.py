@@ -874,6 +874,34 @@ class DataSentry:
     def get_repair_run(self, run_id: str) -> RepairRun | None:
         return self._store.get_repair_run(run_id)
 
+    @staticmethod
+    def _repaired_copy_path(run: RepairRun) -> Path:
+        if run.rollback_artifact is None:
+            raise ValueError("no rollback artifact")
+        artifact = Path(run.rollback_artifact)
+        return artifact.with_name(artifact.name.replace(".before", ""))
+
+    def repair_diff(
+        self, run_id: str
+    ) -> tuple[RepairRun, list[str], list[list[object]], list[list[object]], list[int]]:
+        """V43：修复工件 diff——before 快照 vs 修复副本（列、行、变更索引）。"""
+        run = self._store.get_repair_run(run_id)
+        if run is None:
+            raise KeyError(f"repair run not found: {run_id}")
+        artifact = Path(run.rollback_artifact) if run.rollback_artifact else None
+        if artifact is None:
+            raise ValueError("no rollback artifact")
+        copy_path = self._repaired_copy_path(run)
+        if not copy_path.exists():
+            raise FileNotFoundError(f"repaired copy missing: {copy_path}")
+        source_type = _source_type_for_path(copy_path)
+        if source_type is None:
+            raise ValueError(f"unsupported repaired copy format: {copy_path.suffix}")
+        columns, before_rows, after_rows, changed = RepairEngine.table_diff(
+            artifact, copy_path, source_type
+        )
+        return run, columns, before_rows, after_rows, changed
+
     def repair_verify(self, run_id: str) -> tuple[ScanRun, RepairVerifyReport]:
         """V41：验证闭环——重扫修复副本，返回 (新 scan run, 对比报告)。
 
@@ -885,10 +913,7 @@ class DataSentry:
             raise KeyError(f"repair run not found: {run_id}")
         if run.source_scan_run_id is None:
             raise ValueError("repair has no source scan context (created before v0.46)")
-        if run.rollback_artifact is None:
-            raise ValueError("no rollback artifact")
-        artifact = Path(run.rollback_artifact)
-        copy_path = artifact.with_name(artifact.name.replace(".before", ""))
+        copy_path = self._repaired_copy_path(run)
         if not copy_path.exists():
             raise FileNotFoundError(f"repaired copy missing: {copy_path}")
         scan, _, _ = self.scan_file(copy_path)

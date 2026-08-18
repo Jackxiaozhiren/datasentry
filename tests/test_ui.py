@@ -346,6 +346,28 @@ class TestTrendsPage:
         assert "rolled back" in after.text
         assert "/rollback" not in after.text
 
+    def test_repair_artifact_page(self, tmp_path: Path) -> None:
+        """V43：工件页——before/after diff 行、变更高亮、无变更提示。"""
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        issues = client.get(f"/scans/{run_id}/issues").json()
+        ids = [i["id"] for i in issues[:2]]
+        apply = client.post(
+            f"/ui/scans/{run_id}/repairs/batch-apply",
+            data={"source_path": str(csv), "issue_ids": ids},
+        )
+        assert apply.status_code == 200
+        m = re.search(r"/ui/repairs/(rep_[0-9a-f]+)/artifact", apply.text)
+        artifact_url = f"/ui/repairs/{m.group(1)}/artifact"
+        page = client.get(artifact_url)
+        assert page.status_code == 200
+        assert "Repair artifact" in page.text
+        assert "before" in page.text and "after" in page.text
+        assert "diff-del" in page.text and "diff-add" in page.text
+        history = client.get("/ui/repairs")
+        assert artifact_url in history.text
+
     def test_repairs_page_empty(self, tmp_path: Path) -> None:
         """V32：无修复记录 → 空态文案。"""
         client = TestClient(create_app(project=tmp_path))

@@ -4,7 +4,17 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.47.0] - 2026-08-17
+## [0.48.0] - 2026-08-17
+
+### 新增
+
+- 修复工件 diff 页 `/ui/repairs/{id}/artifact`：before 快照 vs 修复
+  副本逐行对比，变更单元格红/绿高亮，附操作/列/变更行概要；修复
+  历史页与批量 apply 结果页的 run id 均链接到工件页（修复内容可审计）。
+- `client.repair_diff` + `RepairEngine.table_diff/_read_table`（与
+  _write_table 格式对称的 CSV/Parquet/JSONL/XLSX 读取）。
+
+
 
 ### 新增
 

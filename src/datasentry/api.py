@@ -753,6 +753,24 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         """V32：修复历史页——所有修复 run + 回滚入口。"""
         return HTMLResponse(ui.render_repairs(client.list_repair_runs(), lang=lang))
 
+    @app.get("/ui/repairs/{repair_run_id}/artifact", response_class=HTMLResponse, tags=["ui"])
+    def ui_repairs_artifact(repair_run_id: str, lang: str = "en") -> Response:
+        """V43：修复工件页——before 快照 vs 修复副本逐行 diff。"""
+        try:
+            run, columns, before_rows, after_rows, changed = client.repair_diff(repair_run_id)
+        except KeyError:
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.scan_failed"), "repair run not found"),
+                status_code=404,
+            )
+        except (ValueError, FileNotFoundError) as exc:
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.scan_failed"), str(exc)), status_code=400
+            )
+        return HTMLResponse(
+            ui.render_repair_artifact(run, columns, before_rows, after_rows, changed, lang=lang)
+        )
+
     @app.post("/ui/repairs/{repair_run_id}/verify", response_class=HTMLResponse, tags=["ui"])
     def ui_repairs_verify(repair_run_id: str) -> Response:
         """V41：验证闭环——重扫修复副本，303 到原扫描 vs 修复后扫描的对比页。"""
