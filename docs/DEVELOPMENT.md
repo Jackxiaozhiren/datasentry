@@ -1073,3 +1073,20 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - 测试：verify 流（TestClient 默认 follow_redirects=True，须显式
   follow_redirects=False 断言 303）；迁移测试补 source_scan_run_id 列断言。
 - 数据缺口教训：先补来源追踪字段再做闭环，避免端点凭空猜源 run。
+
+
+## V42：repair verify 三端闭环（v0.47）
+
+- client.repair_verify(run_id)：重扫修复副本 → (ScanRun, RepairVerifyReport
+  TypedDict)，报告 source/verify_issue_count + fixed/persistent/new types
+  （按 issue_type 集合对比）。api 端点改为复用（原内联推导逻辑删除）。
+- CLI `repair verify <run_id> [--require-clean]`：默认退出码 = 无回归
+  （new_types 空）→ 0，有回归 → EXIT_GATE_FAILED(1)；--require-clean
+  要求零残留。可直接当 CI 门禁。
+- MCP `repair_verify` 工具（23→24）。
+- 语义修正：categorical_anomaly 几乎对所有列报警，故「零残留」不可达，
+  把 verify 通过标准定义为「修复生效且无回归」而非「全部清零」。
+- 坑：mypy strict 下 dict[str, object] 的 len/join 报错 → 用 TypedDict
+  收窄返回类型；TypeError 出在"先 len() 后 join()"的 CLI 分支。
+- CLI 无 --verbose 全局 flag，别引用 args.verbose（AttributeError）。
+- issue_type 与 detector id 不同名（whitespace → "string_format"）。
