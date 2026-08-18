@@ -4,7 +4,16 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.50.0] - 2026-08-17
+## [0.51.0] - 2026-08-17
+
+### 新增
+
+- REST API 补齐验证闭环：`POST /repairs/{id}/verify` 返回对比报告
+  JSON（fixed/persistent/new types + 计数），`GET /repairs/{id}/diff`
+  返回变更行 JSON（line/before/after 对象）——curl/脚本即可完成
+  验证与审计，无需 Web/CLI/MCP。
+
+
 
 ### 新增
 

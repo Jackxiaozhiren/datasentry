@@ -579,6 +579,44 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
     def list_repair_runs() -> list[RepairRun]:
         return client.list_repair_runs()
 
+    @app.post("/repairs/{repair_run_id}/verify", tags=["repairs"])
+    def repair_run_verify(repair_run_id: str) -> dict[str, object]:
+        """V41：验证闭环 REST 端点——重扫修复副本，返回对比报告 JSON。"""
+        try:
+            scan, report = client.repair_verify(repair_run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (ValueError, FileNotFoundError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"verify_scan_run_id": scan.id, **report}
+
+    @app.get("/repairs/{repair_run_id}/diff", tags=["repairs"])
+    def repair_run_diff(repair_run_id: str) -> dict[str, object]:
+        """V46：修复工件 diff REST 端点——仅返回变更行（JSON 友好）。"""
+        try:
+            run, columns, before_rows, after_rows, changed = client.repair_diff(repair_run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except (ValueError, FileNotFoundError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        rows = []
+        for i in changed:
+            b = before_rows[i] if i < len(before_rows) else []
+            a = after_rows[i] if i < len(after_rows) else []
+            rows.append(
+                {
+                    "line": i + 2,
+                    "before": {c: b[j] for j, c in enumerate(columns) if j < len(b)},
+                    "after": {c: a[j] for j, c in enumerate(columns) if j < len(a)},
+                }
+            )
+        return {
+            "run_id": run.id,
+            "status": run.status.value,
+            "columns": columns,
+            "changed_rows": rows,
+        }
+
     # ---- Web UI（Step 24：服务端渲染核心页） ----------------------------
 
     @app.get("/ui", response_class=HTMLResponse, tags=["ui"])

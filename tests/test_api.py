@@ -259,6 +259,40 @@ class TestRepairApi:
         rolled = client.post(f"/repairs/{run['id']}/rollback").json()
         assert rolled["status"] == "rolled_back"
 
+    def test_repair_verify_and_diff_endpoints(self, tmp_path: Path) -> None:
+        """V41/V46：REST verify（重扫报告）+ diff（变更行 JSON）。"""
+        csv = _sample_csv(tmp_path)
+        client = TestClient(create_app(project=tmp_path))
+        scan = client.post("/scans", json={"path": str(csv)}).json()
+        run_id = scan["run"]["id"]
+        issues = scan["issues"]
+        target = next(i for i in issues if i["issue_type"] == "string_format")
+        rep = client.post(
+            f"/scans/{run_id}/repairs/apply",
+            json={"issue_id": target["id"], "source_path": str(csv)},
+        )
+        assert rep.status_code == 200
+        repair_run_id = rep.json()["id"]
+
+        verify = client.post(f"/repairs/{repair_run_id}/verify")
+        assert verify.status_code == 200
+        v = verify.json()
+        assert v["verify_scan_run_id"].startswith("scan_")
+        assert v["verify_issue_count"] < v["source_issue_count"]
+
+        diff = client.get(f"/repairs/{repair_run_id}/diff")
+        assert diff.status_code == 200
+        d = diff.json()
+        assert d["run_id"] == repair_run_id
+        assert d["columns"]
+        assert d["changed_rows"], "expected at least one changed row"
+        row = d["changed_rows"][0]
+        assert "before" in row and "after" in row and row["line"] >= 2
+        assert row["before"] != row["after"]
+
+        missing = client.post("/repairs/no_such/verify")
+        assert missing.status_code == 404
+
     def test_repair_propose_unmapped(self, tmp_path: Path) -> None:
         csv = _sample_csv(tmp_path)
         client = TestClient(create_app(project=tmp_path))
