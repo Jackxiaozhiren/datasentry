@@ -1145,3 +1145,12 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - 至此 diff 四端齐备：Web 工件页 / CLI / MCP（repair_verify 内带）/ REST。
   verify 与 diff 的 CLI/REST/MCP/Web 实现全部复用 client.repair_verify /
   client.repair_diff，无重复逻辑。
+
+
+## V48：FIXED 深链 + blog-4（v0.53）
+
+- 对比页 FIXED 组修复链接由 /ui/repairs#{id} 锚点改为
+  /ui/repairs/{id}/artifact 工件页——"FIXED → 行级 diff"一步直达。
+- blog-4（en/zh）：验证闭环故事（provenance → 四入口 verify/diff →
+  门禁语义：无回归 vs 干净）。README 博客列表同步。
+- 三端 diff/verify 实现单一来源：client.repair_verify / client.repair_diff。
