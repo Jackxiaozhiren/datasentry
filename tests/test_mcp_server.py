@@ -104,6 +104,9 @@ class TestTools:
                 "pii_delete_session",
                 "pii_rotate_key",
                 "pii_purge_sessions",
+                "repair_propose_batch",
+                "repair_apply_batch",
+                "repair_rollback_batch",
             } == names
             for tool in tools:
                 assert tool["inputSchema"]["type"] == "object"
@@ -141,6 +144,95 @@ class TestTools:
             issues = json.loads(response["result"]["content"][0]["text"])
             assert issues
             assert all("issue_type" in i and "severity" in i for i in issues)
+        finally:
+            server.close()
+
+    def test_repair_propose_apply_rollback_batch_tools(self, tmp_path: Path) -> None:
+        """V39：MCP 批量修复三工具——propose（只读）→ apply（副本）→ rollback。"""
+        dirty = tmp_path / "dirty.csv"
+        _write_csv(
+            dirty,
+            ["name", "status", "price"],
+            [[" alice ", "Active", 10], ["bob", "n/a", 9999], ["carol", "inactive", 250]],
+        )
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            scan = _call(
+                server,
+                1,
+                "tools/call",
+                {"name": "scan_file", "arguments": {"path": str(dirty)}},
+            )["result"]["content"][0]["text"]
+            scan_run_id = json.loads(scan)["scan_run_id"]
+
+            proposed = _call(
+                server,
+                2,
+                "tools/call",
+                {
+                    "name": "repair_propose_batch",
+                    "arguments": {"scan_run_id": scan_run_id, "source_path": str(dirty)},
+                },
+            )["result"]["content"][0]["text"]
+            data = json.loads(proposed)
+            assert "errors" in data and data["failed"] == 0
+            assert any(x["proposed"] for x in data["issues"])
+
+            applied = _call(
+                server,
+                3,
+                "tools/call",
+                {
+                    "name": "repair_apply_batch",
+                    "arguments": {"scan_run_id": scan_run_id, "source_path": str(dirty)},
+                },
+            )["result"]["content"][0]["text"]
+            app = json.loads(applied)
+            assert app["failed"] == 0
+            run_ids = [x["run_id"] for x in app["applied"] if x.get("applied")]
+            assert run_ids, "at least one applied run expected"
+
+            rolled = _call(
+                server,
+                4,
+                "tools/call",
+                {"name": "repair_rollback_batch", "arguments": {"repair_run_ids": run_ids}},
+            )["result"]["content"][0]["text"]
+            rb = json.loads(rolled)
+            assert rb["failed"] == 0
+            assert all(x["status"] == "rolled_back" for x in rb["rolled_back"])
+        finally:
+            server.close()
+
+    def test_repair_apply_batch_unknown_issue_partial(
+        self, tmp_path: Path, sample_csv: Path
+    ) -> None:
+        """V39：未知 issue id → errors 报告 + failed 计数。"""
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            scan = _call(
+                server,
+                1,
+                "tools/call",
+                {"name": "scan_file", "arguments": {"path": str(sample_csv)}},
+            )["result"]["content"][0]["text"]
+            scan_run_id = json.loads(scan)["scan_run_id"]
+            res = _call(
+                server,
+                2,
+                "tools/call",
+                {
+                    "name": "repair_apply_batch",
+                    "arguments": {
+                        "scan_run_id": scan_run_id,
+                        "source_path": str(sample_csv),
+                        "issue_ids": ["iss_not_exists"],
+                    },
+                },
+            )["result"]["content"][0]["text"]
+            data = json.loads(res)
+            assert data["failed"] == 1
+            assert "iss_not_exists" in data["errors"]
         finally:
             server.close()
 

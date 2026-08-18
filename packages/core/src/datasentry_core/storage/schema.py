@@ -363,10 +363,24 @@ PLACEHOLDER_TABLES = (
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
-    """幂等补列：存在则跳过（调用方保证 ddl 不含 NOT NULL 且默认兼容）。"""
+    """幂等补列：存在则跳过（调用方保证 ddl 不含 NOT NULL 且默认兼容）。
+
+    并发防护：多进程同时首次打开旧库时，双方都可能在另一方的
+    ALTER 提交前读到「列不存在」→ 双 ALTER 抛 duplicate column；
+    捕获该冲突后重查（此时列已存在），保持幂等。
+    """
     exists = any(row[1] == column for row in conn.execute(f"PRAGMA table_info({table})").fetchall())
     if not exists:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc):
+                raise
+            conflict = any(
+                row[1] == column for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+            )
+            if not conflict:
+                raise
 
 
 def _rebuild_job_runs_cancelled(conn: sqlite3.Connection) -> None:

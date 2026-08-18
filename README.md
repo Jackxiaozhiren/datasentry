@@ -51,7 +51,7 @@ DataSentry scans your data (CSV / Parquet / JSONL / XLSX / DuckDB / SQLite / Pos
 - **Cron scheduling** — persistent SQLite job queue: cron jobs, manual triggers, run history, webhooks, per-job quality gates and change-aware skip (no re-scan when the source is unchanged).
 - **Distributed execution** — any instance runs as a worker (`datasentry worker`); a worker pool gives round-robin routing, failover, cooldown and optional health checks, plus parallel dispatch (`DATASENTRY_MAX_WORKERS`).
 - **Plugin ecosystem** — `plugin.yaml` metadata, install/uninstall lifecycle, and SHA-256 integrity locks (tamper-resistant loading, `plugin test` sandbox).
-- **Multiple surfaces** — CLI, REST API, server-rendered Web UI with cross-scan trends, and an MCP stdio server (20 tools) so LLM agents can use the tools directly.
+- **Multiple surfaces** — CLI, REST API, server-rendered Web UI with cross-scan trends, and an MCP stdio server (23 tools) so LLM agents can use the tools directly.
 
 <p align="center">
   <img src="docs/demo/orders-report.html.png" alt="Sample quality report" width="720">
@@ -268,7 +268,7 @@ flowchart LR
 | Scheduling | cron jobs, manual triggers, run history (pruned), webhooks, quality gates, change-aware skip — CLI / REST / MCP 三面同语义 |
 | Distributed | `datasentry worker` nodes; pool routing with failover + cooldown + health checks; parallel dispatch (`DATASENTRY_MAX_WORKERS`) |
 | Plugins | `plugin.yaml` metadata, install/uninstall, integrity locks, test sandbox (three-state exit codes) |
-| Interfaces | CLI · REST API · Web UI (`/ui`, `/ui/scans`, `/ui/trends`, `/ui/compare`, `/ui/repairs`) · MCP stdio (20 tools) |
+| Interfaces | CLI · REST API · Web UI (`/ui`, `/ui/scans`, `/ui/trends`, `/ui/compare`, `/ui/repairs`) · MCP stdio (23 tools) |
 | Engineering | 11-stage CI, wheel build + isolated install smoke, 1e6-row benchmark gate |
 
 ## Web repair workflow

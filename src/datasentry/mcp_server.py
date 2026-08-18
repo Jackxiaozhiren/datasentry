@@ -305,6 +305,128 @@ class McpServer:
             return _json_safe([d.metadata().model_dump() for d in registry.list()])
 
         @self._tool(
+            "repair_propose_batch",
+            "Generate repair proposals for one or more issues of a scan run "
+            "(rule engine, read-only, never writes data). issue_ids: array of "
+            "issue ids; omit to cover all issues of the run. Returns proposals, "
+            "unsupported issues and per-issue errors.",
+            {
+                "scan_run_id": {"type": "string"},
+                "source_path": {"type": "string", "description": "source data file"},
+                "issue_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "issue ids to propose for (default: all of the run)",
+                },
+            },
+            ["scan_run_id", "source_path"],
+        )
+        def repair_propose_batch(
+            scan_run_id: str,
+            source_path: str,
+            issue_ids: list[str] | None = None,
+        ) -> dict[str, Any]:
+            client2 = client
+            ids = issue_ids or [i.id for i in client2.list_issues(scan_run_id=scan_run_id)]
+            issues: list[dict[str, Any]] = []
+            errors: dict[str, str] = {}
+            for issue_id in ids:
+                try:
+                    proposal = client2.repair_propose(issue_id, source_path)
+                except Exception as exc:
+                    errors[issue_id] = str(exc)
+                    continue
+                if proposal is None:
+                    issues.append({"issue_id": issue_id, "proposed": False})
+                    continue
+                issues.append(
+                    {
+                        "issue_id": issue_id,
+                        "proposed": True,
+                        "operation": proposal.operation.value,
+                        "target_columns": proposal.target_columns,
+                        "estimated_rows_changed": proposal.estimated_rows_changed,
+                        "rationale": proposal.rationale,
+                    }
+                )
+            return _json_safe({"issues": issues, "errors": errors, "failed": len(errors)})
+
+        @self._tool(
+            "repair_apply_batch",
+            "Apply repair proposals for one or more issues of a scan run. "
+            "WRITES DATA: each repair writes a repaired copy plus a before "
+            "snapshot under .datasentry/repairs/; the source file is never "
+            "overwritten. Issues without a proposal are skipped (no_proposal), "
+            "not failed. Returns applied runs and per-issue errors.",
+            {
+                "scan_run_id": {"type": "string"},
+                "source_path": {"type": "string", "description": "source data file"},
+                "issue_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "issue ids to apply (default: all of the run)",
+                },
+            },
+            ["scan_run_id", "source_path"],
+        )
+        def repair_apply_batch(
+            scan_run_id: str,
+            source_path: str,
+            issue_ids: list[str] | None = None,
+        ) -> dict[str, Any]:
+            client2 = client
+            ids = issue_ids or [i.id for i in client2.list_issues(scan_run_id=scan_run_id)]
+            applied: list[dict[str, Any]] = []
+            errors: dict[str, str] = {}
+            for issue_id in ids:
+                try:
+                    if client2.repair_propose(issue_id, source_path) is None:
+                        applied.append(
+                            {"issue_id": issue_id, "applied": False, "reason": "no_proposal"}
+                        )
+                        continue
+                    run = client2.repair_apply(issue_id, source_path)
+                except Exception as exc:
+                    errors[issue_id] = str(exc)
+                    continue
+                applied.append(
+                    {
+                        "issue_id": issue_id,
+                        "applied": True,
+                        "run_id": run.id,
+                        "changed": run.fingerprint_before != run.fingerprint_after,
+                    }
+                )
+            return _json_safe({"applied": applied, "errors": errors, "failed": len(errors)})
+
+        @self._tool(
+            "repair_rollback_batch",
+            "Roll back applied repairs by run id. WRITES DATA: restores the "
+            "pre-repair snapshot for each run. Returns rolled-back runs and "
+            "per-run errors.",
+            {
+                "repair_run_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "repair run ids (e.g. rep_xxx)",
+                },
+            },
+            ["repair_run_ids"],
+        )
+        def repair_rollback_batch(repair_run_ids: list[str]) -> dict[str, Any]:
+            client2 = client
+            rolled_back: list[dict[str, Any]] = []
+            errors: dict[str, str] = {}
+            for run_id in repair_run_ids:
+                try:
+                    run = client2.repair_rollback(run_id)
+                except Exception as exc:
+                    errors[run_id] = str(exc)
+                    continue
+                rolled_back.append({"run_id": run.id, "status": run.status.value})
+            return _json_safe({"rolled_back": rolled_back, "errors": errors, "failed": len(errors)})
+
+        @self._tool(
             "contract_validate",
             "Validate a data contract YAML file and return the structured "
             "contract or validation errors.",

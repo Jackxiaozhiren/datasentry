@@ -4,7 +4,22 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.43.0] - 2026-08-17
+## [0.44.0] - 2026-08-17
+
+### 新增
+
+- MCP 工具集 20 → 23：`repair_propose_batch`（只读，缺省覆盖 run 全部
+  issues）、`repair_apply_batch`（写修复副本，no_proposal 跳过）、
+  `repair_rollback_batch`（恢复快照）——agent 可完成完整批量修复闭环。
+- `repair list` 输出 summary（total / applied / rolled_back / failed）。
+
+### 修复
+
+- `_ensure_column` 并发迁移竞态：多进程同时首次打开旧库时双 ALTER
+  抛 duplicate column——捕获冲突后重查，迁移幂等（并发写者测试
+  此前在高负载下偶发失败，根因即此）。
+
+
 
 ### 新增
 

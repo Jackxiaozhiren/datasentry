@@ -25,7 +25,7 @@ from datasentry.client import DataSentry
 from datasentry_core.connectors.errors import ConnectorError, DataSourceNotFoundError
 from datasentry_core.llm.provider import LLMError
 from datasentry_core.models.contract import Contract, QualityGate
-from datasentry_core.models.enums import Severity
+from datasentry_core.models.enums import RepairRunStatus, Severity
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.scan import SamplingConfig, ScanConfig
 from datasentry_core.reporting.i18n import t
@@ -818,7 +818,13 @@ def _cmd_repair_list(args: argparse.Namespace) -> int:
                 "created_at": r.created_at.isoformat(),
             }
             for r in runs
-        ]
+        ],
+        "summary": {
+            "total": len(runs),
+            "applied": sum(1 for r in runs if r.status == RepairRunStatus.APPLIED),
+            "rolled_back": sum(1 for r in runs if r.status == RepairRunStatus.ROLLED_BACK),
+            "failed": sum(1 for r in runs if r.status == RepairRunStatus.FAILED),
+        },
     }
     _emit(_envelope("repair list", data), args.format)
     return EXIT_OK

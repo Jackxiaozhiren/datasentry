@@ -142,6 +142,42 @@ def test_concurrent_scan_writers_no_busy(tmp_path: Path) -> None:
         store.close()
 
 
+_ENSURE_COLUMN = """
+import sqlite3
+
+import sys
+
+sys.path.insert(0, "packages/core/src")
+from datasentry_core.storage.schema import _ensure_column
+
+conn = sqlite3.connect(sys.argv[1], timeout=30)
+try:
+    for _ in range(5):
+        _ensure_column(conn, "scan_runs", "source_path", "source_path TEXT")
+        conn.commit()
+finally:
+    conn.close()
+"""
+
+
+def test_concurrent_migration_ensure_column_idempotent(tmp_path: Path) -> None:
+    """V39：多进程同时补列（模拟 v8→v9 迁移竞态）→ 双 ALTER 冲突被
+    捕获重查，列只加一次，无 duplicate column 异常。"""
+    db = tmp_path / "meta.db"
+    MetadataStore(db).close()
+    procs = [_spawn(_ENSURE_COLUMN, str(db)) for _ in range(4)]
+    for proc in procs:
+        out, err = proc.communicate(timeout=120)
+        assert proc.returncode == 0, out + err
+        assert "duplicate column" not in err.lower()
+    store = MetadataStore(db)
+    try:
+        cols = [r[1] for r in store._conn.execute("PRAGMA table_info(scan_runs)").fetchall()]
+        assert cols.count("source_path") == 1
+    finally:
+        store.close()
+
+
 def test_busy_timeout_configured(tmp_path: Path) -> None:
     db = tmp_path / "meta.db"
     result = _run(_PRAGMA, str(db))
