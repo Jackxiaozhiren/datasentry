@@ -4,7 +4,21 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.46.0] - 2026-08-17
+## [0.47.0] - 2026-08-17
+
+### 新增
+
+- `repair verify <run_id>` CLI 命令（V41 验证闭环 CLI 端）：重扫修复
+  副本，输出 source/verify 对比报告（fixed/persistent/new types、
+  issue 计数）；默认退出码语义 = 无回归（new_types 为空）即 0，
+  `--require-clean` 可要求零残留（否则 EXIT_GATE_FAILED=1），
+  可直接作为 CI 质量门禁。
+- MCP `repair_verify` 工具（23→24）：LLM 代理可直接验证修复结果，
+  返回同一对比报告。
+- 验证逻辑抽到 `client.repair_verify`（Web/CLI/MCP 三端共享），
+  返回类型收窄为 `RepairVerifyReport` TypedDict。
+
+
 
 ### 新增
 

@@ -427,6 +427,22 @@ class McpServer:
             return _json_safe({"rolled_back": rolled_back, "errors": errors, "failed": len(errors)})
 
         @self._tool(
+            "repair_verify",
+            "Verify a repair run: re-scan the repaired copy and report "
+            "remaining issues vs the original scan (fixed/persistent/new "
+            "issue types). Read-only. Returns the verify scan run id and "
+            "comparison counts.",
+            {"repair_run_id": {"type": "string"}},
+            ["repair_run_id"],
+        )
+        def repair_verify(repair_run_id: str) -> dict[str, Any]:
+            try:
+                scan, report = client.repair_verify(repair_run_id)
+            except Exception as exc:
+                return _json_safe({"error": str(exc)})
+            return _json_safe({"verify_scan_run_id": scan.id, **report})
+
+        @self._tool(
             "contract_validate",
             "Validate a data contract YAML file and return the structured "
             "contract or validation errors.",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -93,3 +93,15 @@ class RepairRun(BaseModel):
     status: RepairRunStatus = RepairRunStatus.APPLIED
     rollback_artifact: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class RepairVerifyReport(TypedDict):
+    """V41：验证闭环对比报告（CLI/MCP/Web 三端共享）。"""
+
+    source_scan_run_id: str
+    verify_scan_run_id: str
+    source_issue_count: int
+    verify_issue_count: int
+    fixed_types: list[str]
+    persistent_types: list[str]
+    new_types: list[str]

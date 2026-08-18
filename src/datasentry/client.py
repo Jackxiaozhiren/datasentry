@@ -36,7 +36,12 @@ from datasentry_core.models.issue import Issue
 from datasentry_core.models.llm import LLMInvocation
 from datasentry_core.models.profile import ColumnProfile
 from datasentry_core.models.quality import QualityScore
-from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
+from datasentry_core.models.repair import (
+    RepairPreview,
+    RepairProposal,
+    RepairRun,
+    RepairVerifyReport,
+)
 from datasentry_core.models.rules import Rule
 from datasentry_core.models.scan import DetectorRun, ScanConfig, ScanRun
 from datasentry_core.repair import RepairEngine
@@ -868,6 +873,38 @@ class DataSentry:
 
     def get_repair_run(self, run_id: str) -> RepairRun | None:
         return self._store.get_repair_run(run_id)
+
+    def repair_verify(self, run_id: str) -> tuple[ScanRun, RepairVerifyReport]:
+        """V41：验证闭环——重扫修复副本，返回 (新 scan run, 对比报告)。
+
+        报告键：source_scan_run_id / verify_scan_run_id / source_issue_count
+        / verify_issue_count / fixed_types / persistent_types / new_types。
+        """
+        run = self._store.get_repair_run(run_id)
+        if run is None:
+            raise KeyError(f"repair run not found: {run_id}")
+        if run.source_scan_run_id is None:
+            raise ValueError("repair has no source scan context (created before v0.46)")
+        if run.rollback_artifact is None:
+            raise ValueError("no rollback artifact")
+        artifact = Path(run.rollback_artifact)
+        copy_path = artifact.with_name(artifact.name.replace(".before", ""))
+        if not copy_path.exists():
+            raise FileNotFoundError(f"repaired copy missing: {copy_path}")
+        scan, _, _ = self.scan_file(copy_path)
+        source_issues = self._store.get_issues(run.source_scan_run_id)
+        verify_issues = self._store.get_issues(scan.id)
+        source_types = {i.issue_type for i in source_issues}
+        verify_types = {i.issue_type for i in verify_issues}
+        return scan, {
+            "source_scan_run_id": run.source_scan_run_id,
+            "verify_scan_run_id": scan.id,
+            "source_issue_count": len(source_issues),
+            "verify_issue_count": len(verify_issues),
+            "fixed_types": sorted(source_types - verify_types),
+            "persistent_types": sorted(source_types & verify_types),
+            "new_types": sorted(verify_types - source_types),
+        }
 
     def list_llm_invocations(self, limit: int = 20) -> list[LLMInvocation]:
         """最近 LLM 调用审计（13.11；不含 prompt 原文）。"""

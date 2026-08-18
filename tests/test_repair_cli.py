@@ -250,6 +250,47 @@ class TestRepairCli:
             r["dataset_id"] == "customers.csv" or r["dataset_id"] == "customers" for r in listing
         )
 
+    def test_repair_verify_cli(
+        self, repair_csv: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """V41：repair verify——重扫副本，残留 0 时退出码 0，有残留时 EXIT_GATE_FAILED。"""
+        _scan_run(repair_csv, workspace)
+        client = _client(workspace)
+        issue = _issue_for_detector(repair_csv, workspace, "leading_or_trailing_whitespace")
+        run = client.repair_apply(issue.id, repair_csv)
+        client.close()
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "repair",
+                "verify",
+                run.id,
+            ]
+        )
+        assert code == 0
+        data = json.loads(capsys.readouterr().out)["data"]
+        assert data["verify_issue_count"] < data["source_issue_count"]
+        assert "string_format" in data["fixed_types"]
+        assert data["new_types"] == []
+        assert data["source_scan_run_id"].startswith("scan_")
+        assert data["source_scan_run_id"] != data["verify_scan_run_id"]
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "repair",
+                "verify",
+                "--require-clean",
+                run.id,
+            ]
+        )
+        assert code == 1
+
     def test_repair_list_dataset_filter_cli(
         self, repair_csv: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

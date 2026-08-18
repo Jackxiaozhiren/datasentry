@@ -107,6 +107,7 @@ class TestTools:
                 "repair_propose_batch",
                 "repair_apply_batch",
                 "repair_rollback_batch",
+                "repair_verify",
             } == names
             for tool in tools:
                 assert tool["inputSchema"]["type"] == "object"
@@ -192,9 +193,19 @@ class TestTools:
             run_ids = [x["run_id"] for x in app["applied"] if x.get("applied")]
             assert run_ids, "at least one applied run expected"
 
-            rolled = _call(
+            verified = _call(
                 server,
                 4,
+                "tools/call",
+                {"name": "repair_verify", "arguments": {"repair_run_id": run_ids[0]}},
+            )["result"]["content"][0]["text"]
+            vr = json.loads(verified)
+            assert vr.get("verify_scan_run_id")
+            assert vr["verify_issue_count"] < vr["source_issue_count"]
+
+            rolled = _call(
+                server,
+                5,
                 "tools/call",
                 {"name": "repair_rollback_batch", "arguments": {"repair_run_ids": run_ids}},
             )["result"]["content"][0]["text"]

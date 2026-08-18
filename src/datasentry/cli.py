@@ -696,6 +696,35 @@ def _cmd_repair_rollback(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_repair_verify(args: argparse.Namespace) -> int:
+    """V41：验证闭环——重扫修复副本，报告修复后残留（verify gate）。
+
+    退出码：EXIT_OK（无残留 issue）/ EXIT_GATE_FAILED（仍有 issue）。
+    """
+    client = DataSentry(args.project)
+    try:
+        scan, report = client.repair_verify(args.run_id)
+    except (KeyError, ValueError, FileNotFoundError) as exc:
+        _emit(_envelope("repair verify", {"error": str(exc)}), args.format)
+        return EXIT_ERROR
+    payload = {
+        "run_id": args.run_id,
+        "verify_scan_run_id": scan.id,
+        **report,
+    }
+    _emit(_envelope("repair verify", payload), args.format)
+    if args.format != "json" and (report["verify_issue_count"] or report["new_types"]):
+        print(
+            f"  persistent ({len(report['persistent_types'])}): "
+            + ", ".join(report["persistent_types"])
+            + "  |  new: "
+            + ", ".join(report["new_types"])
+        )
+    if args.require_clean:
+        return EXIT_OK if report["verify_issue_count"] == 0 else EXIT_GATE_FAILED
+    return EXIT_OK if not report["new_types"] else EXIT_GATE_FAILED
+
+
 def _cmd_repair_propose_batch(args: argparse.Namespace) -> int:
     """V36：批量提案——run 下多个 issue（--issues 逗号分隔或 --all）。"""
     client = DataSentry(args.project)
@@ -1720,6 +1749,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_rollback = repair_sub.add_parser("rollback", help="rollback a repair run")
     p_rollback.add_argument("run_id", type=str)
     p_rollback.set_defaults(func=_cmd_repair_rollback)
+    p_verify = repair_sub.add_parser("verify", help="verify a repair run (re-scan + compare)")
+    p_verify.add_argument("run_id", type=str)
+    p_verify.add_argument(
+        "--require-clean",
+        action="store_true",
+        help="exit non-zero unless the repaired copy has zero remaining issues",
+    )
+    p_verify.set_defaults(func=_cmd_repair_verify)
     p_propose_batch = repair_sub.add_parser("propose-batch", help="batch proposals for a scan run")
     p_propose_batch.add_argument("run", type=str, help="scan run id")
     p_propose_batch.add_argument("--file", type=str, required=True, help="source data file")
