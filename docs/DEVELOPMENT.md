@@ -1114,3 +1114,15 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - README "The verify step" 小节：Web（Verify 按钮 → compare 页）、
   CLI（repair verify 退出码语义）、MCP（repair_verify）、审计
   （/ui/repairs/{id}/artifact diff 页）四入口。
+
+
+## V45：repair list 表格 + MCP 工具表（v0.50）
+
+- repair list 非 json 模式：对齐列表格（run id/dataset/status/
+  changed rows/created）+ summary 行；json 输出结构不变。
+- 坑：mypy strict 下 dict 字面量键值联合类型不可索引
+  （dict[str,str]|dict[str,int]）→ 把 summary 提到独立局部变量再复用。
+- Pages 站点 MCP 工具表：必须从 mcp_server.py 代码提取真实工具名
+  （24 个），勿凭印象手写（initial 草案里编造的 issue_list/
+  report_render 等不存在；真实有 list_issues/quality_score/
+  drift_latest/jobs_list/detectors_list）。
