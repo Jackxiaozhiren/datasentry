@@ -1154,3 +1154,14 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - blog-4（en/zh）：验证闭环故事（provenance → 四入口 verify/diff →
   门禁语义：无回归 vs 干净）。README 博客列表同步。
 - 三端 diff/verify 实现单一来源：client.repair_verify / client.repair_diff。
+
+
+## V49：回滚失败原因细分展示（v0.54）
+
+- 发现真 bug：render_batch_rollback 的 errors 参数从未生效——失败的
+  run 只进 errors dict、不进 runs 列表，结果页只渲染成功项，失败
+  原因全部吞掉。修复：errors 中未出现在 runs 的 run_id 单独成行
+  （run id + —/— + badge-critical + 原因文本）。
+- 顺带提取 ui._ops_summary 助手（历史页/batch 页/工件页多处重复）。
+- 教训：传参渲染时先检查"失败项是否也进入了渲染列表"——
+  errors/runs 双通道最容易漏。
