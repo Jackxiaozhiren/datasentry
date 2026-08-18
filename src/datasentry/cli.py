@@ -696,6 +696,56 @@ def _cmd_repair_rollback(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_repair_diff(args: argparse.Namespace) -> int:
+    """V46：修复工件 diff——before 快照 vs 修复副本的变更行。"""
+    client = DataSentry(args.project)
+    try:
+        run, columns, before_rows, after_rows, changed = client.repair_diff(args.run_id)
+    except (KeyError, ValueError, FileNotFoundError) as exc:
+        _emit(_envelope("repair diff", {"error": str(exc)}), args.format)
+        return EXIT_ERROR
+    if args.format != "json":
+        if not changed:
+            print("no row-level changes (repaired copy matches snapshot)")
+            return EXIT_OK
+        print(f"run {run.id} ({run.status.value}) — {len(changed)} changed row(s)")
+        for i in changed:
+            before = before_rows[i] if i < len(before_rows) else []
+            after = after_rows[i] if i < len(after_rows) else []
+            line_no = i + 2
+            print(f"  line {line_no}")
+            for j, col in enumerate(columns):
+                b = before[j] if j < len(before) else None
+                a = after[j] if j < len(after) else None
+                if b != a:
+                    print(f"    {col}: {b!r} -> {a!r}")
+        return EXIT_OK
+    rows = []
+    for i in changed:
+        b = before_rows[i] if i < len(before_rows) else []
+        a = after_rows[i] if i < len(after_rows) else []
+        rows.append(
+            {
+                "line": i + 2,
+                "before": {c: b[j] for j, c in enumerate(columns) if j < len(b)},
+                "after": {c: a[j] for j, c in enumerate(columns) if j < len(a)},
+            }
+        )
+    _emit(
+        _envelope(
+            "repair diff",
+            {
+                "run_id": run.id,
+                "status": run.status.value,
+                "columns": columns,
+                "changed_rows": rows,
+            },
+        ),
+        args.format,
+    )
+    return EXIT_OK
+
+
 def _cmd_repair_verify(args: argparse.Namespace) -> int:
     """V41：验证闭环——重扫修复副本，报告修复后残留（verify gate）。
 
@@ -1766,6 +1816,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_rollback = repair_sub.add_parser("rollback", help="rollback a repair run")
     p_rollback.add_argument("run_id", type=str)
     p_rollback.set_defaults(func=_cmd_repair_rollback)
+    p_diff = repair_sub.add_parser(
+        "diff", help="diff a repair run (before snapshot vs repaired copy)"
+    )
+    p_diff.add_argument("run_id", type=str)
+    p_diff.set_defaults(func=_cmd_repair_diff)
     p_verify = repair_sub.add_parser("verify", help="verify a repair run (re-scan + compare)")
     p_verify.add_argument("run_id", type=str)
     p_verify.add_argument(

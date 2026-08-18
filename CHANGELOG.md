@@ -4,7 +4,16 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.51.0] - 2026-08-17
+## [0.52.0] - 2026-08-17
+
+### 新增
+
+- CLI `repair diff <run_id>`：打印变更行明细（line + 变更列
+  old -> new），--format json 输出与 REST 端点一致的结构
+  （columns + changed_rows）——diff 闭环四端齐备
+  （Web 工件页 / CLI / MCP / REST）。
+
+
 
 ### 新增
 

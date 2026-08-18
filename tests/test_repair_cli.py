@@ -250,6 +250,30 @@ class TestRepairCli:
             r["dataset_id"] == "customers.csv" or r["dataset_id"] == "customers" for r in listing
         )
 
+    def test_repair_diff_cli(
+        self, repair_csv: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """V46：repair diff——变更行 line/before/after 输出（text + json）。"""
+        _scan_run(repair_csv, workspace)
+        client = _client(workspace)
+        issue = _issue_for_detector(repair_csv, workspace, "leading_or_trailing_whitespace")
+        run = client.repair_apply(issue.id, repair_csv)
+        client.close()
+        code = main(["--project", str(workspace), "repair", "diff", run.id])
+        assert code == 0
+        out = capsys.readouterr().out
+        assert "changed row" in out
+        assert "line " in out
+        assert "->" in out
+        code = main(["--project", str(workspace), "--format", "json", "repair", "diff", run.id])
+        assert code == 0
+        data = json.loads(capsys.readouterr().out)["data"]
+        assert data["run_id"] == run.id
+        assert data["changed_rows"], "expected at least one changed row"
+        row = data["changed_rows"][0]
+        assert row["line"] >= 2
+        assert row["before"] != row["after"]
+
     def test_repair_verify_cli(
         self, repair_csv: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
