@@ -1033,3 +1033,18 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - repair list --run <scan_run_id>：按 get_scan(run).dataset_id 过滤。
 - 语义：所有写数据操作（apply/rollback 单条与批量）均为 POST，
   链接 GET 只用于纯导航。
+
+
+## V39：MCP 批量修复 + 迁移竞态修复（v0.44）
+
+- MCP 工具 20→23：repair_propose_batch（只读）、repair_apply_batch
+  （写副本，no_proposal 跳过非失败）、repair_rollback_batch；与 CLI
+  同语义，issue_ids 缺省 = run 全部 issues。
+- repair list 加 summary（total/applied/rolled_back/failed）。
+- 真 bug 修复：_ensure_column 并发迁移竞态——两进程同时首次打开旧库，
+  都读到「列不存在」→ 双 ALTER，后者抛 duplicate column。修复：捕获
+  OperationalError 且含 duplicate column 时重查（此时列已存在）保持幂等。
+- 此竞态正是 test_store_concurrency 高负载下偶发失败的根因（之前误判
+  为环境性 flaky）；新增 4 进程补列竞态测试固化。
+- 测试坑：子进程代码串内嵌中文注释会 SyntaxError（subprocess -c 直接
+  执行）；文档字符串替代注释。
