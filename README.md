@@ -322,6 +322,21 @@ reported under `errors` in the JSON envelope — add `--format json` to machine-
 - [Great Expectations vs DataSentry: two ways to care about data quality](.growth/blog-2-ge-vs-datasentry-en.md) — assertion frameworks vs detection frameworks, and where they complement each other.
 - [Detect → fix → verify: the data quality loop](.growth/blog-3-repair-loop-en.md) — how the batch repair workbench (v0.30–v0.40) closes the loop with proposals, applied copies, and rollbacks. (中文版：[检测 → 修复 → 验证：数据质量闭环](.growth/blog-3-repair-loop-zh.md))
 
+## The verify step (v0.46–v0.48)
+
+Every applied repair records its source scan (`repair_runs.source_scan_run_id`),
+so the loop can be *proven*:
+
+- **Web** — `Verify` on the repair history, batch-apply results, or artifact
+  page re-scans the repaired copy and redirects to the compare view
+  (original scan vs post-repair scan).
+- **CLI** — `datasentry repair verify <run_id>` prints fixed / persistent /
+  new issue types; exits 0 unless the repair introduced a regression
+  (`--require-clean` demands zero remaining issues) — drop it into CI.
+- **MCP** — `repair_verify` returns the same report for agents.
+- **Audit** — `/ui/repairs/{id}/artifact` shows the before/after row diff
+  with changed cells highlighted, linked from every applied run.
+
 ## Development
 
 ```bash

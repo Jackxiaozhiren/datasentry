@@ -365,6 +365,7 @@ class TestTrendsPage:
         assert "Repair artifact" in page.text
         assert "before" in page.text and "after" in page.text
         assert "diff-del" in page.text and "diff-add" in page.text
+        assert "/verify" in page.text and "/rollback" in page.text
         history = client.get("/ui/repairs")
         assert artifact_url in history.text
 

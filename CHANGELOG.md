@@ -4,7 +4,16 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.48.0] - 2026-08-17
+## [0.49.0] - 2026-08-17
+
+### 新增
+
+- 修复工件页增加 Verify / Rollback 按钮（与历史页一致，diff 看完
+  可直接验证或回滚）。
+- README 新增 "The verify step" 小节（Web/CLI/MCP/审计四入口）；
+  docs/index.html terminal 示例补 `repair verify` 一行。
+
+
 
 ### 新增
 

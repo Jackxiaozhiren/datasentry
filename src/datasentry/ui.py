@@ -719,6 +719,21 @@ def render_repair_artifact(
         f"<td>{rows_changed} / {len(before_rows)}</td></tr>"
         "</table>"
     )
+    actions = ""
+    if run.status == RepairRunStatus.APPLIED:
+        actions = (
+            "<p>"
+            f'<form method="post" action="/ui/repairs/{escape(run.id)}/verify" '
+            f'style="display:inline">'
+            f'<button class="linklike" type="submit">'
+            f"{escape(t(lang, 'ui.verify'))}</button></form>"
+            " &middot; "
+            f'<form method="post" action="/ui/repairs/{escape(run.id)}/rollback" '
+            f'style="display:inline">'
+            f'<button class="linklike" type="submit">'
+            f"{escape(t(lang, 'ui.rollback_link'))}</button></form>"
+            "</p>"
+        )
     if not changed_indices:
         body = f'<p class="meta">{escape(t(lang, "ui.artifact_no_changes"))}</p>'
     else:
@@ -755,7 +770,7 @@ def render_repair_artifact(
                 f"{after_cells}</tr>"
             )
         body = f"<table><tr><th></th><th></th>{thead}</tr>" + "".join(diff_rows) + "</table>"
-    return _page(t(lang, "ui.artifact_title"), head + body, active="repairs", lang=lang)
+    return _page(t(lang, "ui.artifact_title"), head + actions + body, active="repairs", lang=lang)
 
 
 def render_batch_apply(
