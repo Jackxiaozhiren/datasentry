@@ -30,6 +30,11 @@ _CSS = """
 :root { color-scheme: light; }
 body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 2rem auto;
        max-width: 960px; color: #1f2328; line-height: 1.5; }
+.stats { display: flex; gap: .6rem; margin: .5rem 0; }
+.stat { padding: .35rem .8rem; border-radius: .5rem; background: #f0f2f4;
+        border: 1px solid #d0d7de; font-weight: 600; }
+.stat-ok { background: #e8f5e9; border-color: #a5d6a7; }
+.stat-bad { background: #fde8e8; border-color: #f6b1b1; }
 .batch-banner { padding: 0.7rem 1rem; border-radius: 6px; margin-bottom: 1rem;
                 background: #e8f5e9; border: 1px solid #a5d6a7; }
 .batch-banner.warn { background: #fff3e0; border-color: #ffcc80; }
@@ -684,12 +689,14 @@ def render_batch_apply(
     runs: dict[str, RepairRun],
     errors: dict[str, str],
     *,
+    skipped: dict[str, str] | None = None,
     source_path: str = "",
     lang: str = "en",
 ) -> str:
     """V31：批量 apply 结果页——每行 applied（含回滚链接）或 error。
 
     V34：applied 行可勾选 → 批量回滚（写数据，需用户显式提交）。
+    V40：skipped（无提案）单独归类 + 顶部统计卡片。
     """
     rows = []
     for issue in issues:
@@ -726,9 +733,18 @@ def render_batch_apply(
             f"{escape(issue.id)}</a></td>"
             f"<td>{title_cell}</td>" + status_cell + "</tr>"
         )
+    skipped = skipped or {}
+    applied_n = len(runs)
+    skipped_n = len(skipped)
+    failed_n = len(errors)
     body = [
+        '<div class="stats">'
+        f'<span class="stat stat-ok">{escape(t(lang, "ui.applied"))}: {applied_n}</span>'
+        f'<span class="stat">{escape(t(lang, "ui.skipped"))}: {skipped_n}</span>'
+        f'<span class="stat stat-bad">{escape(t(lang, "ui.error"))}: {failed_n}</span>'
+        "</div>"
         f'<p class="meta">{escape(t(lang, "ui.batch_apply_summary"))}: '
-        f"{len(runs)} / {len(issues)} · {escape(source_path)}</p>",
+        f"{len(issues)} issues · {escape(source_path)}</p>",
         '<p class="meta">'
         f'<a href="/ui/scans/{escape(run_id)}">{escape(t(lang, "ui.back_to_scan"))}</a></p>',
         '<form method="post" '

@@ -250,6 +250,47 @@ class TestRepairCli:
             r["dataset_id"] == "customers.csv" or r["dataset_id"] == "customers" for r in listing
         )
 
+    def test_repair_list_dataset_filter_cli(
+        self, repair_csv: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """V40：repair list --dataset 按 dataset id 过滤。"""
+        _scan_run(repair_csv, workspace)
+        client = _client(workspace)
+        issue = _issue_for_detector(repair_csv, workspace, "leading_or_trailing_whitespace")
+        client.repair_apply(issue.id, repair_csv)
+        client.close()
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "repair",
+                "list",
+                "--dataset",
+                "customers",
+            ]
+        )
+        assert code == 0
+        listing = json.loads(capsys.readouterr().out)["data"]
+        assert listing["summary"]["applied"] >= 1
+        assert all(r["dataset_id"] == "customers" for r in listing["runs"])
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "repair",
+                "list",
+                "--dataset",
+                "no_such.csv",
+            ]
+        )
+        assert code == 0
+        empty = json.loads(capsys.readouterr().out)["data"]
+        assert empty["runs"] == [] and empty["summary"]["total"] == 0
+
     def test_repair_apply_batch_unknown_issue_partial(
         self, repair_csv: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

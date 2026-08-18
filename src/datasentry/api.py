@@ -696,11 +696,17 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
                 status_code=400,
             )
         runs: dict[str, object] = {}
+        skipped: dict[str, str] = {}
         errors: dict[str, str] = {}
         for issue_id in issue_ids:
             try:
                 run = client.repair_apply(issue_id, source_path)
                 runs[issue_id] = run
+            except ValueError as exc:
+                if "no repair proposal" in str(exc):
+                    skipped[issue_id] = str(exc)
+                else:
+                    errors[issue_id] = str(exc)
             except Exception as exc:
                 errors[issue_id] = str(exc)
         issues = client.list_issues(scan_run_id=run_id)
@@ -712,6 +718,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
                 selected,
                 cast(dict[str, Any], runs),
                 errors,
+                skipped=skipped,
                 source_path=source_path,
             )
         )

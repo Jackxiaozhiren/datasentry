@@ -806,6 +806,8 @@ def _cmd_repair_list(args: argparse.Namespace) -> int:
         if target is None:
             raise ValueError(f"scan run not found: {args.run}")
         runs = [r for r in runs if r.dataset_id == target.dataset_id]
+    elif getattr(args, "dataset", None):
+        runs = [r for r in runs if r.dataset_id == args.dataset]
     data = {
         "runs": [
             {
@@ -1739,6 +1741,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_rollback_batch.set_defaults(func=_cmd_repair_rollback_batch)
     p_runs = repair_sub.add_parser("list", help="list repair runs")
     p_runs.add_argument("--run", type=str, default="", help="filter to a scan run's dataset")
+    p_runs.add_argument("--dataset", type=str, default="", help="filter to a dataset id")
     p_runs.set_defaults(func=_cmd_repair_list)
 
     p_job = sub.add_parser(

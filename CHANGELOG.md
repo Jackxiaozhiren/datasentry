@@ -4,7 +4,17 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.44.0] - 2026-08-17
+## [0.45.0] - 2026-08-17
+
+### 新增
+
+- 批量 apply 结果页统计卡片：applied / skipped / error 三格；无提案
+  issue 从 error 重新归类为 skipped（与 CLI/MCP 语义对齐），结果页
+  增加对应样式（ui.skipped / ui.error i18n key 补齐）。
+- `repair list --dataset <dataset_id>`：按数据集过滤修复记录（与
+  --run 过滤互补）。
+
+
 
 ### 新增
 
