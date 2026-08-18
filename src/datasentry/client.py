@@ -843,7 +843,12 @@ class DataSentry:
             proposal = engine.propose(issue, context)
             if proposal is None:
                 raise ValueError(f"no repair proposal for issue: {issue_id} ({issue.issue_type})")
-            run = engine.apply(proposal, context, workspace or self.workspace)
+            run = engine.apply(
+                proposal,
+                context,
+                workspace or self.workspace,
+                source_scan_run_id=issue.scan_run_id,
+            )
         finally:
             context.handle.close()
         self._store.save_repair_run(run)
@@ -860,6 +865,9 @@ class DataSentry:
 
     def list_repair_runs(self) -> list[RepairRun]:
         return self._store.list_repair_runs()
+
+    def get_repair_run(self, run_id: str) -> RepairRun | None:
+        return self._store.get_repair_run(run_id)
 
     def list_llm_invocations(self, limit: int = 20) -> list[LLMInvocation]:
         """最近 LLM 调用审计（13.11；不含 prompt 原文）。"""

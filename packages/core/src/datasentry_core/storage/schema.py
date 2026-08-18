@@ -14,7 +14,7 @@ import sqlite3
 import time
 
 #: 当前 schema 版本（PRAGMA user_version）
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 _SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -173,6 +173,7 @@ CREATE TABLE IF NOT EXISTS repair_runs (
     approved_at         TEXT,
     status              TEXT NOT NULL CHECK (status IN ('applied','rolled_back','failed')),
     rollback_artifact   TEXT,
+    source_scan_run_id  TEXT,
     created_at          TEXT NOT NULL
 );
 
@@ -475,6 +476,10 @@ def migrate(conn: sqlite3.Connection) -> None:
     # v8 → v9：scan_runs.source_path（V33）——源路径持久化，批量修复表单预填
     if version < 9:
         _ensure_column(conn, "scan_runs", "source_path", "source_path TEXT")
+    # v9 → v10：repair_runs.source_scan_run_id（V41）——修复来源扫描 run，
+    # 支撑「验证」闭环（重扫修复副本后与原 run 对比）
+    if version < 10:
+        _ensure_column(conn, "repair_runs", "source_scan_run_id", "source_scan_run_id TEXT")
     # v7 → v8：job_runs.status 增 cancelled（V22，Step 114，ADR-114）——
     # SQLite 无法 ALTER CHECK，重建表放宽约束（数据原样保留；无表引用
     # job_runs，DROP 安全；外键到 scheduled_jobs 由 RENAME 保留）。

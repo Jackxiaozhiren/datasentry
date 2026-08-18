@@ -127,6 +127,8 @@ class TestSchema:
         migrate_test = __import__("datasentry_core.storage.schema", fromlist=["migrate"]).migrate
         migrate_test(conn)
         assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(repair_runs)")}
+        assert "source_scan_run_id" in cols
         conn.close()
 
     def test_placeholder_tables_exist(self, tmp_path: Path) -> None:

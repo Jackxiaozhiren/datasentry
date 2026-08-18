@@ -81,6 +81,7 @@ class RepairRun(BaseModel):
     id: str
     dataset_id: str
     proposal_id: str | None = None
+    source_scan_run_id: str | None = None
     dataset_version_from: str | None = None
     dataset_version_to: str | None = None
     fingerprint_before: str

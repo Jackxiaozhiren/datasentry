@@ -319,15 +319,17 @@ class MetadataStore:
             self._conn.execute(
                 """
                 INSERT OR REPLACE INTO repair_runs (
-                    id, dataset_id, proposal_id, fingerprint_before, fingerprint_after,
+                    id, dataset_id, proposal_id, source_scan_run_id,
+                    fingerprint_before, fingerprint_after,
                     operations, approved_by, approval_kind, approved_at, status,
                     rollback_artifact, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.id,
                     run.dataset_id,
                     run.proposal_id,
+                    run.source_scan_run_id,
                     run.fingerprint_before,
                     run.fingerprint_after,
                     json.dumps([op.model_dump() for op in run.operations], default=str),
@@ -754,6 +756,7 @@ class MetadataStore:
             id=d["id"],
             dataset_id=d["dataset_id"],
             proposal_id=d["proposal_id"],
+            source_scan_run_id=d.get("source_scan_run_id"),
             fingerprint_before=d["fingerprint_before"],
             fingerprint_after=d["fingerprint_after"],
             operations=[

@@ -4,7 +4,18 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.45.0] - 2026-08-17
+## [0.46.0] - 2026-08-17
+
+### 新增
+
+- 修复「验证」闭环（detect → fix → **verify**）：repair_runs 新增
+  source_scan_run_id（schema v10，记录修复来源扫描）；修复历史页与
+  批量 apply 结果页的 applied 行新增 Verify 按钮，重扫修复副本后
+  303 跳转原扫描 vs 修复后扫描对比页，直接展示修复效果。
+- 修复历史页回滚/验证入口统一为 POST 表单按钮（补全 V38 遗漏的
+  历史页按钮化改造）。
+
+
 
 ### 新增
 

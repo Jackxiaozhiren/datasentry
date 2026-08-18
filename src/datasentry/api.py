@@ -753,6 +753,40 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         """V32：修复历史页——所有修复 run + 回滚入口。"""
         return HTMLResponse(ui.render_repairs(client.list_repair_runs(), lang=lang))
 
+    @app.post("/ui/repairs/{repair_run_id}/verify", response_class=HTMLResponse, tags=["ui"])
+    def ui_repairs_verify(repair_run_id: str) -> Response:
+        """V41：验证闭环——重扫修复副本，303 到原扫描 vs 修复后扫描的对比页。"""
+        run = client.get_repair_run(repair_run_id)
+        if run is None:
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.scan_failed"), "repair run not found"),
+                status_code=404,
+            )
+        if run.source_scan_run_id is None:
+            return HTMLResponse(
+                ui.render_error(
+                    _t("en", "ui.scan_failed"),
+                    "repair has no source scan context (created before v0.46)",
+                ),
+                status_code=400,
+            )
+        if run.rollback_artifact is None:
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.scan_failed"), "no rollback artifact"),
+                status_code=400,
+            )
+        artifact = Path(run.rollback_artifact)
+        copy_path = artifact.with_name(artifact.name.replace(".before", ""))
+        if not copy_path.exists():
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.scan_failed"), f"repaired copy missing: {copy_path}"),
+                status_code=404,
+            )
+        scan, _, _ = client.scan_file(copy_path)
+        return RedirectResponse(
+            url=f"/ui/compare?runs={run.source_scan_run_id}&runs={scan.id}", status_code=303
+        )
+
     @app.post("/ui/repairs/{repair_run_id}/rollback", response_class=HTMLResponse, tags=["ui"])
     def ui_repairs_rollback(repair_run_id: str) -> Response:
         try:

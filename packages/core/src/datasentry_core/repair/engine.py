@@ -245,6 +245,7 @@ class RepairEngine:
         proposal: RepairProposal,
         context: DetectionContext,
         workspace: Path,
+        source_scan_run_id: str | None = None,
     ) -> RepairRun:
         """应用：写修复副本（<run_id><ext>）+ before artifact（.before<ext>）。"""
         repairs_dir = project_repairs_dir(workspace)
@@ -276,6 +277,7 @@ class RepairEngine:
             id=run_id,
             dataset_id=context.dataset_id,
             proposal_id=proposal.proposal_id,
+            source_scan_run_id=source_scan_run_id,
             fingerprint_before=fingerprint_before.file_sha256 or "",
             fingerprint_after=fingerprint_after.file_sha256 or "",
             operations=operations,

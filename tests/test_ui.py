@@ -456,6 +456,31 @@ class TestTrendsPage:
         assert fixed, "repaired copy missing"
         assert " alice " not in fixed[0].read_text()
 
+    def test_batch_apply_verify_flow(self, tmp_path: Path) -> None:
+        """V41：Verify 闭环——重扫修复副本 → 303 对比页（原 run vs 验证 run）。"""
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        issues = client.get(f"/scans/{run_id}/issues").json()
+        ids = [i["id"] for i in issues[:2]]
+        apply = client.post(
+            f"/ui/scans/{run_id}/repairs/batch-apply",
+            data={"source_path": str(csv), "issue_ids": ids},
+        )
+        assert apply.status_code == 200
+        assert "verify" in apply.text
+        m = re.search(r"/ui/repairs/(rep_[0-9a-f]+)/verify", apply.text)
+        assert m, "verify button missing on batch apply results"
+        repair_run_id = m.group(1)
+        verify = client.post(f"/ui/repairs/{repair_run_id}/verify", follow_redirects=False)
+        assert verify.status_code == 303
+        location = verify.headers["location"]
+        assert location.startswith(f"/ui/compare?runs={run_id}&runs=")
+        compare = client.get(location)
+        assert compare.status_code == 200
+        assert "New issues" in compare.text
+        assert run_id in compare.text
+
     def test_batch_apply_no_selection(self, tmp_path: Path) -> None:
         """V31：未选 issue → 400，且不写文件。"""
         client = TestClient(create_app(project=tmp_path))

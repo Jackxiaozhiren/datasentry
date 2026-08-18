@@ -650,17 +650,27 @@ def render_repairs(
             if run.status == RepairRunStatus.APPLIED:
                 status_cell = (
                     f'<td class="badge badge-ok">{escape(t(lang, "ui.repair_status_applied"))}</td>'
-                    f'<td><a href="/ui/repairs/{escape(run.id)}/rollback">'
-                    f"{escape(t(lang, 'ui.rollback_link'))}</a></td>"
+                    "<td>"
+                    f'<form method="post" action="/ui/repairs/{escape(run.id)}/rollback">'
+                    f'<button class="linklike" type="submit">'
+                    f"{escape(t(lang, 'ui.rollback_link'))}</button>"
+                    "</form></td>"
+                    "<td>"
+                    f'<form method="post" action="/ui/repairs/{escape(run.id)}/verify">'
+                    f'<button class="linklike" type="submit">'
+                    f"{escape(t(lang, 'ui.verify'))}</button>"
+                    "</form></td>"
                 )
             elif run.status == RepairRunStatus.ROLLED_BACK:
                 status_cell = (
                     f'<td class="badge">{escape(t(lang, "ui.repair_status_rolled_back"))}</td>'
-                    "<td></td>"
+                    "<td></td><td></td>"
                 )
             else:
                 failed_badge = escape(t(lang, "ui.repair_status_failed"))
-                status_cell = f'<td class="badge badge-critical">{failed_badge}</td><td></td>'
+                status_cell = (
+                    f'<td class="badge badge-critical">{failed_badge}</td><td></td><td></td>'
+                )
             rows.append(
                 f'<tr id="{escape(run.id)}">'
                 f"<td>{escape(run.id)}</td>"
@@ -673,7 +683,7 @@ def render_repairs(
             )
         body = (
             "<table><tr><th>run id</th><th>dataset</th><th>operation</th><th>rows</th>"
-            "<th>status</th><th></th><th>created</th></tr>" + "".join(rows) + "</table>"
+            "<th>status</th><th></th><th></th><th>created</th></tr>" + "".join(rows) + "</table>"
         )
     return _page(
         t(lang, "ui.repairs_title"),
@@ -715,6 +725,11 @@ def render_batch_apply(
                 f'<form method="post" action="{rollback}">'
                 f'<button class="linklike" type="submit">'
                 f"{escape(t(lang, 'ui.rollback_link'))}</button>"
+                "</form></td>"
+                "<td>"
+                f'<form method="post" action="/ui/repairs/{escape(run.id)}/verify">'
+                f'<button class="linklike" type="submit">'
+                f"{escape(t(lang, 'ui.verify'))}</button>"
                 "</form></td>"
             )
             check = (
