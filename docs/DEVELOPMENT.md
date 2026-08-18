@@ -1048,3 +1048,14 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
   为环境性 flaky）；新增 4 进程补列竞态测试固化。
 - 测试坑：子进程代码串内嵌中文注释会 SyntaxError（subprocess -c 直接
   执行）；文档字符串替代注释。
+
+
+## V40：apply 结果统计 + list --dataset（v0.45）
+
+- 批量 apply 结果页：顶部统计卡片（applied/skipped/error 三格，
+  .stats/.stat CSS）；无提案 issue 从 errors 拆出为 skipped
+  （ValueError "no repair proposal" 判定），与 CLI/MCP 语义对齐。
+- repair list --dataset <id>：按 dataset_id 过滤（--run 按 run 的
+  dataset 过滤，--dataset 直接按 id）。
+- i18n 补齐 ui.skipped / ui.error（此前 ui.error 缺失 key 回退键名）。
+- 踩坑：dataset_id 不含扩展名（"customers" 而非 "customers.csv"）。
