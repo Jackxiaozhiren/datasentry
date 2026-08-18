@@ -1059,3 +1059,17 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
   dataset 过滤，--dataset 直接按 id）。
 - i18n 补齐 ui.skipped / ui.error（此前 ui.error 缺失 key 回退键名）。
 - 踩坑：dataset_id 不含扩展名（"customers" 而非 "customers.csv"）。
+
+
+## V41：验证闭环 verify loop（v0.46）
+
+- repair_runs.source_scan_run_id（schema v10）：记录修复来源扫描 run，
+  RepairEngine.apply 新增参数，client.repair_apply 从 issue.scan_run_id 传入。
+- POST /ui/repairs/{id}/verify：读 run → 推导修复副本路径
+  （rollback_artifact 去 .before 段）→ scan_file(副本) → 303 到
+  /ui/compare?runs={源run}&runs={新run}——原扫描 vs 修复后扫描，FIXED 组直证。
+- 修复历史页 + 批量 apply 结果页 applied 行统一为 POST 表单按钮
+  （rollback + verify 并列）。
+- 测试：verify 流（TestClient 默认 follow_redirects=True，须显式
+  follow_redirects=False 断言 303）；迁移测试补 source_scan_run_id 列断言。
+- 数据缺口教训：先补来源追踪字段再做闭环，避免端点凭空猜源 run。
