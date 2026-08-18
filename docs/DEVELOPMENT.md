@@ -1136,3 +1136,12 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - 至此 verify 闭环四入口齐备：Web（/ui/repairs/{id}/verify 303 compare）、
   CLI（repair verify）、MCP（repair_verify）、REST（POST /repairs/{id}/verify）；
   diff 同理（/ui/repairs/{id}/artifact 页 + GET /repairs/{id}/diff）。
+
+
+## V47：repair diff CLI（v0.52）
+
+- repair diff <run_id>：text 模式打印变更行（line + col: old -> new），
+  json 模式与 REST /repairs/{id}/diff 结构一致（columns + changed_rows）。
+- 至此 diff 四端齐备：Web 工件页 / CLI / MCP（repair_verify 内带）/ REST。
+  verify 与 diff 的 CLI/REST/MCP/Web 实现全部复用 client.repair_verify /
+  client.repair_diff，无重复逻辑。
