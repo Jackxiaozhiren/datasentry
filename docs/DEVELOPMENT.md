@@ -1105,3 +1105,12 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
   "takes 3 positional arguments but 4 were given"。改 staticmethod
   方法须把 @staticmethod 行一并纳入替换串。
 - ruff B905：zip 需显式 strict=（本项目启用该规则）。
+
+
+## V44：工件页动作 + verify 文档（v0.49）
+
+- 工件页顶部加 Verify / Rollback 并排 POST 表单按钮（仅 APPLIED 态），
+  与历史页/apply 结果页入口一致——diff 看完直接验证或回滚。
+- README "The verify step" 小节：Web（Verify 按钮 → compare 页）、
+  CLI（repair verify 退出码语义）、MCP（repair_verify）、审计
+  （/ui/repairs/{id}/artifact diff 页）四入口。
