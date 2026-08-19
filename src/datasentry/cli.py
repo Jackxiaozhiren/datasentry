@@ -399,13 +399,18 @@ def _evaluate_gate(
     return client.evaluate_gate(issues, gate)
 
 
+def _resolve_scan_run_id(client: DataSentry, run_id: str) -> str | None:
+    """V50：`latest` → 最新扫描 run id；无扫描时返回 None。"""
+    if run_id != "latest":
+        return run_id
+    runs = client._store.list_scan_runs()
+    return runs[0].id if runs else None
+
+
 def _cmd_issues_list(args: argparse.Namespace) -> int:
     """22.1 issues list：Issue 列表（--severity 过滤，--limit 截断，--scan-run latest）。"""
     client = DataSentry(args.project)
-    scan_run_id = args.scan_run
-    if scan_run_id == "latest":
-        runs = client._store.list_scan_runs()
-        scan_run_id = runs[0].id if runs else None
+    scan_run_id = _resolve_scan_run_id(client, args.scan_run)
     issues = client.list_issues(severity_at_least=args.severity, scan_run_id=scan_run_id)
     if args.limit is not None:
         issues = issues[: args.limit]
@@ -441,8 +446,12 @@ def _cmd_issues_show(args: argparse.Namespace) -> int:
 def _cmd_report_export(args: argparse.Namespace) -> int:
     """22.1 report export：JSON/Markdown/HTML 报告（26 章），输出文件路径。"""
     client = DataSentry(args.project)
+    run_id = _resolve_scan_run_id(client, args.run_id)
+    if run_id is None:
+        _emit(_envelope("report export", {"error": "no scan runs yet"}), args.format)
+        return EXIT_CONFIG
     try:
-        report = client.export_report(args.run_id)
+        report = client.export_report(run_id)
     except KeyError as exc:
         _emit(_envelope("report export", {"error": str(exc)}), args.format)
         return EXIT_CONFIG
@@ -492,13 +501,10 @@ def _report_output_path(client: DataSentry, args: argparse.Namespace, fmt: str) 
 def _cmd_score(args: argparse.Namespace) -> int:
     """27 章：质量总分展示（维度构成 + 权重 + 计算说明，27.3 可解释性）。"""
     client = DataSentry(args.project)
-    run_id = args.run_id
-    if run_id == "latest":
-        runs = client._store.list_scan_runs()
-        if not runs:
-            _emit(_envelope("score", {"error": "no scan runs yet"}), args.format)
-            return EXIT_CONFIG
-        run_id = runs[0].id
+    run_id = _resolve_scan_run_id(client, args.run_id)
+    if run_id is None:
+        _emit(_envelope("score", {"error": "no scan runs yet"}), args.format)
+        return EXIT_CONFIG
     try:
         quality = client.quality_score(run_id)
     except KeyError as exc:
@@ -876,7 +882,8 @@ def _resolve_issue_ids(client: DataSentry, args: argparse.Namespace) -> list[str
     if getattr(args, "issues", None):
         return [i.strip() for i in args.issues.split(",") if i.strip()]
     if getattr(args, "all", False):
-        return [i.id for i in client.list_issues(scan_run_id=args.run)]
+        scan_run_id = _resolve_scan_run_id(client, args.run)
+        return [i.id for i in client.list_issues(scan_run_id=scan_run_id)]
     raise ValueError("specify --issues or --all")
 
 
@@ -885,7 +892,8 @@ def _cmd_repair_list(args: argparse.Namespace) -> int:
     client = DataSentry(args.project)
     runs = client.list_repair_runs()
     if getattr(args, "run", None):
-        target = client.get_scan(args.run)
+        run_id = _resolve_scan_run_id(client, args.run)
+        target = client.get_scan(run_id) if run_id else None
         if target is None:
             raise ValueError(f"scan run not found: {args.run}")
         runs = [r for r in runs if r.dataset_id == target.dataset_id]
@@ -935,10 +943,15 @@ def _cmd_repair_list(args: argparse.Namespace) -> int:
 def _cmd_drift_compare(args: argparse.Namespace) -> int:
     """Step 39：两历史扫描版本漂移比较（18.2，V1）。"""
     client = DataSentry(args.project)
+    reference_run_id = _resolve_scan_run_id(client, args.reference_run_id)
+    current_run_id = _resolve_scan_run_id(client, args.current_run_id)
+    if reference_run_id is None or current_run_id is None:
+        _emit(_envelope("drift compare", {"error": "no scan runs yet"}), args.format)
+        return EXIT_CONFIG
     try:
         report = client.drift_compare(
-            args.reference_run_id,
-            args.current_run_id,
+            reference_run_id,
+            current_run_id,
             row_ratio_threshold=args.row_ratio_threshold,
             score_threshold=args.score_threshold,
         )
@@ -1741,7 +1754,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_report = sub.add_parser("report", help="report export")
     report_sub = p_report.add_subparsers(dest="report_cmd", required=True)
     p_export = report_sub.add_parser("export", help="export scan report (26 章)")
-    p_export.add_argument("run_id", type=str)
+    p_export.add_argument(
+        "run_id", type=str, help="scan run id, or `latest` for the most recent scan"
+    )
     p_export.add_argument(
         "--as",
         dest="as_format",
@@ -1792,8 +1807,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_drift = sub.add_parser("drift", help="drift engine (18.2, V1): historical scan comparison")
     drift_sub = p_drift.add_subparsers(dest="drift_cmd", required=True)
     p_compare = drift_sub.add_parser("compare", help="compare two scan runs")
-    p_compare.add_argument("reference_run_id", type=str)
-    p_compare.add_argument("current_run_id", type=str)
+    p_compare.add_argument("reference_run_id", type=str, help="scan run id, or `latest`")
+    p_compare.add_argument("current_run_id", type=str, help="scan run id, or `latest`")
     p_compare.add_argument("--row-ratio-threshold", type=float, default=0.20)
     p_compare.add_argument("--score-threshold", type=float, default=5.0)
     p_compare.set_defaults(func=_cmd_drift_compare)
@@ -1858,7 +1873,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_rollback_batch.add_argument("run_ids", type=str, help="comma-separated repair run ids")
     p_rollback_batch.set_defaults(func=_cmd_repair_rollback_batch)
     p_runs = repair_sub.add_parser("list", help="list repair runs")
-    p_runs.add_argument("--run", type=str, default="", help="filter to a scan run's dataset")
+    p_runs.add_argument(
+        "--run", type=str, default="", help="filter to a scan run's dataset (id or `latest`)"
+    )
     p_runs.add_argument("--dataset", type=str, default="", help="filter to a dataset id")
     p_runs.set_defaults(func=_cmd_repair_list)
 

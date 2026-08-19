@@ -594,6 +594,49 @@ class TestCli:
         code = main(["--project", str(workspace), "score", "latest"])
         assert code == 2
 
+    def test_latest_resolved_across_commands(
+        self, sample_csv: Path, workspace: Path, capsys
+    ) -> None:
+        """V50：latest 一致性——issues/report/drift/repair list 全支持。"""
+        main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
+        capsys.readouterr()
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "issues",
+                "list",
+                "--scan-run",
+                "latest",
+            ]
+        )
+        assert code == 0
+        assert json.loads(capsys.readouterr().out)["data"]["count"] > 0
+        code = main(["--project", str(workspace), "--format", "json", "report", "export", "latest"])
+        assert code == 0
+        assert json.loads(capsys.readouterr().out)["data"]["path"]
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "drift",
+                "compare",
+                "latest",
+                "latest",
+            ]
+        )
+        assert code == 0
+        assert json.loads(capsys.readouterr().out)["data"]["drift_report_id"]
+        code = main(
+            ["--project", str(workspace), "--format", "json", "repair", "list", "--run", "latest"]
+        )
+        assert code == 0
+        assert "runs" in json.loads(capsys.readouterr().out)["data"]
+
     def test_issues_list_limit_truncates(self, sample_csv: Path, workspace: Path, capsys) -> None:
         main(["--project", str(workspace), "--format", "json", "scan", str(sample_csv)])
         capsys.readouterr()

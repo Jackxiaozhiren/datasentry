@@ -4,7 +4,16 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.54.0] - 2026-08-17
+## [0.55.0] - 2026-08-17
+
+### 修复
+
+- CLI `latest` 一致性扫尾（体检发现）：`issues list --scan-run`、
+  `report export`、`drift compare`（两侧）、`repair list --run`、
+  批量修复 `--run` 此前均不支持 `latest` 解析——统一接入
+  `_resolve_scan_run_id` 助手（score 已有该行为）。帮助文案同步。
+
+
 
 ### 修复
 
