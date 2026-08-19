@@ -1165,3 +1165,13 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
 - 顺带提取 ui._ops_summary 助手（历史页/batch 页/工件页多处重复）。
 - 教训：传参渲染时先检查"失败项是否也进入了渲染列表"——
   errors/runs 双通道最容易漏。
+
+
+## V50：CLI latest 一致性扫尾（v0.55）
+
+- 体检（issues list --scan-run latest 失效）延伸出系统性排查：
+  除 score 外，report export / drift compare / repair list --run /
+  批量修复 --run 均不支持 latest。统一抽 _resolve_scan_run_id 助手，
+  全部接入；帮助文案同步。
+- zsh 坑：双引号 commit message 里含反引号会触发命令替换
+  （`latest` → command not found），消息里的反引号词会丢失——用单引号。
