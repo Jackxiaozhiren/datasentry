@@ -400,9 +400,13 @@ def _evaluate_gate(
 
 
 def _cmd_issues_list(args: argparse.Namespace) -> int:
-    """22.1 issues list：Issue 列表（--severity 过滤，--limit 截断）。"""
+    """22.1 issues list：Issue 列表（--severity 过滤，--limit 截断，--scan-run latest）。"""
     client = DataSentry(args.project)
-    issues = client.list_issues(severity_at_least=args.severity, scan_run_id=args.scan_run)
+    scan_run_id = args.scan_run
+    if scan_run_id == "latest":
+        runs = client._store.list_scan_runs()
+        scan_run_id = runs[0].id if runs else None
+    issues = client.list_issues(severity_at_least=args.severity, scan_run_id=scan_run_id)
     if args.limit is not None:
         issues = issues[: args.limit]
     data = {"issues": [i.model_dump(mode="json") for i in issues], "count": len(issues)}
@@ -1723,7 +1727,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_list = issues_sub.add_parser("list", help="list issues")
     p_list.add_argument("--severity", type=str, default=None, help="minimum severity filter")
     p_list.add_argument("--limit", type=int, default=None, help="max issues to show")
-    p_list.add_argument("--scan-run", type=str, default=None, help="restrict to scan run")
+    p_list.add_argument(
+        "--scan-run",
+        type=str,
+        default=None,
+        help="scan run id, or `latest` for the most recent scan",
+    )
     p_list.set_defaults(func=_cmd_issues_list)
     p_show = issues_sub.add_parser("show", help="issue detail")
     p_show.add_argument("issue_id", type=str)
