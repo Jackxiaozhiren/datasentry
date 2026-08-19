@@ -114,7 +114,7 @@
       <span class="badge">coverage <b>95%</b></span>
       <span class="badge">detectors <b>39</b></span>
       <span class="badge">ADR <b>112</b></span>
-      <span class="badge">MCP tools <b>20</b></span>
+      <span class="badge">MCP tools <b>24</b></span>
     </div>
     <div class="cta">
       <a class="btn btn-primary" href="#quickstart">Get started</a>
@@ -252,6 +252,20 @@
 <span class="lbl">job_remove</span> — remove a scheduled job
 <span class="lbl">jobs_list</span> — list scheduled jobs and run history
         </ul>
+
+        <h3>MCP quickstart (stdio JSON-RPC)</h3>
+        <p class="meta">Start the server, then pipe line-delimited JSON-RPC requests
+        (see <a href="https://github.com/modelcontextprotocol/specification">MCP spec</a>).
+        Three calls cover the detect → fix → verify loop:</p>
+        <pre>datasentry mcp --project ./data-project</pre>
+        <pre>{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"me","version":"1.0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}</pre>
+        <pre>{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"scan_file","arguments":{"path":"./data/customers.csv"}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"repair_apply_batch","arguments":{"scan_run_id":"scan_…","source_path":"./data/customers.csv","issue_ids":["iss_…"]}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"repair_verify","arguments":{"repair_run_id":"rep_…"}}}</pre>
+        <p class="meta">`repair_verify` answers the gate question for agents: which issue
+        types are fixed, which persist, and whether the repair introduced new ones.</p>
       </div>
     </div>
   </div>
