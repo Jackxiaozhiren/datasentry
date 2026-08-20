@@ -434,6 +434,31 @@ def _delta_cell(point: ScanPoint, previous: ScanPoint | None) -> str:
     return '<td class="meta">0.0</td>'
 
 
+def _issues_delta_cell(point: ScanPoint, previous: ScanPoint | None) -> str:
+    """V51：issue 数 Δ 列（并列展示漂移信号，行级轻量面）。"""
+    if previous is None:
+        return '<td class="meta">—</td>'
+    delta = point.issues_total - previous.issues_total
+    if delta > 0:
+        return f'<td class="delta-down">+{delta}</td>'
+    if delta < 0:
+        return f'<td class="delta-up">{delta}</td>'
+    return '<td class="meta">0</td>'
+
+
+def _compare_link(points: list[ScanPoint], lang: str) -> str:
+    """V51：最新两 run 的漂移并列入口（compare 页深链）。"""
+    if len(points) < 2:
+        return ""
+    prev_id, latest_id = points[-2].run_id, points[-1].run_id
+    href = f"/ui/compare?runs={prev_id}&runs={latest_id}"
+    return (
+        '<p class="meta"><a class="badge badge-info" href="'
+        f'{href}">{escape(t(lang, "ui.drift_compare_link"))}</a>'
+        f" · {escape(prev_id)} → {escape(latest_id)}</p>"
+    )
+
+
 def render_trends(trends: list[DatasetTrend], *, lang: str = "en") -> str:
     """跨扫描趋势页（Step 45，18.2 V1）。trends 来自 trends.build_trends。"""
     if not trends:
@@ -454,7 +479,8 @@ def render_trends(trends: list[DatasetTrend], *, lang: str = "en") -> str:
                 f'<td class="priority">{point.score:.1f}</td>'
                 + _delta_cell(point, prior)
                 + f"<td>{point.issues_total}</td>"
-                "</tr>"
+                + _issues_delta_cell(point, prior)
+                + "</tr>"
             )
             bars.append(
                 f'<div class="trend-bar"><span style="width:{width:.1f}%">'
@@ -469,6 +495,7 @@ def render_trends(trends: list[DatasetTrend], *, lang: str = "en") -> str:
             f'<p class="meta">{len(points)} {escape(t(lang, "ui.completed_scans"))} · '
             f"{escape(t(lang, 'ui.latest_score'))} "
             f"{latest:.1f} · {escape(t(lang, 'ui.latest_issues'))} {trend.latest_issues}</p>"
+            + _compare_link(points, lang)
             + _sparkline([p.score for p in points])
             + _dimension_lines(points)
             + _dimension_table(points, lang=lang)
@@ -478,7 +505,9 @@ def render_trends(trends: list[DatasetTrend], *, lang: str = "en") -> str:
             "<table><tr>"
             f"<th>{escape(t(lang, 'ui.run_id'))}</th><th>{escape(t(lang, 'ui.finished'))}</th>"
             f"<th>{escape(t(lang, 'ui.score'))}</th>"
-            f"<th>{escape(t(lang, 'ui.delta'))}</th><th>{escape(t(lang, 'ui.issues_title'))}</th>"
+            f"<th>{escape(t(lang, 'ui.delta'))}</th>"
+            f"<th>{escape(t(lang, 'ui.issues_title'))}</th>"
+            f"<th>{escape(t(lang, 'ui.issues_delta'))}</th>"
             f"</tr>{''.join(rows)}</table>"
             "</section>"
         )

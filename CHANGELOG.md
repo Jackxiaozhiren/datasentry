@@ -4,7 +4,16 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [0.55.0] - 2026-08-17
+## [0.56.0] - 2026-08-17
+
+### 新增
+
+- 趋势页漂移并列展示：每 run 行新增 "Issues Δ" 列（与前次扫描的
+  issue 数增减，红涨绿降），每个 dataset 区块新增 "drift vs previous
+  scan" 深链（最新两 run → /ui/compare）——轻量漂移信号与完整
+  漂移报告页的并列入口（en/zh）。
+
+
 
 ### 修复
 

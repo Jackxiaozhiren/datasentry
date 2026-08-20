@@ -183,6 +183,17 @@ class TestTrendsPage:
         assert 'class="meta">—</td>' in resp.text  # 首行无前一 run
         assert "delta-up" in resp.text or "delta-down" in resp.text or "0.0" in resp.text
 
+    def test_trends_drift_parallel_cells(self, tmp_path: Path) -> None:
+        """V51：issues Δ 列 + 最新两 run 漂移对比深链。"""
+        client = TestClient(create_app(project=tmp_path))
+        r1 = _scan(client, tmp_path)
+        r2 = _scan(client, tmp_path)
+        resp = client.get("/ui/trends")
+        assert "Issues Δ" in resp.text
+        assert "drift vs previous scan" in resp.text
+        assert f"/ui/compare?runs={r1}&runs={r2}" in resp.text
+        assert "→" in resp.text
+
     def test_trends_dimension_lines(self, tmp_path: Path) -> None:
         """V25：六维折线 SVG 随趋势页渲染（含图例）。"""
         client = TestClient(create_app(project=tmp_path))
