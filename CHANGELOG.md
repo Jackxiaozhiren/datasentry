@@ -4,6 +4,25 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.0.0] - 2026-08-20
+
+里程碑发布：核心数据质量闭环（detect → explain → validate → repair →
+verify → rollback）在 CLI / Web UI / REST / MCP 四端对齐，项目正式完工。
+
+### 新增（自 0.56.0）
+
+- 无（版本号 0.x → 1.0.0 标志着接口稳定与闭环完备，功能冻结于 0.56.0）。
+
+### 里程碑回顾（0.51.0 → 1.0.0）
+
+- 修复验证四端对齐：REST `POST /repairs/{id}/verify` + `GET /repairs/{id}/diff`、
+  CLI `repair diff`、MCP `repair_verify`，全部复用 `client.repair_verify/repair_diff`
+  单一实现（0.51–0.52）。
+- 对比页 FIXED 组深链直达修复工件页；验证闭环博客发布（0.53）。
+- 批量回滚失败原因逐条展示（修复渲染 bug）（0.54）。
+- CLI `latest` 全命令一致性（`_resolve_scan_run_id` 助手）（0.55）。
+- 趋势页漂移并列展示：Issues Δ 列 + drift 深链（0.56）。
+
 ## [0.56.0] - 2026-08-17
 
 ### 新增
