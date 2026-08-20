@@ -1175,3 +1175,15 @@ make lint && make type && make test   # 或 make check（含覆盖率门禁）
   全部接入；帮助文案同步。
 - zsh 坑：双引号 commit message 里含反引号会触发命令替换
   （`latest` → command not found），消息里的反引号词会丢失——用单引号。
+
+
+## V51：趋势页漂移并列展示（v0.56）
+
+- 每 run 行加 "Issues Δ" 列（issue 数增减，红涨绿降——与 score Δ
+  同色系语义：issue 增 = 坏 = delta-down 红色调）。
+- 每 dataset 区块加 "drift vs previous scan" 深链 badge →
+  /ui/compare?runs=prev&runs=latest，轻量信号（issue/score Δ）与
+  完整漂移报告页并列，符合 trends 模块定位（完整信号走 drift 引擎）。
+- i18n：ui.issues_delta / ui.drift_compare_link（en/zh）。
+- 教训：f-string 内嵌引号与相邻字符串拼接时注意引号转义——
+  本轮一次 f"{href}">' 引号嵌套导致 SyntaxError，改用单引号外包装。
