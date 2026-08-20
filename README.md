@@ -24,7 +24,6 @@
 > **中文导读**：DataSentry 是一个以统计证据为基础、以 AI 为辅助、以人工审批为保障的本地优先数据质量平台。
 > 一次扫描生成六维质量评分，每个问题带证据链；自然语言即可提出规则与修复方案，但**只有人工批准才生效**。
 > 数据不出机器（LLM 可接本地 Ollama），DuckDB 执行引擎，百万行 10 秒级。
-> 调度体系已就绪：cron 任务队列 → 分布式执行节点 → 多 worker 容错路由 → 并行派发。
 
 ## Try it in 3 commands
 
@@ -42,16 +41,14 @@ datasentry issues list --severity high          # each issue with samples + rati
 
 DataSentry scans your data (CSV / Parquet / JSONL / XLSX / DuckDB / SQLite / PostgreSQL / MySQL / cloud objects on s3:// gs:// az://) and produces:
 
-- **39 evidence-driven detectors** — missingness, dates, encodings, cross-field rules, cross-table foreign keys, duplicates (exact + fuzzy), outlier models (Isolation Forest / LOF), and more. Every issue carries a statistical evidence chain: samples, ratios, confidence.
-- **Six-dimension quality score** — completeness, validity, uniqueness, consistency, integrity, timeliness — with explainable weights and per-dimension contributions.
-- **Repair loop with human approval** — propose → preview (rule re-run before/after) → apply (fingerprinted copy + rollback artifact) → rollback. AI suggests; you decide.
+- **39 evidence-driven detectors** — missingness, dates, encodings, cross-field rules, cross-table foreign keys, duplicates, outlier models — every issue carries samples, ratios, and confidence.
+- **Six-dimension quality score** — completeness, validity, uniqueness, consistency, integrity, timeliness, with explainable weights.
+- **Repair loop with human approval** — propose → preview → apply (copy + rollback artifact) → verify → rollback. AI suggests; you decide.
 - **Drift engine** — compare historical scans: schema, row-count, score and issue-distribution drift.
-- **Quality gates in CI** — `scan --fail-on` blocks releases by severity or score; export reports as JSON / Markdown / HTML / JUnit / SARIF.
-- **LLM assistance, safely** — natural language → rule candidates with preflight simulation; PII redacted before any prompt into an encrypted vault with key rotation (`llm restore` / `rotate-key`); every call audited (`llm status`).
-- **Cron scheduling** — persistent SQLite job queue: cron jobs, manual triggers, run history, webhooks, per-job quality gates and change-aware skip (no re-scan when the source is unchanged).
-- **Distributed execution** — any instance runs as a worker (`datasentry worker`); a worker pool gives round-robin routing, failover, cooldown and optional health checks, plus parallel dispatch (`DATASENTRY_MAX_WORKERS`).
-- **Plugin ecosystem** — `plugin.yaml` metadata, install/uninstall lifecycle, and SHA-256 integrity locks (tamper-resistant loading, `plugin test` sandbox).
-- **Multiple surfaces** — CLI, REST API, server-rendered Web UI with cross-scan trends, and an MCP stdio server (24 tools) so LLM agents can use the tools directly.
+- **Quality gates in CI** — `scan --fail-on` blocks releases; export JSON / Markdown / HTML / JUnit / SARIF.
+- **LLM assistance, safely** — NL → rule/repair candidates with preflight; PII redacted into an encrypted vault; every call audited.
+- **Cron scheduling + distributed execution** — SQLite job queue, webhooks, quality gates, change-aware skip; `datasentry worker` nodes with pool routing, failover and parallel dispatch.
+- **Multiple surfaces** — CLI, REST API, Web UI with trends, and an MCP stdio server (24 tools) for LLM agents.
 
 <p align="center">
   <img src="docs/demo/orders-report.html.png" alt="Sample quality report" width="720">
@@ -59,158 +56,26 @@ DataSentry scans your data (CSV / Parquet / JSONL / XLSX / DuckDB / SQLite / Pos
 
 > **Live demo report** — [orders-report.html](docs/demo/orders-report.html) (200 rows with 15 injected quality issues)
 
-## See it work: find duplicates and outliers in 5 lines
-
-```python
-from datasentry import DataSentry
-
-sentry = DataSentry()
-run, runs, issues = sentry.scan_file("orders.csv")  # 39 detectors + six-dimension score
-dupes = [i for i in issues if i.issue_type == "uniqueness"]
-outliers = [i for i in issues if i.issue_type in ("numeric_outlier", "distribution_anomaly")]
-print(run.id, "—", len(dupes), "duplicate", len(outliers), "outlier issues, all with evidence")
-```
-
-Every issue carries its statistical evidence chain — samples, affected ratio, and confidence —
-not just a row in a log. `datasentry repair propose <issue_id>` then shows you a rule re-run
-before/after so a human decides what gets applied.
-
 ## Quick start
 
 ```bash
 pip install datasentry-ai     # or: uv sync (source checkout)
 
 datasentry                     # interactive terminal UI (TUI): dashboard / scan / issues / repair
-datasentry ui                  # same TUI, explicit entry
-
-datasentry scan orders.csv               # detect → fuse → score → persist, one step
+datasentry scan orders.csv               # detect → fuse → score → persist
 datasentry scan "a.csv, b.csv, data/*.csv"  # batch scan (comma/newline separated, globs)
 datasentry issues list                   # issues by severity / dimension
-datasentry score <run_id>                # six-dimension quality score (defaults to latest)
-datasentry repair propose <issue_id> --file orders.csv   # fix proposal
+datasentry score                         # six-dimension score of the latest scan
+datasentry repair propose <issue_id> --file orders.csv   # fix proposal (apply = copy + rollback artifact)
+datasentry repair verify <run_id>        # re-scan the repaired copy; CI gate (exit 0 = no regression)
 datasentry drift latest orders           # drift between the two latest scans
 datasentry-server                       # Web UI + REST API at http://localhost:8000
 ```
 
-Run `datasentry` with no arguments to open the interactive terminal
-UI (Textual): four tabs — a dashboard of your recent scans with
-quality trends, guided scanning with live detector progress and
-CSV preview, filterable/sortable issues with evidence chains, and a
-repair workbench (`propose → preview → apply → rollback`, same
-AI-suggests / human-approves / always-reversible semantics as the CLI).
-
-TUI keyboard cheatsheet:
-
-```
-1 / 2 / 3 / 4     switch view: dashboard / scan / issues / repair
-j / k             move up / down in the issue or scan list
-Enter             select an issue row (evidence chain below)
-/                 filter issues: keyword, severity:high, column:order_id,
-                  type:missing, detector:… (space-separated AND)
-s                 cycle sort: priority / affected / confidence
-ctrl+p            command palette (scan / switch view / help / quit)
-?                 help dialog with all shortcuts
-r                 refresh view
-q                 quit (confirmation dialog, Enter = cancel)
-```
-
-`datasentry scan` also streams live detector progress to stderr
-(`scan: detector 12/39 — IQR Outlier`), so scripts can keep stdout
-clean JSON while humans watch the scan run. `datasentry score`
-defaults to the most recent scan (`datasentry score`).
-
-The Web UI (`datasentry-server`, http://localhost:8000) scans with a
-live progress bar, accepts multiple files per scan (comma/newline
-separated or `*.csv` globs — a batch scan lands on the scan list with
-a per-file summary banner and failed-file reasons), the scan list shows
-a six-dimension mini-bar per run, and its trends page plots each
-quality dimension over time with a dimension-by-dimension score table.
-
-Every CLI command stays available for scripts and CI.
-
-### Performance benchmark
-
-Reproduce local end-to-end scan timing:
-
-```bash
-uv run python scripts/benchmark.py
-```
-
-Measured on this machine (Apple Silicon, local CSV):
-
-| rows | seconds | rows/s | overall |
-| ---: | ---: | ---: | ---: |
-| 10,000 | 5.14 | 1,944 | 94.4 |
-| 100,000 | 8.05 | 12,428 | 94.9 |
-| 300,000 | 9.52 | 31,496 | 94.9 |
-
-Scheduled jobs on remote workers (multi-worker pool with
-failover; jobs stay in the scheduler's SQLite queue, execution is
-delegated to `datasentry worker` nodes):
-
-```bash
-DATASENTRY_WORKER_TOKEN=<secret> datasentry worker --host 0.0.0.0 --port 8001   # execution node (any instance)
-DATASENTRY_WORKERS="http://worker-a:8001:secret;http://worker-b:8001:secret" datasentry-server
-# scheduler round-robins jobs across workers; a failing/unreachable worker is
-# cooled down (60s) and the next worker takes over; unset DATASENTRY_WORKERS
-# to keep running everything locally (zero migration).
-
-# Parallel execution: default is synchronous (one job at a time);
-# set a worker count to dispatch due jobs concurrently on a thread pool.
-DATASENTRY_MAX_WORKERS=4 datasentry-server
-```
-
-Scan a DuckDB file (optional — any CSV/Parquet/JSONL/XLSX/SQLite works):
-
-```bash
-datasentry scan analytics.duckdb --table payments
-datasentry scan analytics.db --table payments     # SQLite
-```
-
-Scan a MySQL table (via DuckDB mysql extension, no client
-library; `--table` required) or a cloud file (CSV/Parquet/
-JSONL over s3:// gs:// az://, credentials from process env / `secrets`):
-
-```bash
-datasentry scan "mysql://user:pass@localhost:3306/analytics" --table payments
-datasentry scan s3://bucket/orders.csv            # AWS credentials from env
-```
-
-Scan a PostgreSQL table (DSN is passed on the command line /
-via `DATASENTRY_PG_DSN` and is never persisted or logged):
-
-```bash
-datasentry scan "postgresql://user:pass@localhost:5432/analytics" --table payments
-DATASENTRY_PG_DSN="postgresql://user:pass@localhost:5432/analytics" \
-  datasentry scan postgresql:// --table payments --schema public
-```
-
-### Credentials
-
-`connection_ref` resolution chain: process environment variable, then
-`~/.config/datasentry/secrets.env` (overridable via `DATASENTRY_CONFIG_HOME`
-or `XDG_CONFIG_HOME`), then `DataSourceNotFoundError`:
-
-```bash
-datasentry secrets set DATASENTRY_PG_DSN      # interactive, no echo, chmod 600
-datasentry secrets list                       # key names only (audit-safe)
-datasentry secrets get DATASENTRY_PG_DSN
-datasentry secrets rm DATASENTRY_PG_DSN
-```
-
-The secrets file uses `KEY=VALUE` lines (env-var-shaped keys, source-able);
-the directory is `0700` and the file `0600` — both enforced on read and
-write. Credentials never enter scan runs, logs, reports, or webhook
-payloads; all connector errors are redacted (`postgresql://***` /
-`passwd=***`).
-
-Contract-driven scanning (optional):
-
-```bash
-datasentry contract validate contract.yaml
-datasentry contract export contract.yaml --as pandera   # or --as ge
-datasentry scan orders.csv --contract contract.yaml     # gate + rules bound
-```
+Every CLI command stays available for scripts and CI; `datasentry scan` streams
+live detector progress to stderr so stdout stays clean JSON. Connectors include
+DuckDB/SQLite tables (`--table`), MySQL, PostgreSQL (DSN via env or `secrets`,
+never logged), and cloud objects (credentials from env / `secrets`).
 
 ## Architecture
 
@@ -255,6 +120,28 @@ flowchart LR
 - **Deterministic core**: detectors, scoring and repair are pure statistics — no AI guesswork in detection.
 - **Human in the loop**: rules and repairs are proposals until you approve them; every repair is fingerprinted and rollback-able.
 
+## The repair loop (scan → propose → apply → verify → rollback)
+
+Available identically on **CLI, Web UI, REST and MCP** — batchable, audit-friendly, and the
+source file is **never overwritten** (each apply writes a repaired copy + `before` snapshot):
+
+```bash
+datasentry repair propose-batch <run_id> --file data.csv --all    # read-only
+datasentry repair apply-batch  <run_id> --file data.csv --all     # issues without a proposal skip, not fail
+datasentry repair verify       <run_id>                           # re-scan copy: fixed/persistent/new types
+datasentry repair diff         <run_id>                           # changed rows: line + col: old -> new
+datasentry repair rollback     <run_id>                           # restore the snapshot
+```
+
+Batch commands exit `0` on full success, `4` on partial failure (each failure under
+`errors` in the JSON envelope — add `--format json` to machine-read it).
+
+**Verify is the gate**: `repair verify` exits 0 unless the repair introduced a regression
+(`--require-clean` demands zero remaining issues); the Web artifact page
+(`/ui/repairs/{id}/artifact`) shows the before/after row diff, and the compare view
+links every FIXED group back to the repair that fixed it. Same report over REST
+(`POST /repairs/{id}/verify`, `GET /repairs/{id}/diff`) and MCP (`repair_verify`).
+
 ## Features
 
 | Area | What you get |
@@ -262,89 +149,20 @@ flowchart LR
 | Detection | 39 detectors across 6 dimensions; SQL-pushdown single-table; plugin API (`plugins/` auto-load, SHA-256 integrity locks) |
 | Scoring | 0–100 six-dimension score, severity normalization, contract criticality |
 | Contracts | YAML contract DSL → validation + gate + Pandera / Great Expectations export |
-| Repair | trim / normalize case / replace missing token / set null / clip values; preview re-runs rules |
+| Repair | trim / normalize case / replace missing token / set null / clip values; preview re-runs rules; verify + diff on 4 surfaces |
 | Drift | schema / row-count / score / issue-distribution signals between historical scans |
 | AI | NL→rules with preflight + approval gate; AI repair candidates with locked operation surface; PII vault + key rotation |
-| Scheduling | cron jobs, manual triggers, run history (pruned), webhooks, quality gates, change-aware skip — CLI / REST / MCP 三面同语义 |
-| Distributed | `datasentry worker` nodes; pool routing with failover + cooldown + health checks; parallel dispatch (`DATASENTRY_MAX_WORKERS`) |
-| Plugins | `plugin.yaml` metadata, install/uninstall, integrity locks, test sandbox (three-state exit codes) |
+| Scheduling | cron jobs, manual triggers, run history, webhooks, quality gates, change-aware skip |
+| Distributed | `datasentry worker` nodes; pool routing with failover + cooldown + health checks; parallel dispatch |
 | Interfaces | CLI · REST API · Web UI (`/ui`, `/ui/scans`, `/ui/trends`, `/ui/compare`, `/ui/repairs`) · MCP stdio (24 tools) |
 | Engineering | 11-stage CI, wheel build + isolated install smoke, 1e6-row benchmark gate |
 
-## Web repair workflow
+## Documentation & blog
 
-The web UI closes the full loop — **scan → compare → propose → apply → rollback** — all batchable:
-
-1. **Scan** a file (`POST /scans` or the web form); batch paths with commas / newlines / globs.
-2. **Compare** two runs (`/ui/compare?runs=a&runs=b`) — dimension deltas, severity shifts,
-   column drift, schema changes, and an issue-level diff split into **NEW / FIXED / persistent**;
-   every NEW group carries a one-click **propose repair** button (issue ids + source path prefilled).
-3. **Propose** repairs in batch (`POST /ui/scans/{run}/repairs/batch-propose`) — checkbox-select
-   issues on the scan detail page (source path prefilled from the scan), select-all supported.
-   Proposals are rule-engine generated and **never write data**.
-4. **Apply** selected proposals (`POST /ui/scans/{run}/repairs/batch-apply`) — each repair writes a
-   repaired copy + `before` snapshot under `.datasentry/repairs/`; the source file is never overwritten.
-5. **Roll back** any applied repair, individually (`/ui/repairs/{run}/rollback`) or in batch
-   (`POST /ui/scans/{run}/repairs/batch-rollback`) — every apply is undoable via its snapshot.
- 6. **Audit** everything on the repair history page (`/ui/repairs`): run id, dataset, operations,
-    rows touched, status (applied / rolled back / failed), timestamps.
-
-The same loop is available from the CLI, for scripts and CI — same semantics, no UI:
-
-```bash
-# propose repairs for every issue of a run (or a specific subset)
-datasentry repair propose-batch <run_id> --file data.csv --all
-datasentry repair propose-batch <run_id> --file data.csv --issues iss_1,iss_2
-
-# apply only what was proposable; issues without a proposal are
-# skipped as no_proposal instead of failing (source file never overwritten)
-datasentry repair apply-batch <run_id> --file data.csv --all
-
-# roll back applied repairs, individually or as a list
-datasentry repair rollback-batch run_1,run_2
-```
-
-Batch commands exit `0` when everything succeeded, `4` on partial failure (each failure
-reported under `errors` in the JSON envelope — add `--format json` to machine-read it).
-
-## Documentation
-
-| Doc | Content |
-|-----|---------|
-| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Full development notes, per-step decisions and conventions |
-| [docs/00-设计裁决记录-ADR.md](docs/00-设计裁决记录-ADR.md) | 110+ architecture decision records (design rationale) |
-| [docs/01-一致性检查.md](docs/01-设计材料-一致性检查.md) | Spec consistency checks |
-| [docs/03-MVP-V1-划分.md](docs/03-设计材料-MVP-V1-划分.md) | MVP vs V1 feature scoping |
-
-## Blog
-
-- [Detecting data quality issues with LLM-assisted tooling](.growth/blog-1-detect-quality-en.md) — why detection stays statistical while LLMs translate and suggest; a full walkthrough on real data. (中文版：[用 LLM 做数据质量检测，我把「检测」和「建议」分开了](.growth/blog-1-detect-quality-zh.md))
-- [Great Expectations vs DataSentry: two ways to care about data quality](.growth/blog-2-ge-vs-datasentry-en.md) — assertion frameworks vs detection frameworks, and where they complement each other.
-- [Detect → fix → verify: the data quality loop](.growth/blog-3-repair-loop-en.md) — how the batch repair workbench (v0.30–v0.40) closes the loop with proposals, applied copies, and rollbacks. (中文版：[检测 → 修复 → 验证：数据质量闭环](.growth/blog-3-repair-loop-zh.md))
-- [Verifying the fix: four ways to prove a repair worked](.growth/blog-4-verify-loop-en.md) — provenance, one-click web verify, a CI gate with exit codes, MCP/REST verify, and row-level diffs on four surfaces (v0.42–v0.52). (中文版：[验证修复：四种方式证明一次修复真的生效了](.growth/blog-4-verify-loop-zh.md))
-
-## The verify step (v0.46–v0.56)
-
-Every applied repair records its source scan (`repair_runs.source_scan_run_id`),
-so the loop can be *proven* — on four surfaces, all backed by the same
-`client.repair_verify` / `client.repair_diff`:
-
-- **Web** — `Verify` on the repair history, batch-apply results, or artifact
-  page re-scans the repaired copy and redirects to the compare view
-  (original scan vs post-repair scan).
-- **CLI** — `datasentry repair verify <run_id>` prints fixed / persistent /
-  new issue types; exits 0 unless the repair introduced a regression
-  (`--require-clean` demands zero remaining issues) — drop it into CI.
-  `datasentry repair diff <run_id>` prints the changed rows
-  (line + `col: old -> new`) in the terminal.
-- **MCP** — `repair_verify` returns the same report for agents.
-- **REST** — `POST /repairs/{id}/verify` returns the same JSON report for
-  scripts; `GET /repairs/{id}/diff` returns only the changed rows
-  (`line` / `before` / `after`).
-- **Audit** — `/ui/repairs/{id}/artifact` shows the before/after row diff
-  with changed cells highlighted, linked from every applied run; the trends
-  page shows per-scan Issues Δ and a "drift vs previous scan" deep link
-  into the compare view (v0.56).
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — development notes, conventions
+- [docs/00-设计裁决记录-ADR.md](docs/00-设计裁决记录-ADR.md) — 110+ ADRs
+- [Detect → fix → verify: the data quality loop](.growth/blog-3-repair-loop-en.md) / [中文版](.growth/blog-3-repair-loop-zh.md)
+- [Verifying the fix: four ways to prove a repair worked](.growth/blog-4-verify-loop-en.md) / [中文版](.growth/blog-4-verify-loop-zh.md)
 
 ## Development
 
@@ -356,13 +174,10 @@ make bench          # 1e6-row benchmark (60s gate)
 make build          # build both wheels (datasentry + datasentry_core)
 ```
 
-Requirements: Python ≥ 3.12, [uv](https://docs.astral.sh/uv/). CI validates lint, types, coverage, demo, benchmark, API/UI smoke and wheel installability on every push.
-
 ## Contributing
 
 - Report issues with the exact data shape (or a minimal CSV) and the command you ran.
 - Code: add a detector → register it in `build_initial_detectors` → cover it in `tests/` → `make check`.
-- Every change should reference its ADR decision; see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for conventions.
 - Please keep the **human-in-the-loop** invariant: anything AI proposes must remain a proposal until a human approves it.
 
 ## License
