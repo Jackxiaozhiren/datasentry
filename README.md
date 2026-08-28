@@ -111,15 +111,18 @@ datasentry issues list --severity high
 # 2) generate a proposal (read-only)
 datasentry repair propose <issue_id> --file orders.csv
 
-# 3) apply to a repaired copy
-datasentry repair apply <repair_id>
+# 3) preview the proposed change
+datasentry repair preview <issue_id> --file orders.csv
 
-# 4) prove the repair did not regress quality
-datasentry repair verify <repair_id>
+# 4) apply to a repaired copy; the command returns a repair run_id
+datasentry repair apply <issue_id> --file orders.csv
 
-# 5) inspect the row-level change or roll back
-datasentry repair diff <repair_id>
-datasentry repair rollback <repair_id>
+# 5) prove the repair did not introduce new issue types
+datasentry repair verify <run_id>
+
+# 6) inspect the row-level change or roll back
+datasentry repair diff <run_id>
+datasentry repair rollback <run_id>
 ```
 
 Batch repair commands are also available for scan-wide workflows.
