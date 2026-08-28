@@ -1,7 +1,7 @@
 ---
 name: Bug report
 about: Something is not working — include a minimal synthetic reproduction
- title: "[bug] "
+title: "[bug] "
 labels: bug
 ---
 
