@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   publish:
-    name: Build + publish wheels to PyPI
+    name: Build + verify + publish wheels to PyPI
     runs-on: ubuntu-latest
     environment: pypi
     steps:
@@ -26,14 +26,98 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Validate release versions before building
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_EVENT: ${{ github.event_name }}
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          import tomllib
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          def project(path: str) -> dict[str, object]:
+              with Path(path).open("rb") as fh:
+                  data = tomllib.load(fh)
+              value = data["project"]
+              assert isinstance(value, dict)
+              return value
+
+          app = project("pyproject.toml")
+          core = project("packages/core/pyproject.toml")
+          app_version = str(app["version"])
+          core_version = str(core["version"])
+          dependencies = app["dependencies"]
+          assert isinstance(dependencies, list)
+          expected_core = f"datasentry-core>={core_version},<0.9.0"
+          if expected_core not in dependencies:
+              raise SystemExit(
+                  f"release metadata mismatch: expected dependency {expected_core!r}"
+              )
+
+          if os.environ["RELEASE_EVENT"] == "push":
+              expected_tag = f"v{app_version}"
+              if os.environ["RELEASE_TAG"] != expected_tag:
+                  raise SystemExit(
+                      f"tag/version mismatch: tag={os.environ['RELEASE_TAG']!r}, "
+                      f"expected={expected_tag!r}"
+                  )
+
+          # Fail before any upload if either distribution/version already exists.
+          # This avoids a partial release where one wheel is skipped as 'existing'
+          # while the other is newly published against stale package contents.
+          for package, version in (
+              ("datasentry-ai", app_version),
+              ("datasentry-core", core_version),
+          ):
+              url = f"https://pypi.org/pypi/{package}/{version}/json"
+              request = urllib.request.Request(
+                  url,
+                  headers={"Accept": "application/json", "User-Agent": "datasentry-release-check"},
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=15) as response:
+                      json.load(response)
+              except urllib.error.HTTPError as exc:
+                  if exc.code == 404:
+                      print(f"available on PyPI: {package}=={version}")
+                      continue
+                  raise
+              raise SystemExit(
+                  f"refusing release: PyPI already contains {package}=={version}; bump the version"
+              )
+          PY
+
       - name: Build both packages
         run: |
+          rm -rf dist
           uv build
           uv build packages/core
           ls -la dist/
+
+      - name: Smoke-test the exact release wheels together
+        run: |
+          python -m venv /tmp/datasentry-release-smoke
+          /tmp/datasentry-release-smoke/bin/python -m pip install --upgrade pip
+          /tmp/datasentry-release-smoke/bin/python -m pip install \
+            dist/datasentry_core-*.whl \
+            dist/datasentry_ai-*.whl
+          /tmp/datasentry-release-smoke/bin/datasentry --version
+          /tmp/datasentry-release-smoke/bin/python - <<'PY'
+          from datasentry import DataSentry
+          from datasentry_core.models.repair import RepairVerifyReport
+
+          assert DataSentry is not None
+          assert RepairVerifyReport is not None
+          print("release wheel import smoke: PASS")
+          PY
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
-          skip-existing: true
