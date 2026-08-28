@@ -136,6 +136,19 @@ Use DataSentry as a release gate instead of only as an interactive profiler:
 datasentry scan orders.csv --fail-on high
 ```
 
+For GitHub repositories, DataSentry also ships a reusable `workflow_call` quality gate that installs a pinned PyPI release, preserves DataSentry exit semantics, validates the structured gate result, writes a Job Summary, and uploads stdout/stderr artifacts:
+
+```yaml
+jobs:
+  datasentry:
+    uses: Jackxiaozhiren/datasentry/.github/workflows/datasentry-quality-gate.yml@main
+    with:
+      path: data/orders.csv
+      fail_on: high
+```
+
+See **[DataSentry in GitHub Actions](docs/GITHUB_ACTIONS.md)** for inputs, artifacts, security boundaries, version pinning, and the path toward a dedicated Marketplace Action.
+
 Reports can be exported as JSON, Markdown, HTML, JUnit, and SARIF, making the same evidence usable by humans, CI systems, and code-scanning surfaces.
 
 ## Drift and history
@@ -256,6 +269,7 @@ If you are looking for a small first contribution, check issues labeled **`good 
 
 - [Project site and live report](https://jackxiaozhiren.github.io/datasentry/)
 - [`docs/MCP.md`](docs/MCP.md) — VS Code and Claude Desktop MCP setup
+- [`docs/GITHUB_ACTIONS.md`](docs/GITHUB_ACTIONS.md) — reusable CI quality gate and Marketplace path
 - [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — benchmark policy and reproducibility
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — detailed engineering notes
 - [`docs/00-设计裁决记录-ADR.md`](docs/00-设计裁决记录-ADR.md) — architecture decision records
