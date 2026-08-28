@@ -1,7 +1,6 @@
 name: Publish to PyPI
 
 on:
-  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -29,7 +28,6 @@ jobs:
       - name: Validate release versions before building
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-          RELEASE_EVENT: ${{ github.event_name }}
         run: |
           python - <<'PY'
           from __future__ import annotations
@@ -60,17 +58,16 @@ jobs:
                   f"release metadata mismatch: expected dependency {expected_core!r}"
               )
 
-          if os.environ["RELEASE_EVENT"] == "push":
-              expected_tag = f"v{app_version}"
-              if os.environ["RELEASE_TAG"] != expected_tag:
-                  raise SystemExit(
-                      f"tag/version mismatch: tag={os.environ['RELEASE_TAG']!r}, "
-                      f"expected={expected_tag!r}"
-                  )
+          expected_tag = f"v{app_version}"
+          if os.environ["RELEASE_TAG"] != expected_tag:
+              raise SystemExit(
+                  f"tag/version mismatch: tag={os.environ['RELEASE_TAG']!r}, "
+                  f"expected={expected_tag!r}"
+              )
 
           # Fail before any upload if either distribution/version already exists.
-          # This avoids a partial release where one wheel is skipped as 'existing'
-          # while the other is newly published against stale package contents.
+          # This avoids a partial release where one wheel is silently reused while
+          # the other package is newly published against stale package contents.
           for package, version in (
               ("datasentry-ai", app_version),
               ("datasentry-core", core_version),
