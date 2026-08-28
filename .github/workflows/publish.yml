@@ -72,9 +72,6 @@ jobs:
                   f"expected={expected_tag!r}"
               )
 
-          # Fail before any upload if either distribution/version already exists.
-          # This avoids a partial release where one wheel is silently reused while
-          # the other package is newly published against stale package contents.
           for package, version in (
               ("datasentry-ai", app_version),
               ("datasentry-core", core_version),
@@ -111,14 +108,23 @@ jobs:
           /tmp/datasentry-release-smoke/bin/python -m pip install \
             dist/datasentry_core-*.whl \
             dist/datasentry_ai-*.whl
-          /tmp/datasentry-release-smoke/bin/datasentry --version
+
+          app_version=$(/tmp/datasentry-release-smoke/bin/python -c 'from importlib.metadata import version; print(version("datasentry-ai"))')
+          cli_version=$(/tmp/datasentry-release-smoke/bin/datasentry --version)
+          test "$cli_version" = "datasentry $app_version"
+
           /tmp/datasentry-release-smoke/bin/python - <<'PY'
-          from datasentry import DataSentry
+          from importlib.metadata import version
+
+          from datasentry import DataSentry, __version__ as app_runtime_version
+          from datasentry_core import __version__ as core_runtime_version
           from datasentry_core.models.repair import RepairVerifyReport
 
           assert DataSentry is not None
           assert RepairVerifyReport is not None
-          print("release wheel import smoke: PASS")
+          assert app_runtime_version == version("datasentry-ai")
+          assert core_runtime_version == version("datasentry-core")
+          print("release wheel version/import smoke: PASS")
           PY
 
       - name: Publish to PyPI
