@@ -11,6 +11,13 @@ def _load_toml(path: Path) -> dict[str, object]:
         return tomllib.load(fh)
 
 
+def _compatible_upper_bound(version: str) -> str:
+    major, minor, _patch = (int(part) for part in version.split(".", maxsplit=2))
+    if major == 0:
+        return f"0.{minor + 1}.0"
+    return f"{major + 1}.0.0"
+
+
 def test_datasentry_ai_requires_current_core_release_line() -> None:
     app = _load_toml(ROOT / "pyproject.toml")
     core = _load_toml(ROOT / "packages" / "core" / "pyproject.toml")
@@ -25,10 +32,11 @@ def test_datasentry_ai_requires_current_core_release_line() -> None:
     assert isinstance(core_version, str)
     assert isinstance(dependencies, list)
 
+    upper = _compatible_upper_bound(core_version)
     core_requirements = [
         dep for dep in dependencies if isinstance(dep, str) and dep.startswith("datasentry-core")
     ]
-    assert core_requirements == [f"datasentry-core>={core_version},<0.9.0"]
+    assert core_requirements == [f"datasentry-core>={core_version},<{upper}"]
 
 
 def test_release_versions_are_not_reused_from_broken_pair() -> None:
