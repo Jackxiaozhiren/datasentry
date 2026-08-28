@@ -6,7 +6,6 @@ These examples show how DataSentry fits into existing engineering workflows with
 |---|---|---|
 | dbt + DuckDB | scan a materialized dbt model and fail on high-severity findings | [`dbt/`](dbt/) |
 | Apache Airflow | insert a DataSentry gate between pipeline tasks | [`airflow/`](airflow/) |
-| GitHub Actions | reusable CI gate for repository data artifacts | [`github-actions/`](github-actions/) |
 
 The integration rule is deliberately simple:
 
