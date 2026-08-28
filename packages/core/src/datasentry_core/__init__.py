@@ -1,5 +1,7 @@
 """DataSentry AI core package."""
 
+from importlib.metadata import PackageNotFoundError, version
+
 from datasentry_core.models import (
     AIExplanation,
     AuditEvent,
@@ -108,4 +110,7 @@ __all__ = [
     "ValidationResult",
 ]
 
-__version__ = "1.0.0"
+try:
+    __version__ = version("datasentry-core")
+except PackageNotFoundError:  # source-tree imports before package installation
+    __version__ = "0+unknown"
