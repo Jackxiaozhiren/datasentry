@@ -39,6 +39,21 @@ def test_datasentry_ai_requires_current_core_release_line() -> None:
     assert core_requirements == [f"datasentry-core>={core_version},<{upper}"]
 
 
+def test_runtime_versions_match_distribution_metadata() -> None:
+    from datasentry import __version__ as app_runtime_version
+    from datasentry_core import __version__ as core_runtime_version
+
+    app = _load_toml(ROOT / "pyproject.toml")
+    core = _load_toml(ROOT / "packages" / "core" / "pyproject.toml")
+    app_project = app["project"]
+    core_project = core["project"]
+    assert isinstance(app_project, dict)
+    assert isinstance(core_project, dict)
+
+    assert app_runtime_version == app_project["version"]
+    assert core_runtime_version == core_project["version"]
+
+
 def test_release_versions_are_not_reused_from_broken_pair() -> None:
     app = _load_toml(ROOT / "pyproject.toml")
     core = _load_toml(ROOT / "packages" / "core" / "pyproject.toml")
