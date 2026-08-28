@@ -46,13 +46,20 @@ jobs:
               assert isinstance(value, dict)
               return value
 
+          def compatible_upper_bound(version: str) -> str:
+              major, minor, _patch = (int(part) for part in version.split(".", maxsplit=2))
+              if major == 0:
+                  return f"0.{minor + 1}.0"
+              return f"{major + 1}.0.0"
+
           app = project("pyproject.toml")
           core = project("packages/core/pyproject.toml")
           app_version = str(app["version"])
           core_version = str(core["version"])
           dependencies = app["dependencies"]
           assert isinstance(dependencies, list)
-          expected_core = f"datasentry-core>={core_version},<0.9.0"
+          upper = compatible_upper_bound(core_version)
+          expected_core = f"datasentry-core>={core_version},<{upper}"
           if expected_core not in dependencies:
               raise SystemExit(
                   f"release metadata mismatch: expected dependency {expected_core!r}"
