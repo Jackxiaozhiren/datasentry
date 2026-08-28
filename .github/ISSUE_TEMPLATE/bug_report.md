@@ -1,33 +1,53 @@
 ---
 name: Bug report
-about: Something isn't working — include a minimal repro, please
+about: Something is not working — include a minimal synthetic reproduction
 title: "[bug] "
 labels: bug
 ---
 
-**Describe the bug**
-A clear and concise description of what went wrong.
+> If the report involves a vulnerability, credential exposure, arbitrary file access, authorization bypass, PII-vault weakness, or remote-code execution, **do not post exploit details here**. Follow `SECURITY.md`.
 
-**Minimal repro (required)**
-A small snippet or CSV that reproduces the issue. Data quality bugs are
-usually data-dependent, so a concrete example is the fastest path to a fix.
+## What happened?
+
+Describe the observed behavior and why it is incorrect.
+
+## Minimal reproduction
+
+Data-quality bugs are often data-dependent. Please provide the smallest synthetic dataset or snippet that reproduces the problem.
 
 ```python
 from datasentry import DataSentry
 
-c = DataSentry(project="repro-ws")
-run, runs, issues = c.scan_file("small.csv")  # or the CLI command you used
+client = DataSentry(project="repro-ws")
+run, detector_runs, issues = client.scan_file("small.csv")
 print(run, issues)
 ```
 
-**What I ran**
-Paste the exact command / snippet and its output.
+Or paste the exact CLI command you used.
 
-**Expected behavior**
+## Expected behavior
+
 What should have happened instead?
 
-**Environment**
-- datasentry-ai version (`pip show datasentry-ai` or `datasentry --version`):
+## Evidence
+
+Include the smallest useful evidence:
+
+- error/traceback with secrets removed;
+- issue/report excerpt;
+- repair diff or verify output;
+- screenshot for UI problems;
+- benchmark command for performance regressions.
+
+## Environment
+
+- DataSentry version (`datasentry --version` or `pip show datasentry-ai`):
 - Python version:
-- OS:
-- Did you configure an LLM provider (Ollama/OpenAI/...)? If yes, which:
+- OS / architecture:
+- input type (CSV/Parquet/DB/cloud/etc.):
+- interface (CLI/TUI/Web/REST/MCP):
+- LLM provider configured? If yes, which provider (do not include keys):
+
+## Additional context
+
+Anything else needed to reproduce the issue. Do not attach credentials or real customer data.

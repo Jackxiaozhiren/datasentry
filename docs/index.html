@@ -1,295 +1,107 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DataSentry — Evidence-driven, local-first AI copilot for data quality</title>
-<meta name="description" content="DataSentry scans your data, scores its quality across six dimensions, and repairs it — with statistical evidence, AI assistance, and human approval. Local-first, open source.">
-<style>
-  :root { color-scheme: light dark; --accent:#0969da; --accent-2:#0d3a7d; --ok:#1f883d;
-          --bg:#0d1117; --bg-2:#161b22; --fg:#e6edf3; --muted:#8b949e; --border:#30363d;
-          --code-bg:#161b22; }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
-         background: var(--bg); color: var(--fg); line-height: 1.6; }
-  a { color: #58a6ff; text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 1.25rem; }
-
-  header { border-bottom: 1px solid var(--border); background: var(--bg-2); }
-  .nav { display: flex; align-items: center; gap: 1.5rem; padding: .8rem 1.25rem;
-         max-width: 1040px; margin: 0 auto; }
-  .nav .brand { display: flex; align-items: center; gap: .5rem; font-weight: 600; color: var(--fg); }
-  .nav .brand img { height: 28px; }
-  .nav .links { margin-left: auto; display: flex; gap: 1rem; font-size: .9rem; }
-
-  .hero { padding: 4.5rem 0 3.5rem; text-align: center;
-          background: radial-gradient(60rem 24rem at 50% -10%, rgba(9,105,218,.35), transparent 70%); }
-  .hero .logo { height: 96px; margin-bottom: 1rem; }
-  .hero h1 { font-size: 2.6rem; letter-spacing: -.02em; }
-  .hero .tagline { font-size: 1.15rem; color: var(--muted); max-width: 640px; margin: .8rem auto 1.6rem; }
-  .badges { display: flex; justify-content: center; flex-wrap: wrap; gap: .5rem; margin-bottom: 2rem; }
-  .badge { background: var(--bg-2); border: 1px solid var(--border); border-radius: 2rem;
-           padding: .2rem .9rem; font-size: .8rem; color: var(--muted); }
-  .badge b { color: var(--fg); font-weight: 600; }
-  .cta { display: flex; justify-content: center; gap: .8rem; flex-wrap: wrap; }
-  .btn { display: inline-block; padding: .7rem 1.5rem; border-radius: .5rem; font-weight: 600; }
-  .btn-primary { background: var(--accent); color: #fff; }
-  .btn-primary:hover { background: #0b6edb; text-decoration: none; }
-  .btn-ghost { border: 1px solid var(--border); color: var(--fg); }
-  .btn-ghost:hover { background: var(--bg-2); text-decoration: none; }
-
-  section { padding: 3.2rem 0; border-top: 1px solid var(--border); }
-  h2 { font-size: 1.5rem; margin-bottom: .4rem; }
-  .sub { color: var(--muted); margin-bottom: 2rem; max-width: 720px; }
-
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1rem; }
-  .card { background: var(--bg-2); border: 1px solid var(--border); border-radius: .6rem; padding: 1.2rem; }
-  .card h3 { font-size: 1.02rem; margin-bottom: .4rem; color: #58a6ff; }
-  .card p { color: var(--muted); font-size: .92rem; }
-
-  .steps { counter-reset: step; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
-  .step { background: var(--bg-2); border: 1px solid var(--border); border-radius: .6rem; padding: 1.2rem; }
-  .step::before { counter-increment: step; content: counter(step); display: inline-flex;
-                  align-items: center; justify-content: center; width: 1.8rem; height: 1.8rem;
-                  background: var(--accent); color: #fff; border-radius: 50%; font-weight: 700;
-                  margin-bottom: .6rem; font-size: .95rem; }
-  .step code { display: block; margin-top: .5rem; font-size: .8rem; }
-
-  code, pre { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
-  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: .6rem;
-        padding: 1rem; overflow-x: auto; font-size: .85rem; }
-  .terminal { max-width: 720px; margin: 0 auto; }
-  .terminal .prompt { color: #7ee787; }
-  .terminal .comment { color: var(--muted); }
-
-  .demo-frame { border: 1px solid var(--border); border-radius: .6rem; overflow: hidden;
-                background: #fff; }
-  .demo-frame iframe { width: 100%; height: 460px; border: 0; display: block; }
-
-  .dimensions { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .8rem; }
-  .dim { background: var(--bg-2); border: 1px solid var(--border); border-radius: .6rem;
-         padding: 1rem; text-align: center; }
-  .dim .name { font-size: .85rem; color: var(--muted); }
-  .dim .val { font-size: 1.6rem; font-weight: 700; color: var(--ok); }
-
-  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; align-items: start; }
-  @media (max-width: 760px) { .two-col { grid-template-columns: 1fr; } .hero h1 { font-size: 2rem; } }
-  .two-col ul { list-style: none; }
-  .two-col li { padding: .45rem 0; border-bottom: 1px solid var(--border); font-size: .95rem; }
-  .two-col li:last-child { border-bottom: 0; }
-  .two-col .lbl { color: #58a6ff; font-weight: 600; }
-
-  footer { border-top: 1px solid var(--border); padding: 2.2rem 0; text-align: center; color: var(--muted); font-size: .9rem; }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DataSentry — Automatically find, explain, and safely fix bad data</title>
+  <meta name="description" content="DataSentry is a local-first data quality copilot with deterministic detection, evidence-backed issues, and human-approved reversible repairs.">
+  <meta name="theme-color" content="#0d1117">
+  <meta property="og:title" content="DataSentry — Find and safely fix bad data">
+  <meta property="og:description" content="Detect → Explain → Repair → Verify. Local-first, evidence-driven data quality with reversible repairs.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://jackxiaozhiren.github.io/datasentry/">
+  <style>
+    :root{--bg:#0d1117;--panel:#161b22;--panel2:#0f1520;--text:#e6edf3;--muted:#8b949e;--border:#30363d;--blue:#2f81f7;--green:#3fb950;--code:#010409}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}a{color:#58a6ff;text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:1080px;margin:auto;padding:0 24px}.nav{height:64px;display:flex;align-items:center;border-bottom:1px solid var(--border);background:rgba(13,17,23,.94);position:sticky;top:0;z-index:10;backdrop-filter:blur(12px)}.nav .wrap{width:100%;display:flex;align-items:center}.brand{display:flex;gap:10px;align-items:center;font-weight:700;color:var(--text)}.brand img{width:30px;height:30px}.links{margin-left:auto;display:flex;gap:20px;font-size:14px}.hero{text-align:center;padding:84px 0 56px;background:radial-gradient(circle at 50% 0,rgba(47,129,247,.22),transparent 48%)}.hero img{width:104px}.hero h1{font-size:48px;line-height:1.08;margin:18px 0 12px;letter-spacing:-1.5px}.hero .lead{font-size:21px;max-width:760px;margin:0 auto;color:#c9d1d9}.hero .sub{max-width:720px;margin:14px auto 28px;color:var(--muted)}.actions{display:flex;justify-content:center;gap:12px;flex-wrap:wrap}.btn{padding:10px 18px;border-radius:8px;border:1px solid var(--border);font-weight:650;color:var(--text);background:var(--panel)}.btn.primary{background:#238636;border-color:#2ea043;color:white}.btn:hover{text-decoration:none;filter:brightness(1.08)}.proof{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;margin-top:28px;color:var(--muted);font-size:14px}.proof b{color:var(--text)}section{padding:64px 0;border-top:1px solid var(--border)}h2{font-size:30px;line-height:1.2;margin:0 0 12px}h3{margin-top:0}.intro{color:var(--muted);max-width:760px;margin:0 0 30px}.loop{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.step,.card{border:1px solid var(--border);background:var(--panel);border-radius:12px;padding:20px}.step strong{display:block;font-size:18px;margin-bottom:6px}.step span,.card p{color:var(--muted)}.n{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--blue);color:#fff;font-weight:800;margin-bottom:12px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.card code{color:#79c0ff}.demo{overflow:hidden;border:1px solid var(--border);border-radius:12px;background:#fff}.demo iframe{display:block;width:100%;height:570px;border:0}.terminal{background:var(--code);border:1px solid var(--border);border-radius:12px;padding:22px;overflow:auto;color:#c9d1d9}.terminal .p{color:#7ee787}.terminal .c{color:var(--muted)}.two{display:grid;grid-template-columns:1.1fr .9fr;gap:24px;align-items:start}.facts{list-style:none;padding:0;margin:0}.facts li{padding:12px 0;border-bottom:1px solid var(--border)}.facts li:last-child{border-bottom:0}.note{border-left:3px solid var(--green);padding:10px 14px;background:var(--panel2);color:#c9d1d9}.cta{text-align:center}.cta p{color:var(--muted)}footer{padding:38px 0;color:var(--muted);font-size:14px;text-align:center;border-top:1px solid var(--border)}@media(max-width:760px){.links{display:none}.hero{padding-top:60px}.hero h1{font-size:38px}.loop,.grid,.two{grid-template-columns:1fr}.demo iframe{height:460px}}
+  </style>
 </head>
 <body>
+  <div class="nav"><div class="wrap"><a class="brand" href="#top"><img src="assets/logo.svg" alt="DataSentry logo">DataSentry</a><div class="links"><a href="#why">Why</a><a href="#demo">Demo</a><a href="#start">Quick start</a><a href="#agents">MCP</a><a href="https://github.com/Jackxiaozhiren/datasentry">GitHub</a></div></div></div>
 
-<header>
-  <div class="nav">
-    <a class="brand" href="/">
-      <img src="assets/logo.svg" alt="DataSentry logo"> DataSentry
-    </a>
-    <div class="links">
-      <a href="#features">Features</a>
-      <a href="#demo">Demo</a>
-      <a href="#quickstart">Quick start</a>
-      <a href="#docs">Docs</a>
-    </div>
-  </div>
-</header>
+  <main id="top">
+    <div class="hero"><div class="wrap">
+      <img src="assets/logo.svg" alt="DataSentry">
+      <h1>Find bad data.<br>Fix it without gambling.</h1>
+      <p class="lead">DataSentry automatically detects data-quality problems, explains the evidence, and turns fixes into a previewable, verifiable, reversible workflow.</p>
+      <p class="sub">The deterministic core runs locally. LLMs are optional. AI may propose a repair; humans approve state-changing actions.</p>
+      <div class="actions"><a class="btn primary" href="#start">Scan your first file</a><a class="btn" href="#demo">See a live report</a><a class="btn" href="https://github.com/Jackxiaozhiren/datasentry">View on GitHub</a></div>
+      <div class="proof"><span><b>39</b> detectors</span><span><b>6</b> quality dimensions</span><span><b>95%</b> coverage</span><span><b>Apache-2.0</b></span></div>
+    </div></div>
 
-<div class="hero">
-  <div class="wrap">
-    <img class="logo" src="assets/logo.svg" alt="">
-    <h1>DataSentry</h1>
-    <p class="tagline">Evidence-driven, local-first AI copilot for data quality.
-      Detect · Explain · Validate · Repair — with statistical evidence,
-      AI assistance, and human approval. Your data never leaves your machine.</p>
-    <div class="badges">
-      <span class="badge">version <b>1.0.0</b></span>
-      <span class="badge">python <b>3.12</b></span>
-      <span class="badge">license <b>Apache-2.0</b></span>
-      <span class="badge">tests <b>1229 passed</b></span>
-      <span class="badge">coverage <b>95%</b></span>
-      <span class="badge">detectors <b>39</b></span>
-      <span class="badge">ADR <b>112</b></span>
-      <span class="badge">MCP tools <b>24</b></span>
-    </div>
-    <div class="cta">
-      <a class="btn btn-primary" href="#quickstart">Get started</a>
-      <a class="btn btn-ghost" href="#demo">See a live report</a>
-    </div>
-  </div>
-</div>
+    <section id="why"><div class="wrap">
+      <h2>One loop, not another dashboard</h2>
+      <p class="intro">Data quality is only useful when a finding can move from suspicion to evidence to a safe correction. DataSentry is organized around that complete workflow.</p>
+      <div class="loop">
+        <div class="step"><span class="n">1</span><strong>Detect</strong><span>Scan files, databases, and cloud objects with evidence-driven detectors.</span></div>
+        <div class="step"><span class="n">2</span><strong>Explain</strong><span>Inspect samples, ratios, confidence, severity, and six-dimension scoring.</span></div>
+        <div class="step"><span class="n">3</span><strong>Repair</strong><span>Generate a proposal, preview it, and apply it to a copy—not the source.</span></div>
+        <div class="step"><span class="n">4</span><strong>Verify</strong><span>Re-scan the repaired data, detect regressions, inspect diffs, or roll back.</span></div>
+      </div>
+    </div></section>
 
-<section id="features">
-  <div class="wrap">
-    <h2>What it does</h2>
-    <p class="sub">One scan produces a six-dimension quality score; every issue carries a statistical
-      evidence chain — samples, ratios, confidence. AI proposes; humans approve.</p>
-    <div class="grid">
-      <div class="card"><h3>39 evidence-driven detectors</h3><p>Missingness, dates, encodings, cross-field rules,
-        cross-table foreign keys, exact + fuzzy duplicates, Isolation Forest / LOF outliers.</p></div>
-      <div class="card"><h3>Six-dimension scoring</h3><p>Completeness, validity, uniqueness, consistency,
-        integrity, timeliness — explainable weights, per-dimension contributions.</p></div>
-      <div class="card"><h3>Human-in-the-loop repair</h3><p>Propose → preview (rules re-run) → apply
-        (fingerprinted copy) → rollback. AI suggests; you decide. Single or batch — proposals are
-        read-only, applies never overwrite the source file, every apply is undoable via its snapshot.</p></div>
-      <div class="card"><h3>Drift engine</h3><p>Compare historical scans: schema, row-count, score and
-        issue-distribution drift between versions.</p></div>
-      <div class="card"><h3>CI quality gates</h3><p><code>scan --fail-on</code> blocks releases; reports as
-        JSON / Markdown / HTML / JUnit / SARIF.</p></div>
-      <div class="card"><h3>Cron scheduling</h3><p>Persistent job queue in SQLite: cron expressions,
-        manual triggers, run history, webhooks, quality gates and change-aware
-        skip (no re-scan when content is unchanged).</p></div>
-      <div class="card"><h3>Distributed execution</h3><p>Any instance runs as a worker
-        (<code>datasentry worker</code>); a pool with round-robin routing, failover,
-        cooldown and health checks, plus parallel dispatch
-        (<code>DATASENTRY_MAX_WORKERS</code>).</p></div>
-      <div class="card"><h3>Safe LLM assistance</h3><p>PII redacted before every prompt, encrypted
-        vault with key rotation, calls audited, rules approved after preflight
-        simulation. Runs on local Ollama.</p></div>
-      <div class="card"><h3>Four interfaces</h3><p>CLI, REST API, server-rendered Web UI with cross-scan
-        trends, and an MCP stdio server (24 tools) for LLM agents.</p></div>
-      <div class="card"><h3>Local-first & fast</h3><p>DuckDB execution engine, 1e6 rows in ~10s.
-        No cloud, no telemetry, no vendor lock-in.</p></div>
-      <div class="card"><h3>Open & extensible</h3><p>Detector plugin API (<code>plugins/</code> auto-load
-        with SHA-256 integrity locks), contract exports to Pandera / Great
-        Expectations, 112 ADRs of design rationale.</p></div>
-    </div>
-  </div>
-</section>
+    <section><div class="wrap"><div class="grid">
+      <div class="card"><h3>Evidence before AI</h3><p>Base detection and scoring are deterministic. LLM assistance is optional rather than the authority deciding whether data is bad.</p></div>
+      <div class="card"><h3>Local-first by design</h3><p>DuckDB executes the core scan locally. A local Ollama provider can keep LLM-assisted workflows on the machine too.</p></div>
+      <div class="card"><h3>Repair is deliberately conservative</h3><p><code>propose → preview → apply to copy → verify → rollback</code>. The original file is never overwritten.</p></div>
+      <div class="card"><h3>Useful outside the UI</h3><p>CLI/TUI, REST, Web, MCP, JSON, Markdown, HTML, JUnit, and SARIF expose the same evidence to people and automation.</p></div>
+    </div></div></section>
 
-<section id="demo">
-  <div class="wrap">
-    <h2>Live demo report</h2>
-    <p class="sub">200 rows of order data with 15 injected quality issues — scanned and reported in one
-      command. This is the actual <code>report export --as html</code> output, no custom rendering.</p>
-    <div class="demo-frame">
-      <iframe src="demo/orders-report.html" title="DataSentry quality report demo"></iframe>
-    </div>
-  </div>
-</section>
+    <section id="demo"><div class="wrap">
+      <h2>See the actual report</h2>
+      <p class="intro">This embedded report is generated by DataSentry from a small synthetic order dataset with injected quality problems. It is not a separate marketing mockup.</p>
+      <div class="demo"><iframe src="demo/orders-report.html" title="DataSentry live quality report"></iframe></div>
+    </div></section>
 
-<section id="quickstart">
-  <div class="wrap">
-    <h2>Quick start</h2>
-    <p class="sub">Install from PyPI and scan your first file in under a minute.</p>
-    <div class="two-col">
-      <pre class="terminal"><code><span class="comment"># install</span>
-<span class="prompt">$</span> pip install datasentry-ai
+    <section id="start"><div class="wrap">
+      <h2>Start in under a minute</h2>
+      <p class="intro">Install the PyPI package, scan a file, then inspect high-severity findings.</p>
+      <div class="two">
+        <pre class="terminal"><code><span class="c"># install</span>
+<span class="p">$</span> pip install datasentry-ai
 
-<span class="comment"># scan → fuse → score → persist, one step</span>
-<span class="prompt">$</span> datasentry scan orders.csv
-{
-  <span style="color:#79c0ff">"scan_run_id"</span>: <span style="color:#a5d6ff">"scan_3426008c0380"</span>,
-  <span style="color:#79c0ff">"status"</span>: <span style="color:#a5d6ff">"completed"</span>,
-  <span style="color:#79c0ff">"row_count"</span>: 200,
-  <span style="color:#79c0ff">"issues_count"</span>: { ... }
-}
+<span class="c"># detect → evidence → score → persist</span>
+<span class="p">$</span> datasentry scan orders.csv
 
-<span class="comment"># issues, score, repair, drift</span>
-<span class="prompt">$</span> datasentry issues list
-<span class="prompt">$</span> datasentry score scan_3426008c0380
-<span class="prompt">$</span> datasentry repair propose &lt;issue_id&gt; --file orders.csv
-<span class="prompt">$</span> datasentry drift latest orders
+<span class="c"># inspect what matters first</span>
+<span class="p">$</span> datasentry issues list --severity high
 
-<span class="comment"># batch repair loop (propose → apply copies → rollback; partial failures exit 4)</span>
-<span class="prompt">$</span> datasentry repair propose-batch &lt;scan_run_id&gt; --file orders.csv --all
-<span class="prompt">$</span> datasentry repair apply-batch &lt;scan_run_id&gt; --file orders.csv --all
-<span class="prompt">$</span> datasentry repair rollback-batch run_1,run_2
-<span class="prompt">$</span> datasentry repair list --run &lt;scan_run_id&gt;   <span class="comment"># audit</span>
-<span class="prompt">$</span> datasentry repair verify &lt;repair_run_id&gt;   <span class="comment"># re-scan repaired copy; exit 1 on regression</span>
+<span class="c"># interactive terminal UI</span>
+<span class="p">$</span> datasentry
 
-<span class="comment"># scheduled jobs + distributed workers</span>
-<span class="prompt">$</span> datasentry job create nightly --cron "0 9 * * *" orders.csv
-<span class="prompt">$</span> datasentry worker --port 8001          <span class="comment"># execution node</span>
-<span class="prompt">$</span> DATASENTRY_WORKERS="http://localhost:8001:secret" datasentry-server
-
-<span class="comment"># Web UI + REST API</span>
-<span class="prompt">$</span> datasentry-server
-<span class="comment">→ http://localhost:8000/ui/  (scans, issues, repair workbench, trends)</span></code></pre>
-      <div>
-        <ul>
-          <li><span class="lbl">scan</span> — 39 detectors, fusion, six-dimension score</li>
-          <li><span class="lbl">issues</span> — filter by severity / dimension</li>
-          <li><span class="lbl">score</span> — 0–100 with explainable weights</li>
-          <li><span class="lbl">repair</span> — propose → preview → apply → rollback</li>
-          <li><span class="lbl">drift</span> — compare historical scans</li>
-          <li><span class="lbl">rules</span> — natural language → rule candidates + approval</li>
-          <li><span class="lbl">job</span> — cron scheduling, triggers, run history</li>
-          <li><span class="lbl">worker</span> — run as a remote execution node</li>
-          <li><span class="lbl">mcp</span> — 24 tools for LLM agents over stdio</li>
-          <li><span class="lbl">detectors</span> — registry incl. plugins</li>
+<span class="c"># web UI + REST API</span>
+<span class="p">$</span> datasentry-server</code></pre>
+        <ul class="facts">
+          <li><strong>Inputs</strong><br>CSV · Parquet · JSONL · XLSX · DuckDB · SQLite · PostgreSQL · MySQL · cloud objects</li>
+          <li><strong>Outputs</strong><br>JSON · Markdown · HTML · JUnit · SARIF</li>
+          <li><strong>History</strong><br>Schema, row-count, score, and issue-distribution drift</li>
+          <li><strong>Automation</strong><br>Quality gates, scheduling, workers, REST, MCP</li>
         </ul>
       </div>
-      <div>
-        <h3>MCP tools (24)</h3>
-        <ul>
-          <span class="lbl">scan_file</span> — scan a dataset file (detect issues)
-<span class="lbl">list_issues</span> — list issues for a scan run (filter by severity)
-<span class="lbl">quality_score</span> — 0-100 explainable quality score for a run
-<span class="lbl">detectors_list</span> — list registered detectors (incl. plugins)
-<span class="lbl">drift_latest</span> — drift report for the latest version of a dataset
-<span class="lbl">drift_compare</span> — compare two historical scans
-<span class="lbl">trends_list</span> — quality trends across scans
-<span class="lbl">profiles_get</span> — column profiles for a run
-<span class="lbl">comparison_build</span> — build a regression report between two runs
-<span class="lbl">contract_validate</span> — validate a data contract YAML
-<span class="lbl">repair_propose_batch</span> — propose repairs for all issues of a run
-<span class="lbl">repair_apply_batch</span> — apply repairs (writes repaired copies, never the source)
-<span class="lbl">repair_rollback_batch</span> — roll back applied repairs by run id
-<span class="lbl">repair_verify</span> — re-scan a repaired copy; report fixed/persistent/new
-<span class="lbl">pii_sessions</span> — list PII vault sessions
-<span class="lbl">pii_restore</span> — restore a PII-redacted file
-<span class="lbl">pii_delete_session</span> — delete a PII session
-<span class="lbl">pii_rotate_key</span> — rotate the PII vault key
-<span class="lbl">pii_purge_sessions</span> — purge all PII sessions
-<span class="lbl">job_create</span> — create a scheduled job
-<span class="lbl">job_update</span> — update a scheduled job
-<span class="lbl">job_trigger</span> — trigger a job now
-<span class="lbl">job_remove</span> — remove a scheduled job
-<span class="lbl">jobs_list</span> — list scheduled jobs and run history
-        </ul>
+    </div></section>
 
-        <h3>MCP quickstart (stdio JSON-RPC)</h3>
-        <p class="meta">Start the server, then pipe line-delimited JSON-RPC requests
-        (see <a href="https://github.com/modelcontextprotocol/specification">MCP spec</a>).
-        Three calls cover the detect → fix → verify loop:</p>
-        <pre>datasentry mcp --project ./data-project</pre>
-        <pre>{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"me","version":"1.0"}}}
-{"jsonrpc":"2.0","method":"notifications/initialized"}
-{"jsonrpc":"2.0","id":2,"method":"tools/list"}</pre>
-        <pre>{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"scan_file","arguments":{"path":"./data/customers.csv"}}}
-{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"repair_apply_batch","arguments":{"scan_run_id":"scan_…","source_path":"./data/customers.csv","issue_ids":["iss_…"]}}}
-{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"repair_verify","arguments":{"repair_run_id":"rep_…"}}}</pre>
-        <p class="meta">`repair_verify` answers the gate question for agents: which issue
-        types are fixed, which persist, and whether the repair introduced new ones.</p>
-      </div>
-    </div>
-  </div>
-</section>
+    <section><div class="wrap">
+      <h2>Performance claims you can reproduce</h2>
+      <p class="intro">Instead of presenting an unqualified “1M rows in X seconds” number, DataSentry ships the benchmark and its acceptance budgets in the repository.</p>
+      <pre class="terminal"><code><span class="p">$</span> uv sync
+<span class="p">$</span> uv run python benchmarks/bench_scan.py 1000000 42
+<span class="p">$</span> uv run python benchmarks/bench_scan.py 1000000 42 --sampling-size 200000</code></pre>
+      <p><a href="https://github.com/Jackxiaozhiren/datasentry/blob/main/docs/BENCHMARKS.md">Benchmark policy →</a></p>
+    </div></section>
 
-<section id="docs">
-  <div class="wrap">
-    <h2>Documentation</h2>
-    <div class="grid">
-      <div class="card"><h3>README</h3><p>Full feature tour, architecture diagram, development guide.</p>
-        <a href="https://github.com/Jackxiaozhiren/datasentry#readme" id="readme-link">Open on GitHub →</a></div>
-      <div class="card"><h3>Development notes</h3><p>Per-step implementation notes, conventions, testing practices.</p>
-        <a href="https://github.com/Jackxiaozhiren/datasentry/blob/main/docs/DEVELOPMENT.md" id="dev-link">docs/DEVELOPMENT.md →</a></div>
-      <div class="card"><h3>ADR journal</h3><p>111 architecture decision records explaining every design choice.</p>
-        <a href="https://github.com/Jackxiaozhiren/datasentry/blob/main/docs/00-%E8%AE%BE%E8%AE%A1%E8%A3%81%E5%86%B3%E8%AE%B0%E5%BD%95-ADR.md" id="adr-link">docs/00-ADR.md →</a></div>
-    </div>
-  </div>
-</section>
+    <section id="agents"><div class="wrap">
+      <h2>Give AI agents data-quality tools, not unchecked authority</h2>
+      <p class="intro">The MCP stdio server exposes DataSentry's SDK to MCP-capable agents while preserving the project's approval and repair boundaries.</p>
+      <pre class="terminal"><code><span class="p">$</span> datasentry mcp</code></pre>
+      <div class="note">Agents can scan, inspect issues and scores, compare drift, validate contracts, and use other exposed tools. State-changing repair behavior remains governed by DataSentry's human-in-the-loop workflow.</div>
+    </div></section>
 
-<footer>
-  <div class="wrap">
-    DataSentry 1.0.0 · Apache-2.0 · local-first data quality, built for humans.
-  </div>
-</footer>
+    <section class="cta"><div class="wrap">
+      <h2>Catch bad data before it becomes a production incident.</h2>
+      <p>Try the project, inspect the evidence, and tell us where the workflow breaks for your data.</p>
+      <div class="actions"><a class="btn primary" href="https://github.com/Jackxiaozhiren/datasentry">GitHub repository</a><a class="btn" href="https://pypi.org/project/datasentry-ai/">PyPI</a><a class="btn" href="https://github.com/Jackxiaozhiren/datasentry/blob/main/ROADMAP.md">Roadmap</a></div>
+    </div></section>
+  </main>
 
+  <footer><div class="wrap">DataSentry · Apache-2.0 · Local-first data quality with evidence and reversible repair.</div></footer>
 </body>
 </html>
