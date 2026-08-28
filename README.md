@@ -13,6 +13,7 @@
 <p align="center">
   <a href="https://jackxiaozhiren.github.io/datasentry/">Live demo</a> ·
   <a href="#quick-start">Quick start</a> ·
+  <a href="docs/MCP.md">MCP setup</a> ·
   <a href="#why-datasentry">Why DataSentry</a> ·
   <a href="ROADMAP.md">Roadmap</a> ·
   <a href="CONTRIBUTING.md">Contribute</a>
@@ -153,12 +154,14 @@ Tracked signals include schema changes, row-count changes, quality-score movemen
 DataSentry includes an MCP stdio server that exposes the same underlying SDK used by the CLI and REST API.
 
 ```bash
-datasentry mcp
+datasentry mcp --project /path/to/project
 ```
 
 This lets MCP-capable agents scan files, inspect issues, read quality scores and trends, compare drift, validate contracts, manage scheduled jobs, and invoke other DataSentry tools without bypassing the project's safety invariants.
 
-The important boundary remains the same: **AI may propose; humans approve state-changing repairs.**
+For copy-paste setup recipes for **VS Code** and **Claude Desktop**, path troubleshooting, and guidance on read-only vs state-changing agent workflows, see **[DataSentry MCP setup](docs/MCP.md)**.
+
+The important boundary remains the same: **AI may propose; humans approve state-changing repairs.** Keep client-side confirmation enabled for state-changing MCP tools.
 
 ## Interfaces
 
@@ -252,6 +255,7 @@ If you are looking for a small first contribution, check issues labeled **`good 
 ## Documentation
 
 - [Project site and live report](https://jackxiaozhiren.github.io/datasentry/)
+- [`docs/MCP.md`](docs/MCP.md) — VS Code and Claude Desktop MCP setup
 - [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — benchmark policy and reproducibility
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — detailed engineering notes
 - [`docs/00-设计裁决记录-ADR.md`](docs/00-设计裁决记录-ADR.md) — architecture decision records
