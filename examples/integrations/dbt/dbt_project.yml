@@ -1,0 +1,11 @@
+name: datasentry_dbt_demo
+version: "1.0"
+config-version: 2
+
+profile: datasentry_demo
+model-paths: ["models"]
+clean-targets: ["target", "dbt_packages", "warehouse.duckdb", ".datasentry"]
+
+models:
+  datasentry_dbt_demo:
+    +materialized: table

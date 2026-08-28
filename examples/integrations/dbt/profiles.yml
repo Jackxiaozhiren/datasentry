@@ -1,0 +1,8 @@
+datasentry_demo:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: warehouse.duckdb
+      schema: main
+      threads: 1
