@@ -145,6 +145,19 @@ Repairs are fingerprinted, auditable, and reversible. AI-generated repair propos
 datasentry scan orders.csv --fail-on high
 ```
 
+For GitHub repositories, reuse DataSentry's maintained `workflow_call` gate instead of duplicating installation and exit-code handling:
+
+```yaml
+jobs:
+  datasentry:
+    uses: Jackxiaozhiren/datasentry/.github/workflows/datasentry-quality-gate.yml@main
+    with:
+      path: data/orders.csv
+      fail_on: high
+```
+
+See [`docs/GITHUB_ACTIONS.md`](docs/GITHUB_ACTIONS.md) for inputs, artifacts, security boundaries, and version-pinning guidance.
+
 Reports can be exported as JSON, Markdown, HTML, JUnit, and SARIF. The GitHub Actions example fails the workflow on severe findings while still uploading an HTML report for review.
 
 ## Give AI agents deterministic data-quality tools
@@ -252,6 +265,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md), [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT
 - [Project site and live report](https://jackxiaozhiren.github.io/datasentry/)
 - [`examples/`](examples/) — scenario-first runnable examples
 - [`docs/MCP.md`](docs/MCP.md) — VS Code and Claude Desktop MCP setup
+- [`docs/GITHUB_ACTIONS.md`](docs/GITHUB_ACTIONS.md) — reusable GitHub quality gate
 - [`examples/integrations/github-actions/`](examples/integrations/github-actions/) — copy-paste CI gate
 - [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — benchmark policy
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — engineering notes
