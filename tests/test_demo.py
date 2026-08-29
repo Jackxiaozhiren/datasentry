@@ -1,4 +1,4 @@
-"""Demo tests: repository full cycle plus packaged zero-config entry point."""
+"""Demo tests: repository wrapper plus packaged zero-config entry point."""
 
 from __future__ import annotations
 
@@ -27,14 +27,14 @@ def test_demo_full_cycle_within_budget(tmp_path: Path) -> None:
     elapsed = time.monotonic() - start
     assert result.returncode == 0, result.stderr
     out = result.stdout
-    assert "scan run:" in out
-    assert "detectors completed:" in out
-    assert "top:" in out
-    assert "repair:" in out
-    assert "rollback →" in out
-    assert "PASS" in out
+    assert "DataSentry demo" in out
+    assert "Scan complete:" in out
+    assert "detectors completed" in out
+    assert "Reports written:" in out
+    assert "Done in" in out
+    assert ("Repaired a copy:" in out) or ("No automatically repairable issue" in out)
     assert elapsed < BUDGET_SECONDS, f"demo exceeded budget: {elapsed:.1f}s"
-    assert (tmp_path / "customers.csv").exists()
+    assert (tmp_path / "customers_dirty.csv").exists()
     assert (tmp_path / "report.json").exists()
     assert (tmp_path / "report.html").exists()
 
@@ -50,19 +50,20 @@ def test_demo_small_rows_reproducible(tmp_path: Path) -> None:
             timeout=BUDGET_SECONDS + 30,
         )
         assert result.returncode == 0, result.stderr
-    csv1 = (out1 / "customers.csv").read_bytes()
-    csv2 = (out2 / "customers.csv").read_bytes()
+    csv1 = (out1 / "customers_dirty.csv").read_bytes()
+    csv2 = (out2 / "customers_dirty.csv").read_bytes()
     assert csv1 == csv2
 
 
-def test_demo_missing_file_error_path(tmp_path: Path) -> None:
+def test_demo_rejects_zero_rows(tmp_path: Path) -> None:
     result = subprocess.run(
         [sys.executable, str(DEMO), "--rows", "0", "--out", str(tmp_path)],
         capture_output=True,
         text=True,
         timeout=60,
     )
-    assert result.returncode in (0, 1)
+    assert result.returncode == 1
+    assert "rows must be >= 1" in result.stderr
 
 
 def test_packaged_demo_data_is_reproducible(tmp_path: Path) -> None:
