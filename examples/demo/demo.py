@@ -9,8 +9,6 @@ Contributors can still run this file with:
     uv run python examples/demo/demo.py --rows 5000
 """
 
-from __future__ import annotations
-
 from datasentry.demo import main
 
 
