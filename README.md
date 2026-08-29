@@ -16,6 +16,7 @@
   <a href="https://jackxiaozhiren.github.io/datasentry/">Live demo</a> ·
   <a href="#try-it-in-30-seconds">30-second start</a> ·
   <a href="#start-with-your-problem">Use cases</a> ·
+  <a href="docs/FAQ.md">FAQ</a> ·
   <a href="https://pypi.org/project/datasentry-ai/">PyPI</a> ·
   <a href="examples/">Examples</a> ·
   <a href="docs/MCP.md">MCP setup</a> ·
@@ -271,6 +272,7 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md), [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT
 ## Documentation
 
 - [Project site and live report](https://jackxiaozhiren.github.io/datasentry/)
+- [`docs/FAQ.md`](docs/FAQ.md) — evaluation, safety boundaries, and how DataSentry fits alongside other data-quality tools
 - [`examples/`](examples/) — scenario-first runnable examples
 - [`docs/MCP.md`](docs/MCP.md) — VS Code and Claude Desktop MCP setup
 - [`docs/GITHUB_ACTIONS.md`](docs/GITHUB_ACTIONS.md) — reusable GitHub quality gate
