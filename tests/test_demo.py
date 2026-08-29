@@ -1,11 +1,16 @@
-"""Step 25 M9 Demo 测试（34 章：Demo 数据集完整走通 < 3 分钟）。"""
+"""Demo tests: repository full cycle plus packaged zero-config entry point."""
 
 from __future__ import annotations
 
+import csv
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+import pytest
+
+from datasentry.demo import generate_demo_csv, main as demo_main
 
 DEMO = Path(__file__).resolve().parents[1] / "examples" / "demo" / "demo.py"
 BUDGET_SECONDS = 180.0
@@ -47,16 +52,39 @@ def test_demo_small_rows_reproducible(tmp_path: Path) -> None:
         assert result.returncode == 0, result.stderr
     csv1 = (out1 / "customers.csv").read_bytes()
     csv2 = (out2 / "customers.csv").read_bytes()
-    assert csv1 == csv2  # 固定种子 → 数据可复现
+    assert csv1 == csv2
 
 
 def test_demo_missing_file_error_path(tmp_path: Path) -> None:
-    """非法行数/输入应失败而非崩溃（此处验证 --rows 边界走查）。"""
     result = subprocess.run(
         [sys.executable, str(DEMO), "--rows", "0", "--out", str(tmp_path)],
         capture_output=True,
         text=True,
         timeout=60,
     )
-    # 0 行数据扫描应走通（空表语义），或至少不崩溃
     assert result.returncode in (0, 1)
+
+
+def test_packaged_demo_data_is_reproducible(tmp_path: Path) -> None:
+    first = tmp_path / "first.csv"
+    second = tmp_path / "second.csv"
+
+    generate_demo_csv(first, rows=100, seed=7)
+    generate_demo_csv(second, rows=100, seed=7)
+
+    assert first.read_text(encoding="utf-8") == second.read_text(encoding="utf-8")
+    with first.open(encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 100
+    assert set(rows[0]) == {"id", "price", "category", "event_date", "name", "status"}
+
+
+def test_packaged_demo_rejects_empty_dataset(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="rows must be >= 1"):
+        generate_demo_csv(tmp_path / "empty.csv", rows=0)
+
+
+def test_packaged_demo_help_is_available() -> None:
+    with pytest.raises(SystemExit) as exc:
+        demo_main(["--help"])
+    assert exc.value.code == 0
