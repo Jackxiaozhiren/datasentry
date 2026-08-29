@@ -18,8 +18,10 @@ datasentry mcp --project /path/to/project
 DataSentry's canonical MCP Registry name is:
 
 ```text
-io.github.jackxiaozhiren/datasentry
+io.github.Jackxiaozhiren/datasentry
 ```
+
+The GitHub owner segment is intentionally case-preserving. The official Registry's GitHub OIDC authorization compares this namespace case-sensitively, so it must match the canonical GitHub login `Jackxiaozhiren` exactly.
 
 The repository keeps the install metadata in [`server.json`](../server.json). It describes the PyPI package, stdio transport, and the equivalent `uvx` launch path for MCP clients. Release metadata tests require the Registry version to stay aligned with the `datasentry-ai` package version and require the PyPI ownership marker in the project README.
 
