@@ -71,4 +71,4 @@ If DataSentry is a priority open-source project, pin it on the maintainer profil
 
 ## Release coordination
 
-The growth branch introduces the `datasentry-demo` console entry point. Publish the next `datasentry-ai` release before presenting that command as already available on PyPI. Until then, the README's primary quick start intentionally uses the currently published `datasentry scan` path.
+The growth branch introduces `datasentry demo` as the primary zero-config tour and keeps `datasentry-demo` as a direct console alias. Publish the next `datasentry-ai` release before presenting either command as already available from PyPI. Until then, the README's primary quick start intentionally uses the currently published `datasentry scan` path.
