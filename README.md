@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://jackxiaozhiren.github.io/datasentry/">Live demo</a> ·
-  <a href="#try-it-in-30-seconds">30-second demo</a> ·
+  <a href="#try-it-in-30-seconds">30-second start</a> ·
   <a href="examples/">Examples</a> ·
   <a href="docs/MCP.md">MCP setup</a> ·
   <a href="CONTRIBUTING.md">Contribute</a>
@@ -34,14 +34,22 @@
 
 ## Try it in 30 seconds
 
+The current PyPI release can scan the repository's ready-made dirty dataset immediately:
+
 ```bash
 pip install datasentry-ai
-datasentry demo
+curl -L https://raw.githubusercontent.com/Jackxiaozhiren/datasentry/main/demo-data/orders.csv -o orders.csv
+datasentry scan orders.csv
+datasentry issues list --severity high
 ```
 
-That single command generates synthetic dirty data, runs the built-in detectors, exports JSON + HTML reports, applies one safe repair to a copy, re-scans the repaired copy, and prints a rollback command.
+The next package release also includes a zero-config product tour:
 
-**No dataset, cloud service, API key, or LLM required.**
+```bash
+datasentry-demo
+```
+
+That command generates synthetic dirty data, runs the built-in detectors, exports JSON + HTML reports, applies one safe repair to a copy, re-scans the repaired copy, and prints a rollback command. It needs no dataset, cloud service, API key, or LLM.
 
 ```text
 synthetic dirty CSV
@@ -53,13 +61,6 @@ evidence-backed issues + quality score
 preview → repaired copy
         ↓
 re-scan → verify new/persistent issues
-```
-
-Scan your own data next:
-
-```bash
-datasentry scan orders.csv
-datasentry issues list --severity high
 ```
 
 Or launch the interactive interfaces:
@@ -127,7 +128,7 @@ Repairs are fingerprinted, auditable, and reversible. AI-generated repair propos
 
 | Goal | Start here |
 |---|---|
-| See the complete product loop | `datasentry demo` |
+| See the complete zero-config product tour | `datasentry-demo` (next package release) |
 | Explore a dirty CSV locally | `datasentry scan data.csv` |
 | Block bad data in GitHub Actions | [`examples/integrations/github-actions/`](examples/integrations/github-actions/) |
 | Add quality gates to dbt / Airflow | [`examples/integrations/`](examples/integrations/) |
@@ -168,7 +169,7 @@ This is a positioning guide, not a winner/loser feature scorecard. These project
 | [Great Expectations](https://github.com/great-expectations/great_expectations) | Expectations / expressive data tests | explicit validation rules, validation results, and generated data-quality documentation |
 | [Soda Core](https://github.com/sodadata/soda-core) | data contracts and quality checks | YAML contracts and verification across a broad data stack |
 | [Deequ](https://github.com/awslabs/deequ) | “unit tests for data” on Spark | large-scale data verification in Spark-centric environments |
-| [fg-data-profiling](https://github.com/Data-Centric-AI-Community/ydata-profiling) | one-line profiling / EDA | fast exploratory profiling and shareable analysis reports |
+| [ydata-profiling](https://github.com/ydataai/ydata-profiling) | one-line profiling / EDA | fast exploratory profiling and shareable analysis reports |
 
 DataSentry is intentionally not trying to replace a metadata catalog, lineage platform, or every validator. Its focus is narrower: **find bad data, show why it was flagged, and close the repair loop without gambling on the source.**
 
@@ -233,7 +234,7 @@ The benchmark generates synthetic dirty data and measures profiling, detection/f
 ```bash
 uv sync
 make check          # lint + mypy --strict + tests/coverage
-make demo           # exercise the public datasentry demo path
+make demo           # repository full-cycle demo
 make bench          # benchmark
 make build          # distributions
 ```
