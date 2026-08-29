@@ -1,0 +1,20 @@
+# Dedicated DataSentry MCP stdio image.
+# Build: docker build -f Dockerfile.mcp -t datasentry-mcp .
+# Run:   docker run --rm -i -v "$PWD:/workspace" datasentry-mcp
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
+WORKDIR /app
+COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY packages ./packages
+COPY src ./src
+RUN uv sync --frozen --no-dev
+
+FROM python:3.12-slim
+WORKDIR /workspace
+ENV PATH=/app/.venv/bin:$PATH
+ENV PYTHONUNBUFFERED=1
+COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/src /app/src
+COPY --from=builder /app/packages /app/packages
+
+# MCP uses stdin/stdout JSON-RPC. Keep stdin open and do not allocate a TTY.
+CMD ["datasentry", "mcp", "--project", "/workspace"]
