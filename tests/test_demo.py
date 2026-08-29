@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from datasentry.demo import generate_demo_csv, main as demo_main
+from datasentry.demo import generate_demo_csv
+from datasentry.demo import main as demo_main
 
 DEMO = Path(__file__).resolve().parents[1] / "examples" / "demo" / "demo.py"
 BUDGET_SECONDS = 180.0
