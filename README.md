@@ -1,4 +1,4 @@
-<!-- mcp-name: io.github.jackxiaozhiren/datasentry -->
+<!-- mcp-name: io.github.Jackxiaozhiren/datasentry -->
 
 <p align="center">
   <img src="docs/assets/logo.svg" alt="DataSentry" width="128">
