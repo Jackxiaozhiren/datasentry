@@ -39,6 +39,8 @@ jobs:
           import urllib.request
           from pathlib import Path
 
+          MCP_SERVER_NAME = "io.github.jackxiaozhiren/datasentry"
+
           def project(path: str) -> dict[str, object]:
               with Path(path).open("rb") as fh:
                   data = tomllib.load(fh)
@@ -65,6 +67,23 @@ jobs:
                   f"release metadata mismatch: expected dependency {expected_core!r}"
               )
 
+          server = json.loads(Path("server.json").read_text(encoding="utf-8"))
+          if server.get("name") != MCP_SERVER_NAME:
+              raise SystemExit("MCP Registry name does not match the canonical DataSentry name")
+          if server.get("version") != app_version:
+              raise SystemExit(
+                  f"MCP Registry version mismatch: {server.get('version')!r} != {app_version!r}"
+              )
+          packages = server.get("packages")
+          if not isinstance(packages, list) or len(packages) != 1:
+              raise SystemExit("MCP Registry metadata must contain exactly one package")
+          package = packages[0]
+          if package.get("identifier") != "datasentry-ai" or package.get("version") != app_version:
+              raise SystemExit("MCP Registry PyPI package metadata does not match datasentry-ai")
+          marker = f"<!-- mcp-name: {MCP_SERVER_NAME} -->"
+          if marker not in Path("README.md").read_text(encoding="utf-8"):
+              raise SystemExit("README is missing the MCP Registry PyPI ownership marker")
+
           expected_tag = f"v{app_version}"
           if os.environ["RELEASE_TAG"] != expected_tag:
               raise SystemExit(
@@ -72,11 +91,11 @@ jobs:
                   f"expected={expected_tag!r}"
               )
 
-          for package, version in (
+          for package_name, version in (
               ("datasentry-ai", app_version),
               ("datasentry-core", core_version),
           ):
-              url = f"https://pypi.org/pypi/{package}/{version}/json"
+              url = f"https://pypi.org/pypi/{package_name}/{version}/json"
               request = urllib.request.Request(
                   url,
                   headers={"Accept": "application/json", "User-Agent": "datasentry-release-check"},
@@ -86,11 +105,11 @@ jobs:
                       json.load(response)
               except urllib.error.HTTPError as exc:
                   if exc.code == 404:
-                      print(f"available on PyPI: {package}=={version}")
+                      print(f"available on PyPI: {package_name}=={version}")
                       continue
                   raise
               raise SystemExit(
-                  f"refusing release: PyPI already contains {package}=={version}; bump the version"
+                  f"refusing release: PyPI already contains {package_name}=={version}; bump the version"
               )
           PY
 
@@ -131,3 +150,43 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
+
+  publish-mcp-registry:
+    name: Publish MCP metadata to official Registry
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned mcp-publisher
+        env:
+          MCP_PUBLISHER_VERSION: v1.8.1
+          MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+        run: |
+          archive=/tmp/mcp-publisher.tar.gz
+          curl -fsSL \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" \
+            -o "$archive"
+          echo "${MCP_PUBLISHER_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" -C /tmp mcp-publisher
+          sudo install -m 0755 /tmp/mcp-publisher /usr/local/bin/mcp-publisher
+          mcp-publisher --help >/dev/null
+
+      - name: Authenticate to official MCP Registry with GitHub OIDC
+        run: mcp-publisher login github-oidc
+
+      - name: Publish MCP Registry metadata
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if mcp-publisher publish server.json; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "MCP Registry publish failed after PyPI propagation retries" >&2
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
