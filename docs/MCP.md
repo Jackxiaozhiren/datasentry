@@ -13,6 +13,18 @@ datasentry mcp --project /path/to/project
 >
 > Detection and scoring remain deterministic. Some MCP tools are read-only, while repair/application and scheduler-management tools can create state. Keep client-side tool confirmation enabled for state-changing tools. DataSentry repairs write to repaired copies with rollback artifacts; they do not overwrite the original source file.
 
+## Official MCP Registry metadata
+
+DataSentry's canonical MCP Registry name is:
+
+```text
+io.github.jackxiaozhiren/datasentry
+```
+
+The repository keeps the install metadata in [`server.json`](../server.json). It describes the PyPI package, stdio transport, and the equivalent `uvx` launch path for MCP clients. Release metadata tests require the Registry version to stay aligned with the `datasentry-ai` package version and require the PyPI ownership marker in the project README.
+
+The release workflow publishes the MCP metadata only **after** the matching PyPI wheels have been published successfully, using GitHub OIDC for Registry authentication. This ordering keeps Registry discovery tied to an installable, ownership-verifiable package instead of advertising an unreleased version.
+
 ## Before configuring a client
 
 Confirm that the executable is available:
