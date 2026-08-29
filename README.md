@@ -15,6 +15,8 @@
 <p align="center">
   <a href="https://jackxiaozhiren.github.io/datasentry/">Live demo</a> ·
   <a href="#try-it-in-30-seconds">30-second start</a> ·
+  <a href="#start-with-your-problem">Use cases</a> ·
+  <a href="https://pypi.org/project/datasentry-ai/">PyPI</a> ·
   <a href="examples/">Examples</a> ·
   <a href="docs/MCP.md">MCP setup</a> ·
   <a href="CONTRIBUTING.md">Contribute</a>
@@ -74,6 +76,19 @@ datasentry          # terminal UI
 datasentry-server   # Web UI + REST API at http://localhost:8000/ui/
 ```
 
+## Start with your problem
+
+| If you need to... | Start here |
+|---|---|
+| Find suspicious data before you know every rule | `datasentry scan data.csv` |
+| See the full discovery → repair → verify loop | `datasentry demo` |
+| Block severe data issues in CI | [`docs/GITHUB_ACTIONS.md`](docs/GITHUB_ACTIONS.md) |
+| Add quality gates to dbt / Airflow | [`examples/integrations/`](examples/integrations/) |
+| Inspect and repair issues without overwriting the source | [`Safe repair`](#safe-repair-not-blind-mutation) |
+| Give AI agents deterministic data-quality tools | [`docs/MCP.md`](docs/MCP.md) |
+
+The default path is intentionally low-commitment: **scan first, inspect evidence, then decide whether a finding deserves a permanent rule or a repair.**
+
 ## Why DataSentry exists
 
 Most data-quality tools are excellent once you already know the expectations, checks, or contracts you want to enforce. Real incidents often start one step earlier: **you do not yet know what is wrong.**
@@ -88,6 +103,8 @@ Find → Explain → Fix safely → Verify
 - **Explain** — attach samples, affected counts/ratios, detector evidence, and confidence.
 - **Fix safely** — preview changes and apply repairs to a copy instead of mutating the source.
 - **Verify** — re-scan the repaired copy and surface persistent or newly introduced issues.
+
+DataSentry fits best when you are looking at data you do not fully trust yet, want evidence before codifying checks, or need a conservative remediation path. It complements expectation- and contract-driven tools rather than requiring you to replace them.
 
 ## What it catches automatically
 
@@ -128,19 +145,6 @@ datasentry repair rollback <run_id>
 
 Repairs are fingerprinted, auditable, and reversible. AI-generated repair proposals remain human-approved state changes.
 
-## Pick your workflow
-
-| Goal | Start here |
-|---|---|
-| See the complete zero-config product tour | `datasentry demo` |
-| Explore a dirty CSV locally | `datasentry scan data.csv` |
-| Block bad data in GitHub Actions | [`examples/integrations/github-actions/`](examples/integrations/github-actions/) |
-| Add quality gates to dbt / Airflow | [`examples/integrations/`](examples/integrations/) |
-| Review issues in a terminal | `datasentry` |
-| Review issues in a browser / REST API | `datasentry-server` |
-| Give AI agents deterministic quality tools | [`docs/MCP.md`](docs/MCP.md) |
-| Browse all runnable examples | [`examples/`](examples/) |
-
 ### Quality gates for CI
 
 ```bash
@@ -176,7 +180,7 @@ Copy-paste setup recipes for **VS Code** and **Claude Desktop** are in [`docs/MC
 
 > **Boundary:** AI may propose; humans approve state-changing repairs.
 
-## How it differs from popular data-quality projects
+## Where it fits next to popular data-quality projects
 
 This is a positioning guide, not a winner/loser feature scorecard. These projects solve overlapping but different jobs; check their upstream documentation for current capabilities.
 
@@ -186,7 +190,7 @@ This is a positioning guide, not a winner/loser feature scorecard. These project
 | [Great Expectations](https://github.com/great-expectations/great_expectations) | Expectations / expressive data tests | explicit validation rules, validation results, and generated data-quality documentation |
 | [Soda Core](https://github.com/sodadata/soda-core) | data contracts and quality checks | YAML contracts and verification across a broad data stack |
 | [Deequ](https://github.com/awslabs/deequ) | “unit tests for data” on Spark | large-scale data verification in Spark-centric environments |
-| [fg-data-profiling](https://github.com/Data-Centric-AI-Community/ydata-profiling) | one-line profiling / EDA | fast exploratory profiling and shareable analysis reports |
+| [ydata-profiling](https://github.com/ydataai/ydata-profiling) | one-line profiling / EDA | fast exploratory profiling and shareable analysis reports |
 
 DataSentry is intentionally not trying to replace a metadata catalog, lineage platform, or every validator. Its focus is narrower: **find bad data, show why it was flagged, and close the repair loop without gambling on the source.**
 
@@ -259,6 +263,8 @@ make build          # distributions
 ## Contributing
 
 Useful contributions include new detectors, connectors, integration examples, reproducible benchmark cases, documentation/translations, minimal bug reproductions, and CLI/TUI/Web usability improvements.
+
+Want a small first contribution? Start with [`good first issue #14`](https://github.com/Jackxiaozhiren/datasentry/issues/14) or [`good first issue #15`](https://github.com/Jackxiaozhiren/datasentry/issues/15).
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md), [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), [`SECURITY.md`](SECURITY.md), and [`ROADMAP.md`](ROADMAP.md). Small contributions are tracked with **`good first issue`** and **`help wanted`** labels.
 
