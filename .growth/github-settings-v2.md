@@ -71,4 +71,4 @@ If DataSentry is a priority open-source project, pin it on the maintainer profil
 
 ## Release coordination
 
-The growth branch introduces `datasentry demo` as the primary zero-config tour and keeps `datasentry-demo` as a direct console alias. Publish the next `datasentry-ai` release before presenting either command as already available from PyPI. Until then, the README's primary quick start intentionally uses the currently published `datasentry scan` path.
+`datasentry-ai` v1.0.2 is published with `datasentry demo` as the primary zero-config tour and `datasentry-demo` as a direct console alias. The GitHub README can now lead with the installed-package demo path instead of the pre-release scan fallback.
