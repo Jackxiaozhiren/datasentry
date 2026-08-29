@@ -1,0 +1,37 @@
+name: Data quality gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  data-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install DataSentry
+        run: python -m pip install --upgrade datasentry-ai
+
+      - name: Scan data and enforce quality gate
+        run: datasentry scan data/orders.csv --fail-on high
+
+      - name: Export HTML report
+        if: always()
+        run: datasentry report export latest --as html --output datasentry-report.html
+
+      - name: Upload DataSentry report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: datasentry-report
+          path: datasentry-report.html
+          if-no-files-found: ignore
