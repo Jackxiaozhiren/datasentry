@@ -73,10 +73,7 @@ def run_demo(
         out_dir = Path(tempfile.mkdtemp(prefix="datasentry-demo-"))
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if project is not None:
-        workspace = Path(project).expanduser()
-    else:
-        workspace = out_dir / "workspace"
+    workspace = Path(project).expanduser() if project is not None else out_dir / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
     data_csv = out_dir / "customers_dirty.csv"
 
