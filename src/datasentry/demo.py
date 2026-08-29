@@ -21,6 +21,7 @@ from datasentry_core.reporting.html import render_html
 CATEGORIES = [f"cat_{i:02d}" for i in range(50)]
 STATUSES = ["active", "pending", "inactive"]
 MISSING_TOKENS = ["n/a", "N/A", "-", "unknown", "null"]
+DEMO_REFERENCE_DATE = date(2026, 8, 1)
 
 
 def generate_demo_csv(path: Path, rows: int, seed: int = 42) -> None:
@@ -29,7 +30,6 @@ def generate_demo_csv(path: Path, rows: int, seed: int = 42) -> None:
         raise ValueError("rows must be >= 1")
 
     rng = random.Random(seed)
-    today = date.today()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fh:
         fh.write("id,price,category,event_date,name,status\n")
@@ -45,7 +45,9 @@ def generate_demo_csv(path: Path, rows: int, seed: int = 42) -> None:
             if rng.random() < 0.05:
                 event_date = rng.choice(["2024-02-30", "2024-13-01", "not-a-date"])
             else:
-                event_date = (today - timedelta(days=rng.randint(0, 700))).isoformat()
+                event_date = (
+                    DEMO_REFERENCE_DATE - timedelta(days=rng.randint(0, 700))
+                ).isoformat()
             name = f"user_{i}"
             if rng.random() < 0.04:
                 name = f" {name} "
