@@ -7,6 +7,7 @@ the repaired copy. No LLM or external service is required.
 
 from __future__ import annotations
 
+import argparse
 import json
 import random
 import tempfile
@@ -146,3 +147,21 @@ def run_demo(
         return 0
     finally:
         client.close()
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Console entry point for a zero-config product demo."""
+    parser = argparse.ArgumentParser(
+        prog="datasentry-demo",
+        description="Run DataSentry's offline find → fix → verify demo.",
+    )
+    parser.add_argument("--rows", type=int, default=1000, help="synthetic rows to generate")
+    parser.add_argument("--out", type=Path, default=None, help="artifact output directory")
+    parser.add_argument("--project", type=Path, default=None, help="DataSentry workspace")
+    parser.add_argument("--seed", type=int, default=42, help="reproducibility seed")
+    args = parser.parse_args(argv)
+    return run_demo(rows=args.rows, out=args.out, project=args.project, seed=args.seed)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
