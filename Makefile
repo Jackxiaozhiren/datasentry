@@ -20,7 +20,7 @@ build:
 	uv build packages/core
 
 demo:
-	uv run python examples/demo/demo.py
+	uv run datasentry demo --rows 5000
 
 bench:
 	uv run python benchmarks/bench_scan.py

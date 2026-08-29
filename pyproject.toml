@@ -1,12 +1,12 @@
 [project]
 name = "datasentry-ai"
 version = "1.0.2"
-description = "An evidence-driven, local-first AI copilot for detecting, explaining, validating, and safely repairing data quality problems."
+description = "Find, explain, and safely fix bad data with local-first detection, evidence-backed issues, and reversible repairs."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "Apache-2.0" }
 authors = [{ name = "DataSentry Contributors" }]
-keywords = ["data-quality", "data-observability", "quality-gates", "llm", "duckdb", "local-first"]
+keywords = ["data-quality", "data-cleaning", "data-observability", "quality-gates", "mcp", "duckdb", "local-first"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -41,7 +41,8 @@ Changelog = "https://github.com/Jackxiaozhiren/datasentry/blob/main/CHANGELOG.md
 Roadmap = "https://github.com/Jackxiaozhiren/datasentry/blob/main/ROADMAP.md"
 
 [project.scripts]
-datasentry = "datasentry.cli:main"
+datasentry = "datasentry.entrypoint:main"
+datasentry-demo = "datasentry.demo:main"
 datasentry-server = "datasentry.api:main"
 
 [build-system]
