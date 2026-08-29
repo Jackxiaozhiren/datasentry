@@ -45,9 +45,7 @@ def generate_demo_csv(path: Path, rows: int, seed: int = 42) -> None:
             if rng.random() < 0.05:
                 event_date = rng.choice(["2024-02-30", "2024-13-01", "not-a-date"])
             else:
-                event_date = (
-                    DEMO_REFERENCE_DATE - timedelta(days=rng.randint(0, 700))
-                ).isoformat()
+                event_date = (DEMO_REFERENCE_DATE - timedelta(days=rng.randint(0, 700))).isoformat()
             name = f"user_{i}"
             if rng.random() < 0.04:
                 name = f" {name} "
@@ -128,9 +126,7 @@ def run_demo(
                     f" · preview failures {preview[1].rule_failures_before}"
                     f"→{preview[1].rule_failures_after}"
                 )
-            print(
-                f"4/4 Repaired a copy: {issue.title} → {proposal.operation.value}{preview_text}"
-            )
+            print(f"4/4 Repaired a copy: {issue.title} → {proposal.operation.value}{preview_text}")
             print(
                 f"    Verified quality: {before_text} → {after_text}; "
                 f"new issue types: {len(verify['new_types'])}"
