@@ -5,7 +5,9 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MCP_SERVER_NAME = "io.github.jackxiaozhiren/datasentry"
+# GitHub OIDC namespace authorization is case-sensitive in the official MCP Registry.
+# Keep the owner segment exactly aligned with the canonical GitHub login.
+MCP_SERVER_NAME = "io.github.Jackxiaozhiren/datasentry"
 
 
 def _load_toml(path: Path) -> dict[str, object]:
