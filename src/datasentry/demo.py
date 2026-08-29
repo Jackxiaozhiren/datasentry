@@ -102,7 +102,7 @@ def run_demo(
         print(f"3/4 Reports written: {json_path.name}, {html_path.name}")
 
         repair_run_id: str | None = None
-        repaired_path: str | None = None
+        rollback_artifact: str | None = None
         for issue in sorted(issues, key=lambda item: item.priority_score, reverse=True):
             proposal = client.repair_propose(issue.id, data_csv)
             if proposal is None:
@@ -112,7 +112,7 @@ def run_demo(
             verify_scan, verify = client.repair_verify(repair_run.id)
             after_quality = verify_scan.quality_score.overall if verify_scan.quality_score else None
             repair_run_id = repair_run.id
-            repaired_path = repair_run.output_path
+            rollback_artifact = repair_run.rollback_artifact
 
             before_text = f"{before_quality:.1f}" if before_quality is not None else "n/a"
             after_text = f"{after_quality:.1f}" if after_quality is not None else "n/a"
@@ -138,8 +138,9 @@ def run_demo(
         print(f"\nDone in {elapsed:.1f}s")
         print(f"Artifacts: {out_dir}")
         print(f"HTML report: {html_path}")
-        if repaired_path is not None and repair_run_id is not None:
-            print(f"Repaired copy: {repaired_path}")
+        if repair_run_id is not None:
+            if rollback_artifact:
+                print(f"Rollback artifact: {rollback_artifact}")
             print(
                 "Rollback command: "
                 f"datasentry --project {workspace} repair rollback {repair_run_id}"
