@@ -9,6 +9,7 @@ Start with the workflow that matches the problem you are trying to solve.
 | **Block bad data in GitHub Actions** | [`integrations/github-actions/`](integrations/github-actions/) | a copy-paste CI quality gate |
 | **Add a gate to dbt** | [`integrations/dbt/`](integrations/dbt/) | scan a materialized model and fail the pipeline on severe findings |
 | **Add a gate to Airflow** | [`integrations/airflow/`](integrations/airflow/) | place DataSentry between pipeline tasks |
+| **Call DataSentry from Python** | [`python-sdk/`](python-sdk/) | a twenty-line SDK quick start: scan a file, read the score and the issues |
 | **Extend DataSentry** | [`plugins/`](plugins/) | plugin examples and extension patterns |
 | **Give an AI agent data-quality tools** | [`../docs/MCP.md`](../docs/MCP.md) | MCP setup for VS Code and Claude Desktop |
 
