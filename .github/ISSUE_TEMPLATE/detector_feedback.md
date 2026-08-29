@@ -1,7 +1,7 @@
 ---
 name: Detector feedback
 about: Report a false positive, false negative, or confusing detector result
- title: "[detector] "
+title: "[detector] "
 labels: bug
 ---
 
