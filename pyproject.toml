@@ -41,7 +41,7 @@ Changelog = "https://github.com/Jackxiaozhiren/datasentry/blob/main/CHANGELOG.md
 Roadmap = "https://github.com/Jackxiaozhiren/datasentry/blob/main/ROADMAP.md"
 
 [project.scripts]
-datasentry = "datasentry.cli:main"
+datasentry = "datasentry.entrypoint:main"
 datasentry-demo = "datasentry.demo:main"
 datasentry-server = "datasentry.api:main"
 
