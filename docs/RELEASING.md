@@ -24,7 +24,7 @@ If `datasentry-ai` imports a core symbol that is not present in the latest publi
 For the current pre-1.0 core line, `datasentry-ai` uses a bounded dependency such as:
 
 ```text
-datasentry-core>=0.8.2,<0.9.0
+datasentry-core>=0.8.3,<0.9.0
 ```
 
 The lower bound must equal the minimum core release that contains all APIs used by that app release.
@@ -36,8 +36,8 @@ The current release workflow publishes both distributions together and refuses t
 The publish workflow is tag-only. A tag must match the root `datasentry-ai` version exactly:
 
 ```text
-pyproject.toml: version = "1.0.3"
-tag:            v1.0.3
+pyproject.toml: version = "1.0.4"
+tag:            v1.0.4
 ```
 
 A mismatched tag fails before build/upload.
@@ -65,8 +65,10 @@ Add further import/runtime smoke checks when new cross-package boundaries become
 The canonical Registry server name is:
 
 ```text
-io.github.jackxiaozhiren/datasentry
+io.github.Jackxiaozhiren/datasentry
 ```
+
+The GitHub owner segment is case-sensitive for Registry GitHub OIDC authorization. Keep `Jackxiaozhiren` exactly aligned with the canonical GitHub login; lowercasing it changes the authorized namespace and causes publication to fail with HTTP 403.
 
 For every MCP-enabled release:
 
@@ -76,7 +78,7 @@ For every MCP-enabled release:
 - the packaged root README must contain the exact ownership marker:
 
   ```html
-  <!-- mcp-name: io.github.jackxiaozhiren/datasentry -->
+  <!-- mcp-name: io.github.Jackxiaozhiren/datasentry -->
   ```
 
 `tests/test_release_metadata.py` enforces these relationships, and `.github/workflows/mcp-registry.yml` runs the official `mcp-publisher validate` service on relevant pull requests.
@@ -95,6 +97,8 @@ The Registry job uses GitHub Actions OIDC (`id-token: write`) rather than a long
 
 If PyPI publication fails, the Registry job must not run. If Registry publication fails after PyPI succeeds, do not reuse or replace the published PyPI versions; fix the Registry metadata/workflow with a new release version if the package metadata itself must change.
 
+The Registry publish step retries transient failures that can occur while a newly published package propagates. Permanent authorization/validation failures such as HTTP 400, 401, 403, 409, or 422 fail immediately so the original cause remains visible.
+
 ## Release checklist
 
 1. Decide the new `datasentry-ai` version.
@@ -102,7 +106,7 @@ If PyPI publication fails, the Registry job must not run. If Registry publicatio
 3. Set an unpublished `packages/core/pyproject.toml` version when the core package will be published.
 4. Update the root `datasentry-core` requirement lower bound/range.
 5. Update `server.json` to the exact application version and verify its PyPI/`uvx` metadata.
-6. Confirm the root README contains the exact `mcp-name` ownership marker.
+6. Confirm the root README contains the exact `mcp-name` ownership marker and that the GitHub owner casing matches the OIDC-authorized namespace.
 7. Run the complete CI gate and the **MCP Registry metadata** validation workflow.
 8. Confirm the wheel isolated-install smoke passes.
 9. Merge the release PR.
@@ -111,8 +115,8 @@ If PyPI publication fails, the Registry job must not run. If Registry publicatio
    ```bash
    git checkout main
    git pull --ff-only
-   git tag v1.0.3
-   git push origin v1.0.3
+   git tag v1.0.4
+   git push origin v1.0.4
    ```
 
 11. Watch **Publish to PyPI**. The first job must pass all preflight/build/wheel-smoke steps before upload.
@@ -121,11 +125,11 @@ If PyPI publication fails, the Registry job must not run. If Registry publicatio
 
     ```bash
     python -m venv /tmp/datasentry-pypi-smoke
-    /tmp/datasentry-pypi-smoke/bin/pip install datasentry-ai==1.0.3
+    /tmp/datasentry-pypi-smoke/bin/pip install datasentry-ai==1.0.4
     /tmp/datasentry-pypi-smoke/bin/datasentry --version
     ```
 
-14. Verify the released DataSentry server version appears under `io.github.jackxiaozhiren/datasentry` in the official MCP Registry.
+14. Verify the released DataSentry server version appears under `io.github.Jackxiaozhiren/datasentry` in the official MCP Registry.
 15. Create/publish GitHub Release notes for the tag if the tag was created outside the Releases UI.
 16. Only after the external install succeeds should downstream examples/actions be updated to pin the new version.
 
