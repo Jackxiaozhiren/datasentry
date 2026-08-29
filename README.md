@@ -34,22 +34,14 @@
 
 ## Try it in 30 seconds
 
-The current PyPI release can scan the repository's ready-made dirty dataset immediately:
+Install the current PyPI release and run the zero-config product tour:
 
 ```bash
-pip install datasentry-ai
-curl -L https://raw.githubusercontent.com/Jackxiaozhiren/datasentry/main/demo-data/orders.csv -o orders.csv
-datasentry scan orders.csv
-datasentry issues list --severity high
-```
-
-The next package release adds a zero-config product tour (already available when running this branch from source):
-
-```bash
+pip install --upgrade datasentry-ai
 datasentry demo
 ```
 
-`datasentry-demo` remains available as a direct console alias.
+`datasentry-demo` is also available as a direct console alias.
 
 The demo generates synthetic dirty data, runs the built-in detectors, exports JSON + HTML reports, applies one safe repair to a copy, re-scans the repaired copy, and prints a rollback command. It needs no dataset, cloud service, API key, or LLM.
 
@@ -63,6 +55,14 @@ evidence-backed issues + quality score
 preview → repaired copy
         ↓
 re-scan → verify new/persistent issues
+```
+
+Prefer scanning your own data immediately?
+
+```bash
+curl -L https://raw.githubusercontent.com/Jackxiaozhiren/datasentry/main/demo-data/orders.csv -o orders.csv
+datasentry scan orders.csv
+datasentry issues list --severity high
 ```
 
 Or launch the interactive interfaces:
@@ -130,7 +130,7 @@ Repairs are fingerprinted, auditable, and reversible. AI-generated repair propos
 
 | Goal | Start here |
 |---|---|
-| See the complete zero-config product tour | `datasentry demo` (next package release; available from source now) |
+| See the complete zero-config product tour | `datasentry demo` |
 | Explore a dirty CSV locally | `datasentry scan data.csv` |
 | Block bad data in GitHub Actions | [`examples/integrations/github-actions/`](examples/integrations/github-actions/) |
 | Add quality gates to dbt / Airflow | [`examples/integrations/`](examples/integrations/) |

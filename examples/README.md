@@ -14,23 +14,23 @@ Start with the workflow that matches the problem you are trying to solve.
 
 ## Fastest path
 
-From this repository branch, run the zero-config product tour with:
+Install the current release and run the zero-config product tour:
+
+```bash
+pip install --upgrade datasentry-ai
+datasentry demo
+```
+
+It runs locally, generates its own synthetic dirty data, and needs no API key or LLM.
+
+From a source checkout, the equivalent command is:
 
 ```bash
 uv sync
 uv run datasentry demo
 ```
 
-It runs locally, generates its own synthetic dirty data, and needs no API key or LLM.
-
-After the next `datasentry-ai` release is published, installed users will be able to run the same tour with:
-
-```bash
-pip install datasentry-ai
-datasentry demo
-```
-
-The existing repository shortcut remains:
+The repository shortcut remains:
 
 ```bash
 make demo
