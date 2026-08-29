@@ -65,9 +65,16 @@ def run_demo(
     seed: int = 42,
 ) -> int:
     """Run the complete local demo and print a concise, user-facing summary."""
-    out_dir = out.expanduser() if out is not None else Path(tempfile.mkdtemp(prefix="datasentry-demo-"))
+    if out is not None:
+        out_dir = out.expanduser()
+    else:
+        out_dir = Path(tempfile.mkdtemp(prefix="datasentry-demo-"))
     out_dir.mkdir(parents=True, exist_ok=True)
-    workspace = Path(project).expanduser() if project is not None else out_dir / "workspace"
+
+    if project is not None:
+        workspace = Path(project).expanduser()
+    else:
+        workspace = out_dir / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
     data_csv = out_dir / "customers_dirty.csv"
 
@@ -132,7 +139,10 @@ def run_demo(
             break
 
         if repair_run_id is None:
-            print("4/4 No automatically repairable issue was found; scan and reports are still complete")
+            print(
+                "4/4 No automatically repairable issue was found; "
+                "scan and reports are still complete"
+            )
 
         elapsed = time.monotonic() - started
         print(f"\nDone in {elapsed:.1f}s")
