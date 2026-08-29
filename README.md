@@ -43,13 +43,15 @@ datasentry scan orders.csv
 datasentry issues list --severity high
 ```
 
-The next package release also includes a zero-config product tour:
+The next package release adds a zero-config product tour (already available when running this branch from source):
 
 ```bash
-datasentry-demo
+datasentry demo
 ```
 
-That command generates synthetic dirty data, runs the built-in detectors, exports JSON + HTML reports, applies one safe repair to a copy, re-scans the repaired copy, and prints a rollback command. It needs no dataset, cloud service, API key, or LLM.
+`datasentry-demo` remains available as a direct console alias.
+
+The demo generates synthetic dirty data, runs the built-in detectors, exports JSON + HTML reports, applies one safe repair to a copy, re-scans the repaired copy, and prints a rollback command. It needs no dataset, cloud service, API key, or LLM.
 
 ```text
 synthetic dirty CSV
@@ -128,7 +130,7 @@ Repairs are fingerprinted, auditable, and reversible. AI-generated repair propos
 
 | Goal | Start here |
 |---|---|
-| See the complete zero-config product tour | `datasentry-demo` (next package release) |
+| See the complete zero-config product tour | `datasentry demo` (next package release; available from source now) |
 | Explore a dirty CSV locally | `datasentry scan data.csv` |
 | Block bad data in GitHub Actions | [`examples/integrations/github-actions/`](examples/integrations/github-actions/) |
 | Add quality gates to dbt / Airflow | [`examples/integrations/`](examples/integrations/) |
@@ -169,7 +171,7 @@ This is a positioning guide, not a winner/loser feature scorecard. These project
 | [Great Expectations](https://github.com/great-expectations/great_expectations) | Expectations / expressive data tests | explicit validation rules, validation results, and generated data-quality documentation |
 | [Soda Core](https://github.com/sodadata/soda-core) | data contracts and quality checks | YAML contracts and verification across a broad data stack |
 | [Deequ](https://github.com/awslabs/deequ) | “unit tests for data” on Spark | large-scale data verification in Spark-centric environments |
-| [ydata-profiling](https://github.com/ydataai/ydata-profiling) | one-line profiling / EDA | fast exploratory profiling and shareable analysis reports |
+| [fg-data-profiling](https://github.com/Data-Centric-AI-Community/ydata-profiling) | one-line profiling / EDA | fast exploratory profiling and shareable analysis reports |
 
 DataSentry is intentionally not trying to replace a metadata catalog, lineage platform, or every validator. Its focus is narrower: **find bad data, show why it was flagged, and close the repair loop without gambling on the source.**
 
@@ -234,7 +236,7 @@ The benchmark generates synthetic dirty data and measures profiling, detection/f
 ```bash
 uv sync
 make check          # lint + mypy --strict + tests/coverage
-make demo           # repository full-cycle demo
+make demo           # exercise the public datasentry demo path
 make bench          # benchmark
 make build          # distributions
 ```
