@@ -5,6 +5,7 @@ Start with the workflow that matches the problem you are trying to solve.
 | Goal | Start here | What you get |
 |---|---|---|
 | **See the full product loop locally** | [`demo/`](demo/) | synthetic dirty data → scan → report → safe repair → verify |
+| **Scan a database table you already have** | [`integrations/sqlite/`](integrations/sqlite/) | build a tiny local SQLite database, scan one table, read the findings |
 | **Explore a realistic ecommerce dataset** | [`ecommerce/`](ecommerce/) | a concrete data-quality scenario with inspectable findings |
 | **Block bad data in GitHub Actions** | [`integrations/github-actions/`](integrations/github-actions/) | a copy-paste CI quality gate |
 | **Add a gate to dbt** | [`integrations/dbt/`](integrations/dbt/) | scan a materialized model and fail the pipeline on severe findings |
