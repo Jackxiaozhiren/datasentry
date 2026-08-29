@@ -39,7 +39,8 @@ jobs:
           import urllib.request
           from pathlib import Path
 
-          MCP_SERVER_NAME = "io.github.jackxiaozhiren/datasentry"
+          # GitHub OIDC namespace authorization is case-sensitive in the Registry.
+          MCP_SERVER_NAME = "io.github.Jackxiaozhiren/datasentry"
 
           def project(path: str) -> dict[str, object]:
               with Path(path).open("rb") as fh:
@@ -181,12 +182,26 @@ jobs:
       - name: Publish MCP Registry metadata
         run: |
           for attempt in 1 2 3 4 5; do
-            if mcp-publisher publish server.json; then
+            set +e
+            output=$(mcp-publisher publish server.json 2>&1)
+            status=$?
+            set -e
+            printf '%s\n' "$output"
+
+            if [ "$status" -eq 0 ]; then
               exit 0
             fi
+
+            # Authentication/authorization, conflict, and schema/validation failures
+            # are permanent for this release payload. Retrying them only hides the cause.
+            if printf '%s\n' "$output" | grep -Eq 'server returned status (400|401|403|409|422)'; then
+              echo "MCP Registry publish failed with a non-retryable Registry error" >&2
+              exit "$status"
+            fi
+
             if [ "$attempt" -eq 5 ]; then
-              echo "MCP Registry publish failed after PyPI propagation retries" >&2
-              exit 1
+              echo "MCP Registry publish failed after transient/PyPI propagation retries" >&2
+              exit "$status"
             fi
             sleep $((attempt * 10))
           done
