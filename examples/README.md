@@ -18,7 +18,7 @@ The next package release adds a zero-config product tour:
 
 ```bash
 pip install datasentry-ai
-datasentry-demo
+datasentry demo
 ```
 
 It runs locally, generates its own synthetic dirty data, and needs no API key or LLM. Until that release is published, the repository demo remains available with:
