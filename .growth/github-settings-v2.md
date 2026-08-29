@@ -1,4 +1,4 @@
-# Recommended GitHub repository settings — Growth V2
+# Recommended GitHub repository settings — Growth V3
 
 These settings are intentionally kept outside runtime documentation because they are repository-discovery metadata rather than product behavior.
 
@@ -6,13 +6,13 @@ These settings are intentionally kept outside runtime documentation because they
 
 Recommended:
 
-> Automatically find, explain, and safely fix bad data — local-first, evidence-driven, AI-assisted.
+> Find, explain, and safely fix bad data. Local-first data quality for files, databases, CI pipelines, and AI agents.
 
 Shorter alternative:
 
-> Local-first data quality copilot for evidence-backed detection and reversible repair.
+> Find bad data before your users do — local-first detection, evidence, and reversible repair.
 
-Avoid listing detector counts, schedulers, worker pools, REST, MCP, and every connector in the About description. Those capabilities belong in README after the main value proposition is clear.
+Avoid listing detector counts, schedulers, worker pools, REST, MCP, and every connector in the About description. Those capabilities belong in the README after the main value proposition is clear.
 
 ## Website
 
@@ -22,26 +22,24 @@ Keep:
 
 ## Topics
 
-Recommended focused set:
+Use a focused discovery set, ordered around user intent:
 
 - `data-quality`
 - `data-cleaning`
 - `data-validation`
-- `data-observability`
 - `data-profiling`
+- `data-observability`
 - `data-engineering`
-- `data-reliability`
 - `data-repair`
 - `quality-gates`
+- `data-drift`
 - `duckdb`
 - `python`
 - `local-first`
-- `llm`
-- `ai-copilot`
 - `mcp`
 - `mcp-server`
 
-Do not use all 20 topic slots merely because they are available. Prefer terms that represent the user problem and the project's differentiation.
+Add `llm` or `ai-copilot` only if AI-agent discovery is a current acquisition priority. The core product should not look dependent on AI because detection and scoring are deterministic.
 
 ## GitHub features
 
@@ -51,22 +49,26 @@ Recommended state:
 - Discussions: enabled.
 - Projects: optional; only keep if actively used for public planning.
 - Wiki: optional; prefer versioned repository docs unless the wiki has a clear use case.
-- Sponsorship/Funding: add later if there is a real support path.
+- Sponsorship/Funding: add only when there is a real support path.
 
 ## Social preview
 
-Create a 1280×640 social preview using the same message as the README hero:
+Create a 1280×640 social preview with one message, not a feature wall:
 
 **DataSentry**
 
-**Automatically find, explain, and safely fix bad data.**
+**Find bad data before your users do.**
 
 Supporting line:
 
-`Detect → Explain → Repair → Verify`
+`Find → Explain → Fix safely → Verify`
 
-Keep the image visually simple. Avoid badges, architecture diagrams, or a long feature list in the social card.
+Use the same logo and typography as the project site. Avoid badges, architecture diagrams, screenshots with unreadable text, or long feature lists.
 
 ## Pinned repository / profile
 
-If DataSentry is a priority open-source project, pin it on the maintainer profile. The repository description, social preview, and profile pin should use the same positioning language.
+If DataSentry is a priority open-source project, pin it on the maintainer profile. Keep the repository description, social preview, README hero, and launch copy on the same positioning language.
+
+## Release coordination
+
+The growth branch introduces the `datasentry-demo` console entry point. Publish the next `datasentry-ai` release before presenting that command as already available on PyPI. Until then, the README's primary quick start intentionally uses the currently published `datasentry scan` path.
