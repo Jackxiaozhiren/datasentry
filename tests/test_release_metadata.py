@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+MCP_SERVER_NAME = "io.github.jackxiaozhiren/datasentry"
 
 
 def _load_toml(path: Path) -> dict[str, object]:
@@ -68,3 +70,35 @@ def test_release_versions_are_not_reused_from_broken_pair() -> None:
     # Never reuse either version for the repaired release pair.
     assert app_project["version"] != "1.0.0"
     assert core_project["version"] != "0.7.0"
+
+
+def test_mcp_registry_metadata_matches_app_release() -> None:
+    app = _load_toml(ROOT / "pyproject.toml")
+    app_project = app["project"]
+    assert isinstance(app_project, dict)
+    app_version = app_project["version"]
+    assert isinstance(app_version, str)
+
+    server = json.loads((ROOT / "server.json").read_text(encoding="utf-8"))
+    assert server["name"] == MCP_SERVER_NAME
+    assert server["version"] == app_version
+
+    packages = server["packages"]
+    assert isinstance(packages, list)
+    assert len(packages) == 1
+    package = packages[0]
+    assert package["registryType"] == "pypi"
+    assert package["identifier"] == "datasentry-ai"
+    assert package["version"] == app_version
+    assert package["runtimeHint"] == "uvx"
+    assert package["runtimeArguments"] == [
+        {"type": "named", "name": "--from", "value": f"datasentry-ai=={app_version}"}
+    ]
+    assert package["transport"] == {"type": "stdio"}
+    assert package["packageArguments"] == [
+        {"type": "positional", "value": "datasentry"},
+        {"type": "positional", "value": "mcp"},
+    ]
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert f"<!-- mcp-name: {MCP_SERVER_NAME} -->" in readme
