@@ -1,0 +1,22 @@
+name: Reusable DataSentry quality gate smoke
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/datasentry-quality-gate.yml"
+      - ".github/workflows/datasentry-quality-gate-smoke.yml"
+      - "examples/integrations/github-actions/**"
+      - "docs/GITHUB_ACTIONS.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clean-fixture:
+    uses: ./.github/workflows/datasentry-quality-gate.yml
+    with:
+      path: examples/integrations/github-actions/clean-orders.csv
+      fail_on: high
+      datasentry_version: "1.0.2"
+      python_version: "3.12"
