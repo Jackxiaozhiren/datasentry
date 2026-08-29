@@ -13,8 +13,8 @@
 <p align="center">
   <a href="https://jackxiaozhiren.github.io/datasentry/">Live demo</a> ·
   <a href="#try-it-in-30-seconds">30-second demo</a> ·
+  <a href="examples/">Examples</a> ·
   <a href="docs/MCP.md">MCP setup</a> ·
-  <a href="examples/integrations/">Integrations</a> ·
   <a href="CONTRIBUTING.md">Contribute</a>
 </p>
 
@@ -24,7 +24,6 @@
   <img alt="Python" src="https://img.shields.io/badge/python-3.12%2B-blue">
   <img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Jackxiaozhiren/datasentry/ci.yml?label=CI">
   <img alt="License" src="https://img.shields.io/github/license/Jackxiaozhiren/datasentry">
-  <img alt="Stars" src="https://img.shields.io/github/stars/Jackxiaozhiren/datasentry?style=flat">
 </p>
 
 <p align="center">
@@ -37,12 +36,26 @@
 
 ```bash
 pip install datasentry-ai
-datasentry-demo
+datasentry demo
 ```
 
-The demo generates synthetic dirty data, runs all built-in detectors, exports JSON + HTML reports, applies one safe repair to a copy, re-scans the repaired copy, and prints a rollback command. It requires no cloud service, API key, or LLM.
+That single command generates synthetic dirty data, runs the built-in detectors, exports JSON + HTML reports, applies one safe repair to a copy, re-scans the repaired copy, and prints a rollback command.
 
-Scan your own data:
+**No dataset, cloud service, API key, or LLM required.**
+
+```text
+synthetic dirty CSV
+        ↓
+39 deterministic detectors
+        ↓
+evidence-backed issues + quality score
+        ↓
+preview → repaired copy
+        ↓
+re-scan → verify new/persistent issues
+```
+
+Scan your own data next:
 
 ```bash
 datasentry scan orders.csv
@@ -56,9 +69,24 @@ datasentry          # terminal UI
 datasentry-server   # Web UI + REST API at http://localhost:8000/ui/
 ```
 
-## What DataSentry catches automatically
+## Why DataSentry exists
 
-You do not need to know every rule before the first scan. DataSentry ships with **39 deterministic detectors** covering common failure modes such as:
+Most data-quality tools are excellent once you already know the expectations, checks, or contracts you want to enforce. Real incidents often start one step earlier: **you do not yet know what is wrong.**
+
+DataSentry is built around the complete remediation loop:
+
+```text
+Find → Explain → Fix safely → Verify
+```
+
+- **Find** — discover common quality problems without writing every rule first.
+- **Explain** — attach samples, affected counts/ratios, detector evidence, and confidence.
+- **Fix safely** — preview changes and apply repairs to a copy instead of mutating the source.
+- **Verify** — re-scan the repaired copy and surface persistent or newly introduced issues.
+
+## What it catches automatically
+
+DataSentry ships with **39 deterministic detectors** covering common failure modes such as:
 
 - missing and placeholder values;
 - invalid emails, URLs, dates, and encodings;
@@ -69,18 +97,6 @@ You do not need to know every rule before the first scan. DataSentry ships with 
 - schema, row-count, score, and issue-distribution drift.
 
 Every scan produces an evidence-backed issue list and a six-dimension quality score across completeness, validity, uniqueness, consistency, integrity, and timeliness.
-
-## The loop: find → explain → fix → verify
-
-```text
-Detect        Explain          Repair             Verify
-  │              │               │                  │
-39 detectors   samples        preview            re-scan
-               ratios         apply to copy       regression gate
-               confidence     rollback artifact   fixed/new issues
-```
-
-DataSentry focuses on the part that rule-first validation alone does not solve: **discovering the problem before you know exactly which rule to write, then closing the remediation loop safely.**
 
 ## Safe repair, not blind mutation
 
@@ -107,29 +123,26 @@ datasentry repair rollback <run_id>
 
 Repairs are fingerprinted, auditable, and reversible. AI-generated repair proposals remain human-approved state changes.
 
-## Built for real engineering workflows
+## Pick your workflow
 
-| Use case | DataSentry entry point |
+| Goal | Start here |
 |---|---|
+| See the complete product loop | `datasentry demo` |
 | Explore a dirty CSV locally | `datasentry scan data.csv` |
-| Block bad data in CI | `datasentry scan data.csv --fail-on high` |
-| Review issues interactively | `datasentry` |
-| Web review / service integration | `datasentry-server` |
-| AI-agent access | `datasentry mcp --project /path/to/project` |
-| dbt / Airflow pipelines | [`examples/integrations/`](examples/integrations/) |
-| Machine-readable reports | JSON, Markdown, HTML, JUnit, SARIF |
+| Block bad data in GitHub Actions | [`examples/integrations/github-actions/`](examples/integrations/github-actions/) |
+| Add quality gates to dbt / Airflow | [`examples/integrations/`](examples/integrations/) |
+| Review issues in a terminal | `datasentry` |
+| Review issues in a browser / REST API | `datasentry-server` |
+| Give AI agents deterministic quality tools | [`docs/MCP.md`](docs/MCP.md) |
+| Browse all runnable examples | [`examples/`](examples/) |
 
-### Quality gate in CI
+### Quality gates for CI
 
 ```bash
 datasentry scan orders.csv --fail-on high
 ```
 
-The same evidence can be exported to JUnit and SARIF for CI systems and code-scanning surfaces.
-
-### dbt and Airflow
-
-Ready-to-copy integration examples live in [`examples/integrations/`](examples/integrations/), including dbt + DuckDB and Apache Airflow quality gates.
+Reports can be exported as JSON, Markdown, HTML, JUnit, and SARIF. The GitHub Actions example fails the workflow on severe findings while still uploading an HTML report for review.
 
 ## Give AI agents deterministic data-quality tools
 
@@ -144,6 +157,20 @@ MCP-capable clients can scan files, inspect evidence-backed issues, read quality
 Copy-paste setup recipes for **VS Code** and **Claude Desktop** are in [`docs/MCP.md`](docs/MCP.md).
 
 > **Boundary:** AI may propose; humans approve state-changing repairs.
+
+## How it differs from popular data-quality projects
+
+This is a positioning guide, not a winner/loser feature scorecard. These projects solve overlapping but different jobs; check their upstream documentation for current capabilities.
+
+| Project | Core mental model | A strong fit when you want... |
+|---|---|---|
+| **DataSentry** | discover → explain → repair → verify | automatic issue discovery plus a controlled, reversible remediation loop |
+| [Great Expectations](https://github.com/great-expectations/great_expectations) | Expectations / expressive data tests | explicit validation rules, validation results, and generated data-quality documentation |
+| [Soda Core](https://github.com/sodadata/soda-core) | data contracts and quality checks | YAML contracts and verification across a broad data stack |
+| [Deequ](https://github.com/awslabs/deequ) | “unit tests for data” on Spark | large-scale data verification in Spark-centric environments |
+| [fg-data-profiling](https://github.com/Data-Centric-AI-Community/ydata-profiling) | one-line profiling / EDA | fast exploratory profiling and shareable analysis reports |
+
+DataSentry is intentionally not trying to replace a metadata catalog, lineage platform, or every validator. Its focus is narrower: **find bad data, show why it was flagged, and close the repair loop without gambling on the source.**
 
 ## Local-first by design
 
@@ -171,20 +198,6 @@ datasentry score
 ```
 
 Tracked signals include schema changes, row-count movement, quality-score changes, and issue-distribution drift.
-
-## Where DataSentry fits
-
-DataSentry is strongest when you want **automatic issue discovery plus a controlled remediation loop** in one tool.
-
-| Need | Best fit |
-|---|---|
-| Discover unknown data-quality problems | **DataSentry** |
-| Explain findings with inspectable evidence | **DataSentry** |
-| Preview, apply, verify, and roll back repairs | **DataSentry** |
-| Enforce already-known rules/contracts | DataSentry or a rule-first validator |
-| Enterprise-wide metadata catalog / lineage platform | Dedicated catalog / observability platform |
-
-DataSentry is intentionally not trying to replace every data platform. It focuses on finding bad data, showing why it was flagged, and fixing it without gambling on the source.
 
 ## Architecture
 
@@ -220,7 +233,7 @@ The benchmark generates synthetic dirty data and measures profiling, detection/f
 ```bash
 uv sync
 make check          # lint + mypy --strict + tests/coverage
-make demo           # repository demo
+make demo           # exercise the public datasentry demo path
 make bench          # benchmark
 make build          # distributions
 ```
@@ -234,8 +247,9 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md), [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT
 ## Documentation
 
 - [Project site and live report](https://jackxiaozhiren.github.io/datasentry/)
+- [`examples/`](examples/) — scenario-first runnable examples
 - [`docs/MCP.md`](docs/MCP.md) — VS Code and Claude Desktop MCP setup
-- [`examples/integrations/`](examples/integrations/) — dbt and Airflow examples
+- [`examples/integrations/github-actions/`](examples/integrations/github-actions/) — copy-paste CI gate
 - [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — benchmark policy
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — engineering notes
 - [Detect → fix → verify](.growth/blog-3-repair-loop-en.md) / [中文版](.growth/blog-3-repair-loop-zh.md)
