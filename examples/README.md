@@ -14,17 +14,25 @@ Start with the workflow that matches the problem you are trying to solve.
 
 ## Fastest path
 
-The next package release adds a zero-config product tour:
+From this repository branch, run the zero-config product tour with:
+
+```bash
+uv sync
+uv run datasentry demo
+```
+
+It runs locally, generates its own synthetic dirty data, and needs no API key or LLM.
+
+After the next `datasentry-ai` release is published, installed users will be able to run the same tour with:
 
 ```bash
 pip install datasentry-ai
 datasentry demo
 ```
 
-It runs locally, generates its own synthetic dirty data, and needs no API key or LLM. Until that release is published, the repository demo remains available with:
+The existing repository shortcut remains:
 
 ```bash
-uv sync
 make demo
 ```
 
