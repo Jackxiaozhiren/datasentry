@@ -73,7 +73,7 @@ def run_demo(
 
     workspace = Path(project).expanduser() if project is not None else out_dir / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
-    data_csv = out_dir / "customers_dirty.csv"
+    data_csv = out_dir / "customers.csv"
 
     print("DataSentry demo — find → explain → safely fix → verify")
     print("No cloud services or LLM required.\n")
