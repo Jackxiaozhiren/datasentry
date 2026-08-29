@@ -31,7 +31,11 @@ def main(argv: list[str] | None = None) -> int:
     if args and args[0] == "demo":
         ns = _demo_parser().parse_args(args[1:])
         return run_demo(rows=ns.rows, out=ns.out, project=ns.project, seed=ns.seed)
-    return cli_main(args)
+
+    code = cli_main(args)
+    if args in (["--help"], ["-h"]):
+        print("\nQuick product tour:\n  datasentry demo    run an offline find → fix → verify demo")
+    return code
 
 
 if __name__ == "__main__":
