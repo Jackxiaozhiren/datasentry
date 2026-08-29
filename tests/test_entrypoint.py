@@ -53,3 +53,17 @@ def test_non_demo_commands_delegate_to_existing_cli(monkeypatch) -> None:
 
     assert entrypoint.main(["scan", "orders.csv"]) == 9
     assert seen == ["scan", "orders.csv"]
+
+
+def test_top_level_help_surfaces_demo(monkeypatch, capsys) -> None:
+    def fake_cli(argv: list[str]) -> int:
+        assert argv == ["--help"]
+        print("existing help")
+        return 0
+
+    monkeypatch.setattr(entrypoint, "cli_main", fake_cli)
+
+    assert entrypoint.main(["--help"]) == 0
+    output = capsys.readouterr().out
+    assert "existing help" in output
+    assert "datasentry demo" in output
