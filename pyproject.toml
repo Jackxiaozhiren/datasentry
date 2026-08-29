@@ -1,6 +1,6 @@
 [project]
 name = "datasentry-ai"
-version = "1.0.2"
+version = "1.0.3"
 description = "Find, explain, and safely fix bad data with local-first detection, evidence-backed issues, and reversible repairs."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -20,7 +20,7 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = [
-    "datasentry-core>=0.8.1,<0.9.0",
+    "datasentry-core>=0.8.2,<0.9.0",
     "cryptography>=42.0",
     "fastapi>=0.115",
     "fastapi-cli>=0.0.5",
