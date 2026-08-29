@@ -14,14 +14,19 @@ Start with the workflow that matches the problem you are trying to solve.
 
 ## Fastest path
 
-After installing DataSentry, the shortest product tour is:
+The next package release adds a zero-config product tour:
 
 ```bash
 pip install datasentry-ai
-datasentry demo
+datasentry-demo
 ```
 
-It runs locally, generates its own synthetic dirty data, and needs no API key or LLM.
+It runs locally, generates its own synthetic dirty data, and needs no API key or LLM. Until that release is published, the repository demo remains available with:
+
+```bash
+uv sync
+make demo
+```
 
 ## Integration principle
 
