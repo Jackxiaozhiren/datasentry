@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.jackxiaozhiren/datasentry",
   "title": "DataSentry",
-  "description": "Local-first data-quality MCP server for scanning data, inspecting evidence, quality scores and drift, with controlled repair workflows.",
+  "description": "Local-first MCP server for data-quality discovery, evidence, drift, and controlled repair.",
   "websiteUrl": "https://jackxiaozhiren.github.io/datasentry/",
   "repository": {
     "url": "https://github.com/Jackxiaozhiren/datasentry",
