@@ -35,7 +35,7 @@ def test_demo_full_cycle_within_budget(tmp_path: Path) -> None:
     assert "Done in" in out
     assert ("Repaired a copy:" in out) or ("No automatically repairable issue" in out)
     assert elapsed < BUDGET_SECONDS, f"demo exceeded budget: {elapsed:.1f}s"
-    assert (tmp_path / "customers_dirty.csv").exists()
+    assert (tmp_path / "customers.csv").exists()
     assert (tmp_path / "report.json").exists()
     assert (tmp_path / "report.html").exists()
 
@@ -51,8 +51,8 @@ def test_demo_small_rows_reproducible(tmp_path: Path) -> None:
             timeout=BUDGET_SECONDS + 30,
         )
         assert result.returncode == 0, result.stderr
-    csv1 = (out1 / "customers_dirty.csv").read_bytes()
-    csv2 = (out2 / "customers_dirty.csv").read_bytes()
+    csv1 = (out1 / "customers.csv").read_bytes()
+    csv2 = (out2 / "customers.csv").read_bytes()
     assert csv1 == csv2
 
 
