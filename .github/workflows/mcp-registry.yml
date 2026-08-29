@@ -1,0 +1,41 @@
+name: MCP Registry metadata
+
+on:
+  pull_request:
+    paths:
+      - 'server.json'
+      - 'README.md'
+      - 'pyproject.toml'
+      - 'tests/test_release_metadata.py'
+      - '.github/workflows/publish.yml'
+      - '.github/workflows/mcp-registry.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate official MCP Registry metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check JSON syntax
+        run: python -m json.tool server.json >/dev/null
+
+      - name: Install pinned mcp-publisher
+        env:
+          MCP_PUBLISHER_VERSION: v1.8.1
+          MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+        run: |
+          archive=/tmp/mcp-publisher.tar.gz
+          curl -fsSL \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" \
+            -o "$archive"
+          echo "${MCP_PUBLISHER_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" -C /tmp mcp-publisher
+          sudo install -m 0755 /tmp/mcp-publisher /usr/local/bin/mcp-publisher
+
+      - name: Validate server.json against official schema
+        run: mcp-publisher validate server.json

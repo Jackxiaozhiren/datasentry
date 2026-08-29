@@ -1,0 +1,41 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.jackxiaozhiren/datasentry",
+  "title": "DataSentry",
+  "description": "Local-first MCP server for data-quality discovery, evidence, drift, and controlled repair.",
+  "websiteUrl": "https://jackxiaozhiren.github.io/datasentry/",
+  "repository": {
+    "url": "https://github.com/Jackxiaozhiren/datasentry",
+    "source": "github"
+  },
+  "version": "1.0.3",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "datasentry-ai",
+      "version": "1.0.3",
+      "runtimeHint": "uvx",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "--from",
+          "value": "datasentry-ai==1.0.3"
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "datasentry"
+        },
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ]
+    }
+  ]
+}
