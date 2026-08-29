@@ -1,0 +1,9 @@
+order_id,customer_id,amount,currency,order_date,status
+1001,C001,42.50,USD,2026-08-01,paid
+1002,C002,18.99,USD,2026-08-02,paid
+1003,C003,125.00,USD,2026-08-03,shipped
+1004,C004,67.25,USD,2026-08-04,paid
+1005,C005,31.10,USD,2026-08-05,shipped
+1006,C006,88.40,USD,2026-08-06,paid
+1007,C007,54.00,USD,2026-08-07,paid
+1008,C008,73.80,USD,2026-08-08,shipped

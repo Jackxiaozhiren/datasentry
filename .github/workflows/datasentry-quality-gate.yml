@@ -1,0 +1,228 @@
+name: DataSentry quality gate
+
+on:
+  workflow_call:
+    inputs:
+      path:
+        description: Data file or local database path to scan
+        required: true
+        type: string
+      fail_on:
+        description: Minimum issue severity that fails the quality gate
+        required: false
+        default: high
+        type: string
+      datasentry_version:
+        description: datasentry-ai version to install from PyPI
+        required: false
+        default: "1.0.2"
+        type: string
+      python_version:
+        description: Python version used to run DataSentry
+        required: false
+        default: "3.12"
+        type: string
+  workflow_dispatch:
+    inputs:
+      path:
+        description: Data file or local database path to scan
+        required: true
+        type: string
+      fail_on:
+        description: Minimum issue severity that fails the quality gate
+        required: false
+        default: high
+        type: choice
+        options:
+          - critical
+          - high
+          - medium
+          - low
+          - info
+      datasentry_version:
+        description: datasentry-ai version to install from PyPI
+        required: false
+        default: "1.0.2"
+        type: string
+      python_version:
+        description: Python version used to run DataSentry
+        required: false
+        default: "3.12"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    name: Data quality gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python_version }}
+          cache: pip
+
+      - name: Install DataSentry
+        shell: bash
+        env:
+          DATASENTRY_VERSION: ${{ inputs.datasentry_version }}
+        run: python -m pip install "datasentry-ai==${DATASENTRY_VERSION}"
+
+      - name: Scan data
+        id: scan
+        shell: bash
+        env:
+          DATASENTRY_PATH: ${{ inputs.path }}
+          DATASENTRY_FAIL_ON: ${{ inputs.fail_on }}
+        run: |
+          set +e
+          datasentry scan "$DATASENTRY_PATH" --fail-on "$DATASENTRY_FAIL_ON" \
+            > datasentry-result.json 2> datasentry-stderr.log
+          status=$?
+          set -e
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+
+          if [ ! -s datasentry-result.json ]; then
+            printf '{"error":"DataSentry produced no stdout result"}\n' > datasentry-result.json
+          fi
+          touch datasentry-stderr.log
+
+      - name: Classify scan result
+        id: classify
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          try:
+              data = json.loads(Path("datasentry-result.json").read_text(encoding="utf-8"))
+          except Exception:
+              data = {}
+
+          gate = data.get("gate") if isinstance(data, dict) else None
+          gate_failure = isinstance(gate, dict) and gate.get("passed") is False
+          valid_result = (
+              isinstance(data, dict)
+              and not data.get("error")
+              and ("scan_run_id" in data or "batch" in data)
+          )
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
+              fh.write(f"gate_failure={'true' if gate_failure else 'false'}\n")
+              fh.write(f"valid_result={'true' if valid_result else 'false'}\n")
+          PY
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        env:
+          DATASENTRY_PATH: ${{ inputs.path }}
+          DATASENTRY_FAIL_ON: ${{ inputs.fail_on }}
+          DATASENTRY_EXIT_CODE: ${{ steps.scan.outputs.exit_code }}
+          DATASENTRY_GATE_FAILURE: ${{ steps.classify.outputs.gate_failure }}
+          DATASENTRY_VALID_RESULT: ${{ steps.classify.outputs.valid_result }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          result_path = Path("datasentry-result.json")
+          try:
+              data = json.loads(result_path.read_text(encoding="utf-8"))
+          except Exception as exc:
+              data = {"error": f"could not parse result: {exc}"}
+
+          score = data.get("quality_score")
+          total = data.get("total_issues")
+          counts = data.get("issues_count") or {}
+          gate = data.get("gate") or {}
+          exit_code = os.environ.get("DATASENTRY_EXIT_CODE", "")
+
+          lines = [
+              "## DataSentry quality gate",
+              "",
+              f"- **Path:** `{os.environ['DATASENTRY_PATH']}`",
+              f"- **Fail on:** `{os.environ['DATASENTRY_FAIL_ON']}`",
+              f"- **Process exit code:** `{exit_code}`",
+              f"- **Structured scan result:** `{os.environ['DATASENTRY_VALID_RESULT']}`",
+          ]
+          if score is not None:
+              lines.append(f"- **Quality score:** `{score}`")
+          if total is not None:
+              lines.append(f"- **Total issues:** `{total}`")
+          if counts:
+              lines.append(f"- **Issues by severity:** `{json.dumps(counts, sort_keys=True)}`")
+          if gate:
+              lines.append(f"- **Gate passed:** `{gate.get('passed')}`")
+          if data.get("error"):
+              lines.append(f"- **Error:** `{data['error']}`")
+
+          lines += [
+              "",
+              "Artifacts include `datasentry-result.json` and `datasentry-stderr.log`.",
+          ]
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload DataSentry result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: datasentry-quality-result
+          path: |
+            datasentry-result.json
+            datasentry-stderr.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce DataSentry result
+        if: always()
+        shell: bash
+        env:
+          DATASENTRY_EXIT_CODE: ${{ steps.scan.outputs.exit_code }}
+          DATASENTRY_GATE_FAILURE: ${{ steps.classify.outputs.gate_failure }}
+          DATASENTRY_VALID_RESULT: ${{ steps.classify.outputs.valid_result }}
+        run: |
+          case "$DATASENTRY_EXIT_CODE" in
+            0)
+              if [ "$DATASENTRY_VALID_RESULT" != "true" ]; then
+                echo "DataSentry exited 0 without a structured scan result; treating as execution failure." >&2
+                exit 3
+              fi
+              echo "DataSentry quality gate passed."
+              ;;
+            1)
+              if [ "$DATASENTRY_GATE_FAILURE" = "true" ]; then
+                echo "DataSentry quality gate failed: findings met the configured severity threshold." >&2
+                exit 1
+              fi
+              echo "DataSentry process exited 1 without a structured failed gate; treating as execution failure." >&2
+              exit 3
+              ;;
+            2)
+              echo "DataSentry configuration error." >&2
+              exit 2
+              ;;
+            3)
+              echo "DataSentry execution error." >&2
+              exit 3
+              ;;
+            4)
+              echo "Data source unavailable." >&2
+              exit 4
+              ;;
+            *)
+              echo "Unexpected DataSentry exit code: $DATASENTRY_EXIT_CODE" >&2
+              exit 3
+              ;;
+          esac
