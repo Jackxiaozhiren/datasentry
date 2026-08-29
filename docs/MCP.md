@@ -113,7 +113,7 @@ Claude Desktop now supports Desktop Extensions, but DataSentry currently ships a
 Locate `claude_desktop_config.json`:
 
 - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
 Add a DataSentry entry while preserving any existing servers:
 
