@@ -16,6 +16,10 @@ ENV PYTHONUNBUFFERED=1
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
 COPY --from=builder /app/packages /app/packages
+# `datasentry mcp` creates its metadata store under WORKDIR at startup, so the non-root
+# runtime user needs a writable workspace -- otherwise startup dies with EACCES before the
+# stdio loop answers (measured: CI run 36965155721, container exit 3).
+RUN mkdir -p /workspace && chown 10001:10001 /workspace
 USER 10001
 
 # MCP uses stdin/stdout JSON-RPC. Keep stdin open and do not allocate a TTY.
