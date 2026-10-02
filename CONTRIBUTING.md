@@ -34,11 +34,16 @@ Common commands:
 make lint       # ruff check + format check
 make type       # mypy --strict
 make test       # pytest + coverage gate
-make check      # standard pre-PR gate
+make check      # standard pre-PR gate (local minimum)
 make bench      # performance benchmark
 make demo       # reproducible demo
 make build      # build distributions
 ```
+
+> `make check` 是本地最低门禁。CI（`.github/workflows/ci.yml`）跑更宽的
+> 内联流水线：除 `check` 三项外还有 demo smoke、1M 行 benchmark 门禁、
+> CLI/API/UI/MCP smoke 与双包 wheel 隔离安装验证。过了 `make check`
+> 不等于过了 CI，开 PR 前请对照 CI 步骤自查。
 
 ## Before opening a pull request
 

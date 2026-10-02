@@ -1,9 +1,18 @@
 name: CI
 
+# D6-03: `workflow_call` lets publish.yml gate a release on this exact definition. Reused rather
+# than copied so there is no second CI definition to drift away from the first.
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+
+# Explicit least privilege: as a called workflow this file inherits the caller's permissions, and the
+# publish workflow needs `id-token: write` for PyPI. Declaring it here keeps the release-prerequisite
+# jobs from carrying a token they have no use for.
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -24,7 +33,8 @@ jobs:
       AWS_SECRET_ACCESS_KEY: minioadmin
     services:
       postgres:
-        image: postgres:16-alpine
+        # D6-07：digest 钉死（2026-09-25 本地 resolve 验证，见审计报告）。
+        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_USER: testuser
           POSTGRES_PASSWORD: testpass
@@ -37,7 +47,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       mysql:
-        image: mysql:8
+        # D6-07：digest 钉死（2026-09-25 本地 resolve 验证，见审计报告）。
+        image: mysql:8@sha256:0744ee5ef89ce6ccfa13de3e579fe6b9e27f93dd70da9c06d2c908b1b193fb8d
         env:
           MYSQL_ROOT_PASSWORD: testpass
           MYSQL_DATABASE: testdb
@@ -49,6 +60,10 @@ jobs:
           --health-timeout 5s
           --health-retries 20
       minio:
+        # D6-07 缺口（2026-09-25 实测）：docker.io/quay.io 均已关闭 MinIO
+        # 镜像匿名拉取（pull denied/401），无法本地 resolve 可信 digest；
+        # 持 Docker Hub 凭证的维护者请用 digest 替换下面的 latest。
+        # see: AUDIT/FINDINGS.yaml D6-07
         image: minio/minio:latest
         command: server /data
         ports:
@@ -73,7 +88,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --locked
 
       - name: 1 · ruff lint
         run: uv run ruff check .
@@ -82,6 +97,7 @@ jobs:
         run: uv run ruff format --check .
 
       - name: 2b · create MinIO bucket (Step 57 integration fixture)
+        # D6-07: minio/mc 同样受上游匿名拉取限制，见 minio service 注释。
         run: |
           docker run --rm --network host \
             -e MC_HOST_minio="http://minioadmin:minioadmin@localhost:9000" \
@@ -92,6 +108,13 @@ jobs:
 
       - name: 4 · pytest + coverage gate (>=85%)
         run: uv run pytest --cov=datasentry_core --cov-fail-under=85 --cov-report=term --cov-report=xml
+
+      - name: 4b · pip-audit (D5-07 supply-chain gate)
+        run: |
+          set -e
+          uv export --locked --no-dev --no-emit-project --format requirements.txt -o /tmp/ci-req.txt
+          grep -v "^-e \|file:///" /tmp/ci-req.txt > /tmp/ci-req-audit.txt
+          uv run --with pip-audit pip-audit -r /tmp/ci-req-audit.txt
 
       - name: 5 · upload coverage artifact
         uses: actions/upload-artifact@v4

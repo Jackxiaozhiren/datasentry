@@ -28,6 +28,7 @@ from datasentry_core.models.contract import Contract, QualityGate
 from datasentry_core.models.enums import RepairRunStatus, Severity
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.scan import SamplingConfig, ScanConfig
+from datasentry_core.repair.engine import changed_cells
 from datasentry_core.reporting.i18n import t
 from datasentry_core.scoring.gate import GateResult
 
@@ -239,6 +240,22 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         _emit(_envelope("scan", {"error": str(exc)}), args.format)
         return EXIT_SOURCE_UNAVAILABLE
     _cli_scan_done()
+    if scan_run.status == "failed":
+        failed_detectors = [r.detector_id for r in runs if r.status == "failed"]
+        summary = {
+            "scan_run_id": scan_run.id,
+            "dataset_id": scan_run.dataset_id,
+            "status": scan_run.status,
+            "row_count": scan_run.fingerprint.row_count,
+            "issues_count": {k.value: v for k, v in scan_run.issues_count.items()},
+            "total_issues": len(issues),
+            "detector_runs": len(runs),
+            "failed_detectors": failed_detectors,
+            "error": scan_run.error,
+            "quality_score": scan_run.quality_score.overall if scan_run.quality_score else None,
+        }
+        _emit(_envelope("scan", summary), args.format)
+        return EXIT_ERROR
     summary = {
         "scan_run_id": scan_run.id,
         "dataset_id": scan_run.dataset_id,
@@ -313,6 +330,8 @@ def _scan_many(
             continue
         sys.stderr.write("\r" + " " * 80 + "\r")
         sys.stderr.flush()
+        if scan_run.status == "failed":
+            errors.append({"path": path, "error": scan_run.error or "scan failed"})
         item: dict[str, Any] = {
             "scan_run_id": scan_run.id,
             "dataset_id": scan_run.dataset_id,
@@ -403,7 +422,7 @@ def _resolve_scan_run_id(client: DataSentry, run_id: str) -> str | None:
     """V50：`latest` → 最新扫描 run id；无扫描时返回 None。"""
     if run_id != "latest":
         return run_id
-    runs = client._store.list_scan_runs()
+    runs = client.list_scan_runs()
     return runs[0].id if runs else None
 
 
@@ -427,14 +446,7 @@ def _cmd_issues_list(args: argparse.Namespace) -> int:
 def _cmd_issues_show(args: argparse.Namespace) -> int:
     """22.1 issues show：完整 Issue 详情（含证据）。"""
     client = DataSentry(args.project)
-    issue = None
-    for scan in client._store.list_scan_runs():
-        for i in client._store.get_issues(scan.id):
-            if i.id == args.issue_id:
-                issue = i
-                break
-        if issue:
-            break
+    issue = next((i for i in client.list_issues() if i.id == args.issue_id), None)
     if issue is None:
         _emit(_envelope("issues show", {"error": f"issue not found: {args.issue_id}"}), args.format)
         return EXIT_CONFIG
@@ -716,7 +728,7 @@ def _cmd_repair_diff(args: argparse.Namespace) -> int:
         return EXIT_ERROR
     if args.format != "json":
         if not changed:
-            print("no row-level changes (repaired copy matches snapshot)")
+            print("no row-level changes: every cell is textually identical to the snapshot")
             return EXIT_OK
         print(f"run {run.id} ({run.status.value}) — {len(changed)} changed row(s)")
         for i in changed:
@@ -724,10 +736,13 @@ def _cmd_repair_diff(args: argparse.Namespace) -> int:
             after = after_rows[i] if i < len(after_rows) else []
             line_no = i + 2
             print(f"  line {line_no}")
+            # `changed_cells`, not `!=`: this face and the UI must not disagree about which cells
+            # moved, which is the whole point of D2-10 putting the NaN rule in one predicate (F9).
+            differs = changed_cells(before, after)
             for j, col in enumerate(columns):
-                b = before[j] if j < len(before) else None
-                a = after[j] if j < len(after) else None
-                if b != a:
+                if j in differs:
+                    b = before[j] if j < len(before) else None
+                    a = after[j] if j < len(after) else None
                     print(f"    {col}: {b!r} -> {a!r}")
         return EXIT_OK
     rows = []
@@ -1202,7 +1217,13 @@ def _cmd_job_remove(args: argparse.Namespace) -> int:
 
 def _cmd_worker(args: argparse.Namespace) -> int:
     """启动远端执行节点（V14，ADR-091）：复用 api 服务，/rpc/execute
-    需 token 启用（参数或 DATASENTRY_WORKER_TOKEN 环境变量）。"""
+    需 token 启用（参数或 DATASENTRY_WORKER_TOKEN 环境变量）。
+
+    绑定姿态与 `datasentry-server` 同源（独立复核 A-6）：worker 跑的是**整个应用**，
+    `--token` 只护住 `/rpc/execute`，其余写端点在未设 `DATASENTRY_API_TOKEN` 时
+    对任何能路由到该端口的人开放——"无 Origin 头即视为同源"意味着 curl/脚本直接可写。
+    所以非回环绑定同样要求 API token 或显式 `DATASENTRY_ALLOW_INSECURE_BIND=1`。
+    """
     import uvicorn
 
     from datasentry.api import create_app
@@ -1219,6 +1240,21 @@ def _cmd_worker(args: argparse.Namespace) -> int:
             ),
             args.format,
         )
+    from datasentry.api import INSECURE_BIND_OPT_IN, InsecureBindRefused, resolve_bind
+
+    try:
+        warning = resolve_bind(
+            args.host,
+            token=os.environ.get("DATASENTRY_API_TOKEN"),
+            opted_in=os.environ.get(INSECURE_BIND_OPT_IN, "") == "1",
+        )
+    except InsecureBindRefused as exc:
+        _emit(_envelope("worker", {"error": str(exc)}), args.format)
+        return EXIT_CONFIG
+    if warning:
+        # Same channel as the no-token notice above: this command reports its own posture, and a
+        # logger line would be invisible to `--format json` callers driving a worker headlessly.
+        _emit(_envelope("worker", {"notice": warning}), args.format)
     uvicorn.run(create_app(args.project, worker_token=token), host=args.host, port=args.port)
     return EXIT_OK
 
@@ -1256,14 +1292,13 @@ def _cmd_ping(args: argparse.Namespace) -> int:
 def _cmd_llm_status(args: argparse.Namespace) -> int:
     """LLM 提供方状态与配置来源（13.11 审计查询入口）+ PII 加密保险库状态。"""
     from datasentry.llm_providers import load_llm_config
-    from datasentry.pii_vault import PIIVault
 
     config = load_llm_config()
     client = DataSentry(args.project)
     try:
         invocations = client.list_llm_invocations(limit=20)
-        vault = PIIVault(client._store)
-        mappings = client._store.count_pii_mappings()
+        vault = client.pii_vault()
+        mappings = client.count_pii_mappings()
     finally:
         client.close()
     summary = {
@@ -1320,11 +1355,11 @@ def _cmd_llm_restore(args: argparse.Namespace) -> int:
     显式授权语义：CLI 是本地用户命令，`restore <session>` 即授权
     查看明文；报告与 UI 默认打码不受影响。
     """
-    from datasentry.pii_vault import PIIVault, VaultKeyMissingError, format_mapping_summary
+    from datasentry.pii_vault import VaultKeyMissingError, format_mapping_summary
 
     client = DataSentry(args.project)
     try:
-        vault = PIIVault(client._store)
+        vault = client.pii_vault()
         warnings: list[str] = []
         if vault.key_source == "dev":
             warnings.append(
@@ -1351,7 +1386,7 @@ def _cmd_llm_restore(args: argparse.Namespace) -> int:
             _emit(_envelope("llm restore", {"purged": purged}, warnings), args.format)
             return EXIT_OK
         if args.session_id is None:
-            sessions = client._store.list_pii_mappings(limit=args.limit)
+            sessions = client.list_pii_mappings(limit=args.limit)
             data = {
                 "sessions": [
                     {
@@ -1366,7 +1401,7 @@ def _cmd_llm_restore(args: argparse.Namespace) -> int:
             return EXIT_OK
         session_id = args.session_id
         if args.delete:
-            deleted = client._store.delete_pii_mapping(session_id)
+            deleted = client.delete_pii_mapping(session_id)
             _emit(
                 _envelope("llm restore", {"deleted": deleted, "session_id": session_id}, warnings),
                 args.format,
@@ -1403,11 +1438,11 @@ def _cmd_llm_restore(args: argparse.Namespace) -> int:
 
 def _cmd_llm_rotate_key(args: argparse.Namespace) -> int:
     """轮换 PII 加密密钥：新密钥重加密全部映射 + 写入本地 key 文件。"""
-    from datasentry.pii_vault import PIIVault, VaultKeyMissingError
+    from datasentry.pii_vault import VaultKeyMissingError
 
     client = DataSentry(args.project)
     try:
-        vault = PIIVault(client._store)
+        vault = client.pii_vault()
         result = vault.rotate_key(new_key=args.new_key)
         data = {
             "new_key": result["new_key"],
@@ -1710,7 +1745,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--sampling-method",
         type=str,
         default="reservoir",
-        choices=["random", "reservoir", "none"],
+        choices=["random", "stratified", "reservoir", "time_based", "rare_oversampling", "none"],
         help="sampling method (default reservoir; Step 71/ADR-071)",
     )
     p_scan.add_argument(

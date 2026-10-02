@@ -2,15 +2,114 @@
 
 from __future__ import annotations
 
+import ipaddress
+import socket
+from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from datasentry_core.models.scan import ScanConfig
 
 _ISO = "%Y-%m-%dT%H:%M:%S"
+
+# D5-03, P26 option B: the address classes a server-side webhook fetch may never reach, and the
+# ones the project documents as its use case (notifying a service on the same box or LAN).
+# Deny-by-class is checked against *resolved* addresses, so decimal (2130706433), hex, short form
+# (127.1) and `http://good.example@169.254.169.254/` decoys cannot walk around it -- those are
+# exactly what the OS resolver expands.
+DENIED_NETWORKS = (
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("224.0.0.0/4"),
+    ipaddress.ip_network("240.0.0.0/4"),
+    ipaddress.ip_network("::/128"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("ff00::/8"),
+)
+ALLOWED_PRIVATE = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+)
+
+
+def _address_is_denied(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    # `http://[::ffff:169.254.169.254]/` is the metadata address wearing IPv6 spelling: an
+    # IPv6Address compared against an IPv4Network is silently False, so every v4 range in the two
+    # tables below would be judged against the outer address and missed. Unwrap first, then judge.
+    mapped = getattr(address, "ipv4_mapped", None)
+    if mapped is not None:
+        address = mapped
+    if address.is_loopback or any(address in net for net in ALLOWED_PRIVATE):
+        return False  # the documented local/LAN notification case
+    return (
+        address.is_unspecified
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or any(address in net for net in DENIED_NETWORKS)
+    )
+
+
+def webhook_target_refusal(
+    url: str,
+    resolver: Callable[[str, int], list[Any]] = socket.getaddrinfo,
+) -> str | None:
+    """Why this webhook target must not be fetched from the server, or None if it may.
+
+    Called at delivery time, not only at registration: the address that matters is the one the
+    resolver answers with. Residual, stated rather than hidden: httpx resolves again when it
+    connects, so a DNS record flipped between this check and the request is not covered -- pinning
+    the connection to the checked address would be, and is left as a follow-up.
+    """
+    host = urlsplit(url).hostname
+    if not host:
+        return f"webhook_url has no host to deliver to: {url!r}"
+    try:
+        literal = ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        literal = None
+    if literal is not None:
+        return (
+            None if not _address_is_denied(literal) else f"{host} is a non-routable address class"
+        )
+    try:
+        resolved = {ipaddress.ip_address(item[4][0]) for item in resolver(host, 0)}
+    except (OSError, ValueError):
+        # Nothing can be delivered to a host that does not resolve, so letting the attempt proceed
+        # is not an opening: the request fails on its own. Refusing here would only make the rule
+        # untestable and would also refuse hosts whose DNS is merely unavailable, where the
+        # attacker-relevant case -- a name that resolves to a metadata address -- is caught above.
+        return None
+    for address in sorted(resolved, key=str):
+        if _address_is_denied(address):
+            return f"{host} resolves to {address}, a non-routable address class"
+    return None
+
+
+def _check_webhook_scheme(value: str | None) -> str | None:
+    """D5-03：webhook 只允许 http/https（单点校验，覆盖 REST/MCP/CLI 三端）。
+
+    拦截 file:///gopher:// 等非 HTTP scheme，杜绝服务端代打任意协议。
+
+    D5-03 / P26 的行 r4 把「地址类别」这一层从"暂不拦截"改为**投递时拦截**：
+    `webhook_target_refusal()` 在真正发请求前对解析后的地址判定，拒绝
+    link-local/元数据、保留、多播、unspecified 与 CGNAT；loopback 与 RFC1918
+    仍放行，因为「通知本机/内网服务」是本项目写明的使用场景。之所以不在这里
+    做判定：十进制 `2130706433`、短写 `127.1`、`http://good.example@169.254.169.254/`
+    这类写法要到解析阶段才显出真实目的地。test-webhook 不再回显远端状态码。
+    """
+    if value is None:
+        return None
+    scheme = value.split("://", 1)[0].lower() if "://" in value else ""
+    if scheme not in {"http", "https"}:
+        raise ValueError(f"webhook_url must use http(s) scheme, got {value!r}")
+    return value
 
 
 def iso(dt: datetime) -> str:
@@ -94,6 +193,11 @@ class JobCreate(BaseModel):
     export_report: bool = False
     config: ScanConfig | None = None
 
+    @field_validator("webhook_url")
+    @classmethod
+    def _validate_webhook(cls, value: str | None) -> str | None:
+        return _check_webhook_scheme(value)
+
 
 class JobUpdate(BaseModel):
     """PATCH /jobs/{job_id} 可更新字段（None = 不变）。"""
@@ -103,6 +207,11 @@ class JobUpdate(BaseModel):
     retry_attempts: int | None = Field(default=None, ge=0, le=10)
     webhook_url: str | None = None
     gate_quality_min: float | None = Field(default=None, ge=0.0, le=100.0)
+
+    @field_validator("webhook_url")
+    @classmethod
+    def _validate_webhook(cls, value: str | None) -> str | None:
+        return _check_webhook_scheme(value)
 
 
 class GateResult(BaseModel):

@@ -21,7 +21,7 @@ class SamplingConfig(BaseModel):
 
     method: Literal[
         "random", "stratified", "reservoir", "time_based", "rare_oversampling", "none"
-    ] = "random"
+    ] = "reservoir"
     sample_size: int | None = Field(default=None, ge=1)
     ratio: float | None = Field(default=None, gt=0.0, le=1.0)
     seed: int = 42

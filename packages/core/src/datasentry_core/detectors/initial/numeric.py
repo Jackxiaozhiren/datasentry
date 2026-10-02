@@ -12,6 +12,7 @@ from datasentry_core.detectors.common import (
     numeric_columns,
     quote_ident,
 )
+from datasentry_core.engine.base import finite_only
 from datasentry_core.models.detector import DetectorCapabilities, IssueCandidate
 from datasentry_core.models.enums import EvidenceType, QualityDimension, Severity
 from datasentry_core.reporting.evidence_desc import ev
@@ -33,7 +34,8 @@ class IqrOutlierDetector(DetectorBase):
         for col in numeric_columns(context):
             q = quote_ident(col)
             stat = context.handle.sql_aggregate(
-                f"SELECT quantile_cont({q}, 0.25) AS q25, quantile_cont({q}, 0.75) AS q75 FROM data"
+                f"SELECT quantile_cont({finite_only(q)}, 0.25) AS q25, "
+                f"quantile_cont({finite_only(q)}, 0.75) AS q75 FROM data"
             ).table
             row = stat.to_pylist()[0]
             q25, q75 = row["q25"], row["q75"]
@@ -102,7 +104,7 @@ class ModifiedZScoreDetector(DetectorBase):
         for col in numeric_columns(context):
             q = quote_ident(col)
             stat = context.handle.sql_aggregate(
-                f"SELECT median({q}) AS m, mad({q}) AS mad FROM data"
+                f"SELECT median({finite_only(q)}) AS m, mad({finite_only(q)}) AS mad FROM data"
             ).table
             row = stat.to_pylist()[0]
             median, mad = row["m"], row["mad"]
@@ -211,8 +213,8 @@ class PercentileOutlierDetector(DetectorBase):
         for col in numeric_columns(context):
             q = quote_ident(col)
             stat = context.handle.sql_aggregate(
-                f"SELECT quantile_cont({q}, 0.001) AS p_low, quantile_cont({q}, 0.999) AS p_high "
-                f"FROM data"
+                f"SELECT quantile_cont({finite_only(q)}, 0.001) AS p_low, "
+                f"quantile_cont({finite_only(q)}, 0.999) AS p_high FROM data"
             ).table
             row = stat.to_pylist()[0]
             p_low, p_high = row["p_low"], row["p_high"]
@@ -271,7 +273,8 @@ class HistogramRarityDetector(DetectorBase):
         for col in numeric_columns(context):
             q = quote_ident(col)
             stat = context.handle.sql_aggregate(
-                f"SELECT min({q}) AS lo, max({q}) AS hi, count({q}) AS n FROM data"
+                f"SELECT min({finite_only(q)}) AS lo, max({finite_only(q)}) AS hi, "
+                f"count({q}) AS n FROM data"
             ).table
             row = stat.to_pylist()[0]
             lo, hi, total = row["lo"], row["hi"], row["n"]

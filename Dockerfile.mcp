@@ -6,7 +6,8 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY packages ./packages
 COPY src ./src
-RUN uv sync --frozen --no-dev
+# D6-02：--locked 使 manifest/lock 不一致时构建失败而非静默通过。
+RUN uv sync --locked --no-dev
 
 FROM python:3.12-slim
 WORKDIR /workspace
@@ -15,6 +16,7 @@ ENV PYTHONUNBUFFERED=1
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
 COPY --from=builder /app/packages /app/packages
+USER 10001
 
 # MCP uses stdin/stdout JSON-RPC. Keep stdin open and do not allocate a TTY.
 CMD ["datasentry", "mcp", "--project", "/workspace"]

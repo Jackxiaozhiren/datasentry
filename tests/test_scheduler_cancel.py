@@ -63,11 +63,21 @@ def _trigger_async(tmp_path: Path, job_id: str) -> threading.Thread:
     return thread
 
 
-def _running_run(tmp_path: Path, job_id: str) -> str:
-    store = SchedulerStore(project_db_path(tmp_path))
-    run = store.get_run(store.list_runs(job_id)[0].run_id)
-    assert run is not None and run.status == RunStatus.RUNNING
-    return run.run_id
+def _running_run(tmp_path: Path, job_id: str, timeout_s: float = 10.0) -> str:
+    """D3-05：有界轮询替代固定 sleep 断言——高负载下 claim 可能慢于 0.2s。
+
+    轮询 run 状态至 RUNNING（上限 timeout_s），断言强度不变。
+    """
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        store = SchedulerStore(project_db_path(tmp_path))
+        runs = store.list_runs(job_id)
+        if runs:
+            run = store.get_run(runs[0].run_id)
+            if run is not None and run.status == RunStatus.RUNNING:
+                return run.run_id
+        time.sleep(0.05)
+    raise AssertionError(f"run for {job_id} did not reach RUNNING within {timeout_s}s")
 
 
 class TestCancelLocalV22:

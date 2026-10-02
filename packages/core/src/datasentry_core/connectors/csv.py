@@ -79,6 +79,23 @@ def _sniff_delimiter(path: Path, encoding: str) -> str:
         return ","
 
 
+def sniff_profile(path: Path) -> tuple[str, str]:
+    """The (encoding, delimiter) this connector would use for `path`.
+
+    Public for exactly one reason: the repair auditor reads the artefacts, and reading them under
+    a different encoding than the bytes are in is not a smaller lie than reading them under a
+    different delimiter. A cp1250 snapshot raised `invalid UTF8 data` and the repair lost its audit
+    evidence while `apply` had already succeeded (F2).
+    """
+    encoding = _detect_encoding(path)
+    return encoding, _sniff_delimiter(path, encoding)
+
+
+def sniff_dialect(path: Path) -> str:
+    """The delimiter this connector would use for `path`."""
+    return sniff_profile(path)[1]
+
+
 def _schema_hash(column_signature: list[tuple[str, str]]) -> str:
     """schema_hash = 列签名规范 JSON 的 SHA-256（19.1）。"""
     canonical = json.dumps(column_signature, sort_keys=True, ensure_ascii=True)

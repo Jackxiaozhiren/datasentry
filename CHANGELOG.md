@@ -4,6 +4,377 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 变更（破坏性）
+- **`datasentry --project X mcp` 现在真的用 X（`D7-15`）**。`mcp` 子命令自己声明的 `--project`
+  带 `default=None`，而 argparse 的父子解析器共享同一命名空间，于是子命令的默认值在解析时把全局
+  `--project` 覆写成 None——按全局帮助书写的工作区参数被静默丢弃，MCP 服务把状态写进当前目录
+  （实测：store 落在 cwd 而非指定工作区）。改为 `default=argparse.SUPPRESS`，只有真给了旗标才写属性。
+  **行为变更**：此前依赖"全局 `--project` 对 mcp 无效"这一缺陷、把数据写在启动目录的调用方，
+  会看到工作区改到 `--project` 指定的位置；子命令位 `mcp --project Y` 优先级不变。
+
+- **抽样方法在四端逐项相等，并有判据钉住（`D1-02` 收尾）**。CLI 的 `--sampling-method` 取值此前少
+  `rare_oversampling` 与 `none`（MCP 那半在上一轮已补齐，CLI 的取值由并行工作补齐），但没有任何
+  东西保证下次新增方法时三端同改。新判据 `tests/test_cli_surface_parity.py` 钉的是
+  core `Literal` == CLI choices == MCP 声明的**逐项相等**，不是"包含六个"。
+
+- **MCP 的四个路径面现在与 REST/UI 同一收束规则（`D5-04`/`D5-09`/`D5-13` 的 MCP 半，独立复核
+  A-2/A-3/A-4）**。`scan_file` 早已通过门面的 `enforce_scan_containment` 收过，但
+  `contract_validate`、`job_create`、`repair_propose_batch`、`repair_apply_batch` 各自把路径参数
+  直接交给磁盘。实测改前：`repair_apply_batch` 把工作区外文件的字节作为回滚快照复制进工作区
+  （`rep_*.before.csv` 内容与外部文件逐字节相同），`contract_validate` 把文件内容回显在错误文本里，
+  `job_create` 登记外部路径后由执行器照常扫描。现在四面共用 `resolve_allowed_scan_path`，
+  拒绝走 JSON-RPC `-32602`（新增 `McpClientError` 基类，与 `ConfirmationRequired` 同通道；
+  裸 `ValueError` 会落到 `-32603` 而把客户端的错算成服务端的错）。远程源（`s3://`、
+  `postgresql://` 等）照旧原样放行，与工作区外的本地路径是两回事。**行为变更**：此前能对工作区外
+  文件发起修复/登记/契约校验的 Agent 调用现在被拒。理由见 `ADR-122` 的修订段。
+
+- **`datasentry worker` 现在与 `datasentry-server` 同一绑定姿态（`D5-01` 的旁路，独立复核 A-6）**。
+  `worker` 子命令此前直接 `uvicorn.run(host=args.host)`，不经 `D5-01`/`D5-02` 的启动判定；而它跑的是
+  **整个应用**，`--token`/`DATASENTRY_WORKER_TOKEN` 只护住 `/rpc/execute`。未设 `DATASENTRY_API_TOKEN`
+  时写闸门放行无 Origin 的请求（curl 与脚本正是如此），于是 `datasentry worker --host 0.0.0.0 --token W`
+  把 `/scans`、`/jobs`、修复与 PII 全部写端点对任何可路由者无鉴权开放。**行为变更**：非回环的 worker
+  绑定现在同样要求 `DATASENTRY_API_TOKEN` 或显式 `DATASENTRY_ALLOW_INSECURE_BIND=1`，否则以
+  `EXIT_CONFIG` 退出并给出可操作提示；默认 `--host 127.0.0.1` 不变。同时把 `_resolve_bind` 提为
+  `resolve_bind`（两处调用方，不再是模块私有）。
+
+- **发布前现在必须过 CI（`D6-03`）**。此前 `ci.yml` 的触发只有 `push.branches:[main]` 与
+  `pull_request:`，**没有任何 tag 触发**，而 `publish.yml` 以 `on.push.tags: ['v*']` 独立起跑——
+  于是打一个 `v*` 标签就能把未经任何测试的代码推上 PyPI（配对版本能过元数据校验，但代码从未被测过）。
+  现在 `ci.yml` 的 `on:` 增加 `workflow_call` 并显式声明 `permissions: contents: read`，
+  `publish.yml` 新增 `ci` 作业 `uses: ./.github/workflows/ci.yml`，`publish` 作业 `needs: ci`；
+  `publish-mcp-registry` 原本就依赖 `publish`，随之被传递性纳入。`needs` 是作业级、不跨文件，
+  所以闸门必须落在 `publish.yml` 内；复用同一份 CI 定义而非抄一遍，是为了不留第二份会漂移的定义。
+  **行为变更（对维护者）**：发布链路现在会先跑完整 CI（含 1e6 行基准与 MCP Docker 构建），
+  耗时增加且 CI 失败即发布失败。未验证：本轮不推送、不触发工作流，没有真实 tag 运行佐证，
+  详见 `AUDIT/OPEN_RISKS.md`。
+
+- **扫描与修复的相对路径改按工作区解析（`D5-04`/`D5-09`）**。REST 与 MCP 收到的
+  相对 `path` 此前按**服务进程的 CWD** 解析：容器里 `WORKDIR /app` 与
+  `DATASENTRY_PROJECT=/app/workspace` 正是父子关系，于是 `{"path":"secret.csv"}` 或
+  `"proj/../secret.csv"` 能扫到工作区之外的同级文件（本机实测均 201）。现在相对路径
+  锚在工作区（或 `DATASENTRY_ALLOWED_ROOTS` 列出的根），并且**返回锚定后的绝对写法**——
+  过去校验用 strip 后的串、返回却是原始串，首部带空格即可绕开校验。
+  **行为变更**：依赖"CWD 相对"写法的调用方需改为传工作区相对路径或绝对路径。
+- **修复端点的 `source_path` 现在也过工作区收束（`D5-09`）**。REST 的
+  propose/preview/apply 与 UI 的 batch-propose/batch-apply/单条工作台动作共六处，
+  此前把调用方给的路径原样交给引擎；而修复是读并写在该文件旁边的动作。
+  UI 面的拒绝以 HTML 返回（不再产生裸 JSON）。
+- **HTTP 写端点统一收口（`D5-10`/`D5-11`）**。新增一层应用级闸门：设置
+  `DATASENTRY_API_TOKEN` 后，所有 POST/PUT/PATCH/DELETE（仅 `/rpc/*` 例外，
+  它用自己的 worker token）在没有正确 `X-Datasentry-Token` 头时一律 401。
+  此前该闸门只挂在部分处理器上，实测 `POST /scans`、`POST /jobs`、
+  `POST /ui/scans`、`DELETE/PATCH /jobs/{id}` 等在设了 token 之后仍然通过。
+  Web UI 的表单无法带请求头，因此 `/ui/*` 的写改由「回环来源 + 同源
+  Origin/Referer」放行，跨站表单 POST 一律拒绝。
+  **破坏性**：已设置 token 且以裸调用方式驱动这些端点的脚本需要带头。
+
+- **MCP：写状态的工具必须有 `confirm`**。`job_create`/`job_remove`/
+  `job_trigger`/`job_update`、`pii_delete_session`/`pii_purge_sessions`/
+  `pii_restore`/`pii_rotate_key`、`repair_apply_batch`/
+  `repair_rollback_batch` 共 10 个工具新增必填 `confirm: boolean`；
+  缺失或为 `false` 时拒绝执行并回 JSON-RPC `-32602`，不写任何数据
+  （不变量 2；`ADR-119`）。
+- **MCP：`repair_apply_batch` 的 `preview_only` 改为必填**，不再能在
+  未选择预览/落库的情况下静默写副本（不变量 4）。
+- **非回环绑定不再只打警告，而是拒绝启动（`D5-01`/`D5-02`）**。`--host` /
+  `DATASENTRY_HOST` 解析到非回环地址时，必须配置 `DATASENTRY_API_TOKEN`（写端点随即
+  要求 `X-Datasentry-Token`，见 `ADR-120`），或显式设
+  `DATASENTRY_ALLOW_INSECURE_BIND=1` 认下面向网卡的暴露面；两者都没有时进程以一条
+  可操作提示退出，而不是带着警告起来。回环判定改用 `ipaddress`：整个 127/8、`::1`、
+  `::ffff:127.0.0.1` 都算回环（此前是三个字符串的集合，`127.0.0.2` 会被误报为对外暴露）。
+  **破坏性**：`docker compose up` 现在需要传 token，
+  如 `DATASENTRY_API_TOKEN=$(openssl rand -hex 16) docker compose up`；
+  镜像内 `DATASENTRY_HOST=0.0.0.0` 保留（端口映射必需），但已是「有条件的默认」。
+- **webhook 目标现在按解析后的地址类别判定，在投递时执行（`D5-03`，P26 的 B 案）**。
+  服务端代打 webhook 前会拒绝 link-local 与云元数据（169.254/16、fe80::/10）、
+  unspecified（0/8、::/128）、多播（224/4、ff00::/8）、保留（240/4）与
+  CGNAT（100.64/10）；十进制、短写、hex 与 `http://user@host/` 伪装都先经解析再判定，
+  因此无法靠改写地址绕过。loopback 与 RFC1918 **仍然放行**——那是本项目写明的
+  本机/内网通知场景。scheme 校验（`file://`/`gopher://`/无 scheme）行为不变。
+  未覆盖：判定与建连各做一次解析，中间翻转 DNS 记录（TOCTOU）不在本轮范围，见 `ADR-123`。
+- **作业登记面收口（`D5-13`）**。`POST /jobs` 此前不做任何路径校验，且 `project` 是调用方
+  可任意填写的字符串：执行器以它为项目根新建工作区，所以一次 `POST /jobs` 加一次
+  `POST /jobs/{id}/trigger` 就能在服务端指定目录之外落下 `.datasentry/`（元数据库、
+  profiles、修复副本）。现在登记时同时校验两者——`path` 过工作区收束（与 `POST /scans`
+  同一函数、同一结论），`project` 必须是服务端工作区或 `DATASENTRY_ALLOWED_ROOTS` 条目，
+  否则 422。**破坏性**：把工作项分发到独立 worker 工作区的部署必须把这些根写进
+  `DATASENTRY_ALLOWED_ROOTS`。收口按面启用
+  （`DataSentry(project=…, enforce_scan_containment=True)`）：REST 与 MCP 面强制，CLI 与
+  本地执行器保持操作员本地信任边界，worker RPC 由 worker token 负责——这是有意的不对称，
+  理由见 `ADR-122`。
+- **4xx 不再回显服务端绝对路径（`D5-06`/`D2-02` 残余）**。`_handle` 的 4xx 分支与修复、
+  作业、PII 各端点残留的 `detail=str(exc)` 统一改过 `_safe_detail()`：保留可读原因，
+  把绝对路径（POSIX 与 Windows 盘符）替换为 `<path>`，并截断到 200 字符。
+  已知边界：不含路径的 OS 级字符串（如 `[Errno 2] No such file or directory`）仍会保留。
+- **MCP：JSON-RPC 错误帧回显请求 `id`**。此前错误帧没有 id，按 id
+  关联响应的客户端会一直等待。
+- **MCP：客户端错误不再伪装成服务器错误**。参数校验失败（缺 required、未知参数、类型不符、
+  `enum` 外取值、`arguments` 不是对象）此前一律回 `-32603 Server error`，现在回 `-32602
+  Invalid params`；校验依据是各工具注册时对外声明的 `inputSchema`，因此声明从此是约束。
+- **MCP：无法解析的请求行不再被静默丢弃**。此前 `serve_stdio` 对非 JSON 行直接 `continue`，
+  客户端只看到"服务器没反应"；现在回 `-32700`（id 为 `null`），非对象的 JSON 请求回 `-32600`。
+
+### 修复
+
+- **修复工件的两类"按名字对齐"错误被第二批复核推翻后重做（`F1`–`F4`、`F6`、`F8`、`F9`）**。上一轮把
+  快照与副本统一到一套列名、再按名字对齐，这本身就是错的修法，实测两类假话：① XLSX 表头有**空白格**
+  时读侧命名成 `""`、连接器命名成 `col_1`，列名并集把一列裂成两列，于是一次只改一格的 TRIM 报
+  `changed=[0,1]`（`cols=['id','','col_1']`），工件页自己就矛盾——表头统计写 `1 / 2`、下面画 2 行
+  12 个高亮格；② 生成的重名别名会**撞上文件里本来就有的名字**：`a_1,a,a` 在连接器侧定成
+  `a_1`/`a`/`a_1_1`，读侧的别名规则给 `a_1`/`a`/`a_2`，按名字对齐于是把整列读错一位。现在按格式区分
+  "什么决定一列"：CSV/Parquet/XLSX 的列顺序就是 schema 且修复从不重排 ⇒ **按位置**对齐；JSONL 的键
+  顺序不是数据 ⇒ **按名字**对齐。列集取两侧宽度（少/多一列显示为 `value -> None` / `None -> value`，
+  不再被截掉），显示名取自副本。`_dedupe_names` 降级为只为显示，docstring 写明它不等于 DuckDB 的改写。
+  同一族里另外三条：**非 UTF-8 源**（cp1250/GBK，落地数据的主力）的工件对必抛
+  `ArrowInvalid: invalid UTF8 data` —— 读侧过去只传了嗅探出的分隔符、没传编码，而副本固定写 UTF-8，
+  两侧编码天然不同；现在新增 `sniff_profile(path) -> (encoding, delimiter)`，**每份工件各自**按其字节
+  取编码。**嵌套 NaN**（pandas 写 `list<double>` 的默认形态）过去只有顶层命中 NaN，两份逐字节相同的
+  Parquet 又报变更；`cells_equal` 现在递归 list/tuple/dict。**`preview` 没跟着加"无副本写入器就拒绝"
+  的闸门**——sqlite/duckdb/postgres/mysql 四种源在 propose 之后抛裸 `KeyError`，而 apply 的错误文案
+  写着"propose and preview work"，四面读到的是假承诺；现在 `preview` 与 `apply` 共用
+  `_require_copy_writer`，文案改成"propose works, but preview and apply need a copy writer this
+  format does not have"。被拒的 `apply` 过去仍会先建出 `.datasentry/repairs/` 目录（`mkdir` 在闸门
+  之前），既有钉子测试只比对文件名、看不见它；现在目录也不会被创建。**逐格谓词只有一面**：UI 用
+  `cells_equal`、CLI 用自己的 `!=`，所以"两个面不可能对同一格给出不同答案"这句话过去只成立一半；
+  现在两面都调用新增的 `changed_cells`。
+  **行为变更**：① CSV/Parquet/XLSX 的工件 diff 不再按列名匹配，副本改了列名（如 DuckDB 把重名列
+  改写）时对齐结果以**位置**为准；② 非 UTF-8 源的 `repair diff` 从必抛异常变为能出证据；
+  ③ 不支持修复的源在 `preview` 阶段就以 `ValueError` 拒绝（过去是 `KeyError`），且不留任何目录或工件；
+  ④ CLI `repair diff` 的逐格清单与 UI 高亮现在严格一致。
+  判据 11 例（`TestReadSideMatchesWriteSide` 8、`TestSharedCellPredicate` 3），负向控制 8 道逐条打响；
+  其中"空白表头命名"那道控制被**摘掉**——按位置对齐后它只剩显示意义，留着就是假判据；而 NaN 两面判据
+  的第一版是**假绿**（两侧共用同一个 `nan` 对象会命中 CPython 列表比较的指针快路），改成每侧独立
+  `float("nan")` 后控制才打响。
+  **未修并立案**：`G-1` 修复副本会静默重写**非目标列**（`1e5 -> 100000`、`TRUE -> true`、
+  `2.50e3 -> 2500`、XLSX 数字列变文本），`RepairRun.operations` 一条不记而 diff 全报——根因在写侧
+  （`_after_table` 整表过 DuckDB），触碰不变量 2/3，建议作为下一批首位；`G-2` 顶层数值列含一个 NaN
+  就让 `scan_file` 整体崩（`STDDEV_SAMP is out of range`），它同时框住了 `D2-10(b)` 的可验证边界：
+  那条 NaN 修复只能以工件对/单元层证明，端到端跑不出来。均在
+  `AUDIT/CANDIDATES_R2_G1_G2.yaml`。
+
+- **含 NaN 的数值列不再让整次扫描失败（候选 `G-2`）**。触发面比立案时写的宽：不需要 Parquet，
+  一份普通 CSV 里写 `nan` 字样就够了（列被推断成 DOUBLE，正是 pandas 导出的缺省形态）。失败面也比
+  立案时写的宽：只修画像还不够——`iqr_outlier`、`percentile_outlier`、`histogram_rarity`、
+  `modified_zscore` 四个检测器各自算聚合再把结果当边界拼进 SQL，实测报
+  `Binder Error: Referenced column "nan" not found in FROM clause!`，`ScanRun` 落库为
+  `status=failed`。而不崩的那些数同样是假的：`median([10.5, nan, 7.5, 9.0])` 给 **9.75**
+  （有限值的真中位数是 **9.0**），`max([1.0, nan, 3.0])` 给 `nan`。现在统计量只在**有限值**上计算，
+  规则收在一个 owner（`engine/base.py` 的 `finite_only`），画像与四个检测器共用。
+  **语义约定**（写进 `profiler.py` 的模块约定）：NaN 与 ±Inf 仍然是"值"——计入 `count`/`distinct`、
+  不算 NULL、因此缺失率不变——但不再是"数"，不进 min/max/mean/std/分位；整列都是 NaN 时统计量为
+  `NULL`（不是异常，也不是 0）。
+  **它也补上了一条此前只能降级声明的证据**：追加 3j 说过 `D2-10(b)` 的 NaN 修法"端到端跑不出来"，
+  现在能了——新增产品级判据走 scan→apply→repair_diff，含 NaN 的那一行不再被报成改写
+  （`changed=[0,2]`），摘掉 NaN 规则会把它打回红。
+  **行为变更**：① 数值列的 `min/max/mean/std/q25/median/q75` 在有 NaN/±Inf 时改为有限值口径
+  （过去是崩、`nan`，或把 NaN 当数字参与运算），HTML 报告与 drift 比较里这些数会变；
+  ② 此前返回 `failed` 的扫描现在返回 `completed`；③ 全部为 NaN 的数值列，其统计量由异常变为 `null`。
+  刻意未加：NaN 现在不会被任何检测器当成质量问题报出来（被统计口径排除，但没有"数值列含非有限值"
+  这类 issue）——那是产品决定，不是修复。
+  判据 9 例（`TestNonFiniteNumbersAreProfiledNotFatal` 4、`TestNonFiniteNumbersScan` 2、
+  `TestNaNMajority` 2、端到端 1），负向控制 7 道逐条打响；其中 N-G2e 第一次没打响，量出
+  "`median`/`mad` 只有当 NaN 占到半数才显形"这个门槛后补了 `TestNaNMajority` 才变红。
+  性能实测（守卫动的是每个数值列的聚合，属更热的调用点）：1M 行画像 0.3s、数值异常合计 0.8s、
+  全量扫描 12.6s，与加守卫前同档；`make demo` 逐项数字不变。
+
+- **修复副本只改被授权的格子，搬不忠的输入一律拒绝（候选 `G-1`；实现来自并行会话，本会话核对、
+  独立复核并收窄）**。此前副本由"整表过 DuckDB 投影 + 重写"生成，一次 TRIM 之外还静默改写了
+  别的列：`1e5`→`100000`、`TRUE`→`true`、`2.50e3`→`2500`、`1.0`→`1`，混合列的 XLSX 把数字写成
+  文本，而 `RepairRun.operations` 一条都不记——用户拿去替换生产数据的副本带着没人授权的改动
+  （不变量 2/3）。现在副本**逐格生成**：非目标格直接取自源文件自己的格子并原样写入，只有目标列
+  取修复值（类型化的修复结果在分隔文本里按文本落盘）；工件读取、审计 diff 与逐格搬运走同一个
+  读取器。**拒绝优先于错写**：逐格读不出的源（参差 CSV）、行数与投影不一致的源、文件原始表头
+  拼写与投影列名不一致的源（重复/空白表头——实测会把修复值写进**错误的列**并销毁一个表头格，
+  且 `operations` 声称的格与实际被改的格对不上），以及 JSONL（其投影会改写非目标键：时间戳的
+  `T` 变空格、缺失键被补 `null`）都以 `ValueError` 拒绝并写明原因。
+  **行为变更**：① 修复后的 CSV 副本逐字段加引号、保留源文件自己的表头拼写；② 重复表头与 JSONL
+  源从"能修但会静默改写别的列"变为"拒绝并说明原因"（JSONL 的逐格搬运单独立项，见
+  `AUDIT/CANDIDATES_CARRY_RESIDUALS.yaml` 的 `H-2`）；③ `repair_verify` 行为不变。
+  核验与复核记录：`FIX_LEDGER.md` 追加 3l、`AUDIT/artifacts/VERIFY_CARRY_G1_MAIN.txt`、
+  `REVIEW_CARRY_G1_R1.md`。残余 5 条立为候选 `H-1`…`H-5`（授权列重拼写的记录完备性、JSONL
+  搬运实现、副本编码统一、XLSX 公式格、纳秒 Parquet 的 diff 崩）。
+
+
+
+- **修复工件现在读的是文件里真有的东西（复核发现 `B-1`…`B-5` 与 `D2-10`）**。审计用的行级 diff 由
+  `RepairEngine._read_table` 读两份工件，而它和扫描器是**两套读取规则**：扫描侧会用 `csv.Sniffer`
+  嗅分隔符、取 `worksheets[0]`、按 `\n` 切 JSONL，审计侧一概不会。同一份字节被读两遍并得到两个答案，
+  于是 `repair diff` 与 apply 响应页报出**从未发生的变更**。实测六例（改前 → 改后）：
+  ① `.tsv` 与 `;` 分隔文件被读成**一个名叫 `id\tname` 的列**，diff 打印 `None -> 'Alice'` → 现在
+  `before=['1','  Alice ']`、`changed=[0]`；② 重名列（连接器把 `id,id` 改写成 `id`/`id_1`，只改一侧）
+  按名字投影会**丢掉一整列** → 现在按位置投影；③ XLSX 用 `wb.active` 而连接器扫 `worksheets[0]`，
+  两表工作簿于是拿数据表去比备注表 → 已对齐；④ JSONL 用 `str.splitlines()`，它在 U+2028/U+2029/U+0085
+  上也断行（这些字符在 JSON 字符串里合法，正是爬取文本与全角/乱码检测器覆盖的那批数据），
+  `repair diff` 直接崩 → 改为只按 `\n` 切；⑤ `_suffix` 把未知类型一律记作 `.csv`、`_write_table` 的
+  CSV 分支不带 delimiter，于是 `.tsv` 的"修复副本"是逗号分隔的另一种文件——而页面对用户承诺的是
+  "写一份副本" → 副本现在沿用源文件自己的后缀与分隔符；⑥ SQLite 源先落两个工件再失败，磁盘上留下
+  无人认领的字节、`RepairRun` 一条没存，既不能 diff 也不能回滚 → 改为**动盘之前**就拒
+  （`repair does not support sqlite sources yet`）。另两处同族：XLSX 读取丢掉**中间**的整空行等于给
+  一侧重排行号（按位比较就凭空造出改写），以及 `float('nan') != float('nan')` 让两份**逐字节相同**的
+  Parquet 被报成有变更——现在只裁尾部空行，并引入 `cells_equal`/`rows_equal` 作为**唯一**的
+  "这格变了吗"谓词，UI 的高亮与 `table_diff` 的行判定共用它，两个面不可能对同一格给出不同答案。
+  **行为变更**：① 修复副本沿用源文件的后缀与分隔符（`.tsv` 的副本是 `.tsv`，不再是 `.csv`）；
+  ② 不支持修复的数据源（SQLite/DuckDB 等）在 `apply` 时以 `ValueError` 拒绝且**不写任何工件**，
+  此前是先写后抛；③ `GET /repairs/{id}/diff`、工件页与 apply 页对 `.tsv`、`;` 分隔、重名列、两表
+  XLSX 报出的 `before` 值会变——变的是文件里的真实字节。判据 24 例（`tests/test_repair_engine.py`
+  新增 4 个类）；其中"每种格式的副本必须能被同一连接器重新打开"这一类，是我自己把
+  `_write_table` 的分支写坏（丢了 `else`，CSV 写入覆盖了刚存好的 xlsx/parquet/jsonl 副本）之后补的：
+  撤掉那个 `else` 会让三例同时转红。
+
+- **两份修复工件现在先有"同一套列名"再比较（上一条的独立复核发现 `F1`–`F4`）**。上一轮的修法把投影从
+  按名字改成按位置，但列集仍**只取自 after 一侧**，于是同一处审计里重新开了两个口子，外加 JSONL/XLSX
+  读取器自己的定型缺陷。实测四例（`RepairEngine.table_diff` 直接喂两份工件）：① before 独有 `note` 列
+  且该列有变更 → `cols=['id','name']`、`changed=[]`，**一整列从证据里消失而 diff 说什么都没改**；
+  ② 同一条 JSONL 记录换个键序（`{"v":1,"w":2}` vs `{"w":2,"v":1}`）→ `changed=[0]`，**凭空造出一条
+  未发生的改写**；③ `pa.Table.from_pylist` 只按**第一条**记录定型，第二条才出现的 `id` 键整列丢失
+  （`before=[['  Alice ',None],['Bob',None]]`），而混合类型的两份**逐字节相同**文件会让 `repair diff`
+  抛 `ArrowInvalid`、数字表头的 xlsx 让它抛 `TypeError`；④ XLSX 重名表头经 `dict(zip(header,row))`
+  只留最后一个键，两列的表报成一列、左半张表的数据整个没了。现在列名两侧统一走 `_dedupe_names`
+  （重名补 `_1`/`_2`，写法与连接器/DuckDB 一致），列集取两侧并集（快照顺序在前），行按列名对齐后再逐位
+  比较；一侧独有的列因此显示为 `value -> None` / `None -> value`，这是"副本少了/多了一列"的真话。
+  CSV 分支的原文读（`default_column_type=string` + 嗅探方言）保持不变——复核者建议改走
+  `default_registry().open()`，本机实测那条路径不带 `convert_options`、会按默认推断读，实施它会把
+  `D2-06` 重新打开，故未采纳。`cells_equal` 把"值级比较"的边界写进文档（`True`/`1`、
+  `Decimal('1.0')`/`1.0` 判等，因为修复不会重类型、两侧又同用一个读取器，出现类型漂移就是读取器自己的）。
+  **未修并立案**：参差（ragged）CSV 仍会让 `repair_diff` 抛 `ArrowInvalid`——扫描侧 DuckDB 吃得下、
+  审计侧 pyarrow 拒读，而 pyarrow 25 没有容忍宽度漂移的选项；统一两侧读取规则是 A/B 选择（连接器加
+  "原文读"开关 vs 审计侧改用标准库 `csv` 并重取 BOM/引号/编码证据），不在本条里顺手做。
+  **行为变更**：`GET /repairs/{id}/diff`、工件页、apply 页与 CLI `repair diff` 在"一侧多/少一列"、
+  "JSONL 键序不同"、"XLSX 重名表头"三类输入上报出的列集与 `before` 值会变（变的是文件里真有的东西），
+  且此前崩掉的混合类型 JSONL 与数字表头 XLSX 现在能出 diff。判据 8 例（`TestSidesShareOneSchema`），
+  七道负向控制逐条打响；其中"稀疏 JSONL 记录仍待在自己那一列"这一例是被一道**没打响**的负向控制逼出来的。
+
+- **远程方案的判定不再比消费方宽（复核发现 `A-10`）**。`_is_remote()` 先把输入 `lower()` 再比对
+  方案表，而**每一个下游消费方都按精确小写派发**（`client.scan_file` 判 `startswith("s3://")`）。
+  于是 `S3://../../etc/passwd.csv` 被闸门当成远程源**原样放行**——不 resolve、不比根——再落回门面的
+  本地文件分支、按**进程 CWD** 解析。服务进程按文档就站在项目的祖先目录（`Dockerfile` 的
+  `WORKDIR /app` + `DATASENTRY_PROJECT=/app/workspace`），所以 CWD 相对就是锚错了基：这与行 r5/A-1
+  修过的是同一类缺陷，只是换了个入口拼法。今天挡住它的不是闸门，而是"字面量组件 `S3:` 必须先作为
+  目录存在、`..` 链才走得通"这个 `open()` 的语义巧合——接入任一大小写不敏感或按方案感知的消费方
+  （DuckDB/httpfs 就把 `S3://` 当大小写不敏感）或工作目录下出现一个名为 `s3:` 的目录，它就是越界读。
+  判定改为大小写敏感，与消费方对齐；不逃逸的 `AZ://c.csv` 一类现在被**锚进工作区**而不是原样返回。
+  **只对齐大小写不够**：逐个方案实测后发现，闸门表比消费方派发集**多出四个方案**
+  （`gcs://`、`abfs://`、`http://`、`https://`——`client.scan_file` 不派发它们，httpfs 连接器的
+  `_CLOUD_PREFIXES` 也只有 s3/gs/az），它们同样是"闸门说远程、消费方说本地相对路径"，与大小写无关。
+  因此闸门表现在**等于**派发集（DSN 三种 + 云存储三种），并由一条集合等式判据钉住，不再靠两处各自
+  维护。判据 17 例：三种大写逃逸拼法拒绝、三种非逃逸必须锚定、REST 与 MCP 两个真面端到端、四种孤儿
+  方案拒绝、六个真支持的方案原样放行（对照集与派发集逐一对应）、一条集合等式。改前实测 13 红 4 绿。
+  **行为变更**：`S3://` 这类大写拼法与 `gcs://`/`abfs://`/`http(s)://` 这些无人派发的方案不再被静默
+  当作远程源——它们现在被明确拒绝（`unsupported source scheme: 'GCS'`）。支持的拼法以
+  `scan_paths.py` 的 `_REMOTE_SCHEMES` 为准。
+
+  独立复核又量出两件事，都在本行内修掉。**其一**：`client.scan_file` 调了闸门却**丢掉返回值**，
+  于是校验 `workspace/orders.csv`、打开的却是 CWD 下的 `orders.csv`——实测两个文件列不同时，
+  检测器看到的是 CWD 那份，且落库 `source_path` 是未锚定的 `"orders.csv"`（报表与修复选单都按它
+  再锚一次）。这是 r5/A-1 的同一形状，只是换了个丢弃返回值的位置；REST/MCP/UI 都在调用前自己锚过，
+  所以今天不被这些面触发，但那个旗标的全部意义就是收束，而它收束的不是被打开的文件。
+  **其二**：把 `gcs://` 从表里删掉之后，它仍会被当成"工作区里一个怪目录"（`FILE:///etc/passwd.csv`
+  被收下而 `file:///etc/passwd.csv` 被拒；`https://example.com/x.csv` 被报成工作区内路径）。
+  现在任何方案形状（RFC 3986，大小写不敏感）只要不被派发就直接拒，`file://` 的剥离也改成不分大小写。
+  集合等式判据不再重抄 DSN 方案，而是从 `client.scan_file` 源码里取派发集——实测把 `gcs://` 加进
+  消费方派发，判据立刻点名两侧差集。判据合计 15 例（含 1 例跨面：门面开的是它校验的那个文件）。
+
+- **MCP 面不再回显服务端路径，且"工作区外"不再被说成服务端内部错误（复核发现 `A-8-mcp`）**。上一轮修脱敏函数时量到：MCP 还有 13 处把异常原文塞进 JSON-RPC 消息，请求路径会原样骑回来；更要紧的是同一句 "outside workspace" 拒绝，四个工具回 -32602（Invalid params）、`scan_file` 回 **-32603（Internal error）**——因为该处理器直接调 `resolve_allowed_scan_path` 而没走 `confine()`，裸 `ScanPathRejected` 落到通用分支。按 id 关联响应的 Agent 会把一次永久拒绝当成抖动去重试，而 `ADR-119` 写明只有真正的服务端异常才配 -32603。脱敏器因此从 `api.py` 抽到新模块 `datasentry.redact`（MCP 不该为一个函数把 web 栈拉进来，同一条规则也不该有两份），两个面共用；`safe_detail` 幂等（2 万条模糊串实测，三遍稳定），所以 `confine()` 与分派器各遮一次是无操作。新增一条 AST 护栏：解析**整个模块**（不是类体——`_json_safe` 就藏在类体外），凡把 except 绑定名变成文本的写法都算漏（`str`/`repr`/f-string/`%s`/`.format`/`exc.args`/`__str__`），六种形态逐一注入验证过。**护栏的边界写在名字之外**：它不覆盖工具结果载荷，`report_export` 回显用户自己的 `source_path` 是设计如此，REST 同一形状。一条既有断言被改：`test_mcp_rejects_outside` 此前**钉的就是 bug**（断言 -32603）——改判依据有三处独立来源（四个同族工具、REST 对同一拒绝回 422、`ADR-119`），而真正服务端故障的 -32603 判据仍在 `tests/test_mcp_server.py:424` 原位守着，并没有因此不再被断言。**行为变更**：`scan_file` 的工作区拒绝现在回 -32602；MCP 工具结果与错误文本不再携带服务端文件系统路径。
+
+- **错误文案里的服务端路径现在真的被遮住了（复核发现 `A-8`）**。`safe_detail`（当时还叫 `_safe_detail`，现已抽到 `datasentry.redact`）是 D2-02/D5-06 为此
+  写的脱敏函数，但它的字符类把空白与引号排除在外，于是匹配**到第一个空格就停**：
+  `/srv/My Data/orders.csv` 脱敏后是 `<path> Data/orders.csv`，尾段照旧外泄——而带空格的路径
+  （`Application Support`、`My Documents`、挂载点）在真实机器上是常态。同时 `/ui/*` 有 14 处把
+  `str(exc)` 直接插进 HTML 响应，根本没经过这个函数。现在：① 脱敏改为逐段扫描，**紧邻的下一个 token
+  自带分隔符才继续吃**，因此 `/srv/My Data/orders.csv`、`/srv/My<TAB>Data/orders.csv`、
+  `C:\Users\Zhi Ren\orders.csv`、`\\nas\share\fin.xlsx` 整条被遮住，而
+  `failed to read /srv/a/b.csv after 3/5 attempts` 里的 `after 3/5 attempts` 不再被顺手吃掉；
+  ② 那 14 处与另外两处 f-string 裸插值 `{exc}`（webhook 投递失败、job 命令非法）统一走
+  `_safe_detail`；③ 新增一条 AST 判据，`create_app` 里任何 `str/repr(exc)` 或 f-string 裸 `{exc}`
+  进入响应即红（唯一豁免是按内容分类的比较），所以以后加第 15 个面会被判据拦住而不是靠人记得。
+  **边界如实写明**：含括号或逗号的路径仍会留下相对片段（`/srv/My Reports (2024)/x.csv` 剩
+  `Reports (2024)/x.csv`）——那是文件名，不是文件系统地图；绝对前缀一定消失。
+  **行为变更**：断言过 `/ui/*` 或 `/jobs` 错误页里原始路径文本的脚本会看到 `<path>`。
+  MCP 面同形问题（12 处 `str(exc)` 进入工具结果，且 `scan_file` 的越界拒绝回的是 -32603
+  而非 -32602）**本轮未修**，已实测并记入 `AUDIT/CANDIDATES_A8_A10.yaml` 的 `A-8-mcp`。
+
+- **明文还原现在有审计记录（`D5-02`）**。REST `/pii/sessions/{id}/restore` 与其 `/ui/pii` 孪生面每次请求记一行 `pii-restore session=… via=… ok=… [reason=…]`；按不变量 5 只记不透明会话 id、入口面、结果与固定原因码，**不记文本也不记还原出的明文**。密钥未配置导致的 503 也在记录范围内。
+
+- **`repair diff` 现在比较工件里的原文（`D2-06`）**。`RepairEngine.table_diff` 之前用 pyarrow
+  默认方式读两份 CSV 工件，而默认会做类型推断：一列 ` 01234 ` 被读成 int64 `1234`，before 与
+  after **两侧同时**失真，于是一次改光全部数据行的 TRIM 在 diff 里报成
+  「no row-level changes (repaired copy matches snapshot)」——可审计环节对已发生的变更说谎
+  （不变量 4）。现在 CSV 侧带 `default_column_type=string` 逐格取原文，并改为按较长一侧逐位比较，
+  行数不等不再被 `zip(strict=False)` 静默截断。空变更时的文案也改成陈述实际比较过的内容。
+  **行为变更**：`GET /repairs/{id}/diff` 与 `--format json` 的 `before`/`after` 单元格由推断值
+  （int/float/bool）改为文件里的字符串原文——`1.50` 不再显示成 `1.5`。这是审计语义上的正确方向，
+  但依赖旧 JSON 数值类型的消费方需自行转换。影响面仅 `table_diff`（唯一调用方是 `client.repair_diff`），
+  扫描与修复写入路径不经过它。
+
+- **批量修复表单现在真的能把勾选的 issue 提交上去（`UI-07`）**。扫描详情页的 9 个
+  `<input class="issue-check" name="issue_ids">` 渲染在 `<form id="batch-repair-form">` **之外**
+  且没有 `form=` 关联，因此不属于该表单：用户在界面上勾好 issue、点 Batch propose，到达服务端的
+  `issue_ids` 恒为空，回复是「no issues selected」——与他看到的勾完全矛盾（真实浏览器实测必然 400）。
+  现在每个复选框带 `form="batch-repair-form"`（HTML5 合法关联），表单 id 与关联由同一个常量
+  `BATCH_REPAIR_FORM_ID` 生成，两端不会再各自漂移。同时该拒绝文案改为「请先勾选至少一个问题」并附
+  返回原扫描页的链接（`render_error` 新增 `back_href`/`back_label`）；批量 propose 与批量 apply
+  两个面共用。**行为变更**：断言旧文案 `no issues selected` 的脚本需改判新文案或 400 状态码。
+  服务端语义未变（仍只 propose 不 apply，仍要求 `source_path` 过工作区收束）。
+
+- **MCP：`scan_file` 的 `sampling_method` 补齐 core 实际接受的 6 个取值**
+  （random/stratified/reservoir/time_based/rare_oversampling/none）并加
+  `enum`；工具自述此前只列 3 个，照自述生成调用的 Agent 用不到另外 3 个。
+
+- **修复面的源路径改为「已登记数据集」下拉，并回显只写副本的承诺（`UI-04`）**。扫描详情页的批量表单与单条修复工作台此前各有一个自由文本框，要用户手填服务端文件系统里的路径——填错即打到工作区之外（即 `D5-04`），而页面从不说明修复会把字节写到哪。现在两处都是 `<select name="source_path" required>`，选项来自本工作区扫描过的源文件（按路径去重、默认选中本次扫描自己的文件），并在控件下方写明「只写副本，绝不覆盖原文件；副本与 `.before` 回滚工件都产在 `.datasentry/repairs/`」。文案里的目录是实测出来的：首稿写「在源文件旁」，与 `repair/engine.py:258-259` 的实际产物位置不符。**行为变更**：直接抓页面 DOM 的脚本需从 `input[type=text][name=source_path]` 改选 `select[name=source_path]`；提交字段名与语义不变，服务端仍按 `D5-04`/`D5-09` 校验路径，因此手工构造的 POST 不受影响。下拉只是便利层，不是安全边界。
+
+- **单条修复的 apply 响应页现在当场给出行级证据（`D2-06` 第二症状 / `P31-A`）**。此前 apply 成功只回
+  一行「Repair applied: rep_… · status applied · Rollback」，要看「到底改了什么」必须再点一次工件页，
+  而单条面连工件链接都没有（批量面有）——写入数据之后证据却不在现场。现在 apply 响应内联渲染变更行的
+  before/after 对照表，并始终附「查看完整工件」链接；工件页与该页共用同一个 `_diff_table`，两个面不可能
+  把同一份证据渲染成两样（判据逐格比对两侧单元格）。工件读不到时（快照或副本缺失）页面明说「未能从本次
+  修复的工件读取行级差异」，不静默留白。propose 响应不渲染该节：没写数据就不给「已写入」的证据。
+  同时修掉一个只在真实浏览器里才暴露的问题：diff 单元格此前是普通 `<td>文本</td>`，HTML 普通流会折叠首尾
+  空白，` alice ` 与 `alice` 渲染成一模一样的 “alice”——trim 类修复最需要被看见的东西恰好看不见。现在变更值
+  包在 `<code>` 里并带 `white-space: pre-wrap`，实测两个内联盒宽 61px / 43px，375px 视口下不产生横向溢出。
+  两处配套约束：apply 响应最多渲染前 50 个变更行并明写「另有 N 行未在此展示」（写入路径不能被一次点击变成
+  几百 MB 页面，工件页不封顶），以及该页的异常文案改走 `_safe_detail`（`repair_diff` 的报错带服务端绝对路径，
+  与 `D2-02`/`D5-06` 同一规则）。
+
+## [1.0.4] - 2026-08-29
+
+### 修复
+
+- 修正 MCP Registry 元数据命名空间授权问题（`6751c69`）。
+
+## [1.0.3] - 2026-08-29
+
+### 新增
+
+- 发布 DataSentry 到官方 MCP Registry（`30c0fc9`）。
+- 可复用的 GitHub quality-gate workflow（`19dd1ce`，
+  `.github/workflows/datasentry-quality-gate.yml`）。
+- v1.0.2 demo 成为默认 quickstart（`0c41127`）。
+
+## [1.0.2] - 2026-08-29
+
+### 新增
+
+- GitHub onboarding 打磨与一键 demo（`5e4070b`）。
+- dbt 与 Airflow quality-gate 集成示例（`7c05555`，
+  `examples/integrations/dbt|airflow`）。
+
+### 修复
+
+- 运行时版本改从已安装包元数据派生（`8231b56`）。
+
+## [1.0.1] - 2026-08-28
+
+### 修复
+
+- 发布兼容的 datasentry-ai/core 配对版本（`12387c8`）。
+
+### 文档
+
+- MCP 客户端 copy-paste 配置指南（`25c4198`）。
+- GitHub Growth V2：围绕修复闭环重新定位（`d9bd318`）。
+
 ## [1.0.0] - 2026-08-20
 
 里程碑发布：核心数据质量闭环（detect → explain → validate → repair →

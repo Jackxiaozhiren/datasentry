@@ -15,7 +15,7 @@ on:
       datasentry_version:
         description: datasentry-ai version to install from PyPI
         required: false
-        default: "1.0.2"
+        default: "1.0.4"
         type: string
       python_version:
         description: Python version used to run DataSentry
@@ -42,7 +42,7 @@ on:
       datasentry_version:
         description: datasentry-ai version to install from PyPI
         required: false
-        default: "1.0.2"
+        default: "1.0.4"
         type: string
       python_version:
         description: Python version used to run DataSentry

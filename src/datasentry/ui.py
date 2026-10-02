@@ -13,6 +13,7 @@ Column Explorer / 跨扫描趋势归 V1（MVP 只做问题定位闭环）。
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from html import escape
 from typing import Any, cast
 
@@ -22,9 +23,19 @@ from datasentry_core.models.enums import RepairRunStatus, Severity
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
 from datasentry_core.models.scan import ScanConfig, ScanRun
+from datasentry_core.repair.engine import changed_cells
 from datasentry_core.reporting import mask_text_pii
 from datasentry_core.reporting.i18n import t
 from datasentry_core.reporting.translate import translate_title
+
+# The batch-repair form and the issue checkboxes live in different parts of the page, so the
+# association is explicit (`form=`) rather than positional; one constant keeps the two ends from
+# drifting apart, which is what made every browser submit of this form answer "no issues selected".
+BATCH_REPAIR_FORM_ID = "batch-repair-form"
+
+# The apply response is on the write path: a repair over a million-row file used to answer with a
+# ~380 MB page. The artefact page stays uncapped because that is what "full" means there.
+APPLY_DIFF_ROW_CAP = 50
 
 _CSS = """
 :root { color-scheme: light; }
@@ -43,8 +54,10 @@ body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 2rem 
 .delta.pos { color: #1a7f37; font-weight: 600; }
 .delta.neg { color: #cf222e; font-weight: 600; }
 .delta.flat { color: #59636e; }
-.diff-del { background: #fde8e8; }
-.diff-add { background: #e8f5e9; }
+.diff-del { background: #fde8e8; white-space: pre-wrap; }
+.diff-add { background: #e8f5e9; white-space: pre-wrap; }
+/* The box hugs the value's own leading/trailing blanks, so a whitespace repair is visible. */
+.diff-del code, .diff-add code { background: rgba(255, 255, 255, .75); white-space: pre-wrap; }
 .diff-side { font-weight: 600; white-space: nowrap; }
 h1 { border-bottom: 2px solid #0969da; padding-bottom: .3rem; }
 h2 { margin-top: 2rem; border-bottom: 1px solid #d0d7de; padding-bottom: .2rem; }
@@ -55,7 +68,10 @@ nav { margin-bottom: 1.5rem; }
 nav a { margin-right: 1rem; }
 a { color: #0969da; }
 .badge { display: inline-block; padding: .1rem .45rem; border-radius: .6rem;
-         font-size: .75rem; font-weight: 600; color: #fff; }
+         font-size: .75rem; font-weight: 600; color: #fff; background: #57606a; }
+.badge-ok { background: #1a7f37; }
+.badge-err { background: #cf222e; }
+.badge-flat { background: #57606a; }
 .badge-ok { background: #1a7f37; }
 .badge-err { background: #cf222e; }
 .badge-critical { background: #cf222e; }
@@ -107,7 +123,8 @@ def _page(title: str, body: str, *, active: str = "", lang: str = "en") -> str:
     return "\n".join(
         [
             "<!DOCTYPE html>",
-            f'<html lang="{t(lang, "html.lang")}"><head><meta charset="utf-8">',
+            f'<html lang="{t(lang, "html.lang")}"><head><meta charset="utf-8">'
+            '<link rel="icon" href="data:,">',
             f"<title>{escape(title)} · DataSentry</title>",
             f"<style>{_CSS}</style></head><body>",
             "<nav>"
@@ -234,6 +251,7 @@ def render_home(
     *,
     batch: dict[str, object] | None = None,
     lang: str = "en",
+    title: str | None = None,
 ) -> str:
     scan_label = escape(t(lang, "ui.scan_button"))
     body = [
@@ -252,7 +270,8 @@ def render_home(
         "</div></div>",
         _scan_progress_script(),
     ]
-    return _page(t(lang, "ui.home_title"), "\n".join(body), lang=lang)
+    # UI-01：/ui/scans 曾与 /ui/ 同标题同正文；列表路由现传独立标题。
+    return _page(title or t(lang, "ui.home_title"), "\n".join(body), lang=lang)
 
 
 def _scan_progress_script() -> str:
@@ -317,7 +336,8 @@ def _direction_badge(direction: str, *, lang: str = "en") -> str:
         return f'<span class="badge badge-ok">{escape(t(lang, "ui.direction_up"))}</span>'
     if direction == "down":
         return f'<span class="badge badge-err">{escape(t(lang, "ui.direction_down"))}</span>'
-    return f'<span class="badge">{escape(t(lang, "ui.direction_flat"))}</span>'
+    # UI-03：flat 徽标曾是无背景的白字（对比度 ~1.0 不可读），现给深灰底。
+    return f'<span class="badge badge-flat">{escape(t(lang, "ui.direction_flat"))}</span>'
 
 
 def _sparkline(scores: list[float]) -> str:
@@ -783,40 +803,59 @@ def render_repair_artifact(
     if not changed_indices:
         body = f'<p class="meta">{escape(t(lang, "ui.artifact_no_changes"))}</p>'
     else:
-        thead = "".join(f"<th>{escape(c)}</th>" for c in columns)
-        diff_rows = []
-        for i in changed_indices:
-            before = before_rows[i] if i < len(before_rows) else []
-            after = after_rows[i] if i < len(after_rows) else []
-            line_no = i + 2
-            before_cells = "".join(
-                (
-                    f'<td class="diff-del">{escape(str(v)) if v is not None else "∅"}</td>'
-                    if (i2 < len(before) and i2 < len(after) and before[i2] != after[i2])
-                    else f"<td>{escape(str(v)) if v is not None else '∅'}</td>"
-                )
-                for i2, v in enumerate(before)
-            )
-            after_cells = "".join(
-                (
-                    f'<td class="diff-add">{escape(str(v)) if v is not None else "∅"}</td>'
-                    if (i2 < len(before) and i2 < len(after) and before[i2] != after[i2])
-                    else f"<td>{escape(str(v)) if v is not None else '∅'}</td>"
-                )
-                for i2, v in enumerate(after)
-            )
-            diff_rows.append(
-                '<tr class="diff-row">'
-                f'<td rowspan="2" class="meta">{escape(t(lang, "ui.artifact_line"))} {line_no}</td>'
-                f'<td class="meta diff-side">{escape(t(lang, "ui.artifact_before"))}</td>'
-                f"{before_cells}</tr>"
-            )
-            diff_rows.append(
-                f'<tr><td class="meta diff-side">{escape(t(lang, "ui.artifact_after"))}</td>'
-                f"{after_cells}</tr>"
-            )
-        body = f"<table><tr><th></th><th></th>{thead}</tr>" + "".join(diff_rows) + "</table>"
+        body = _diff_table(columns, before_rows, after_rows, changed_indices, lang=lang)
     return _page(t(lang, "ui.artifact_title"), head + actions + body, active="repairs", lang=lang)
+
+
+def _diff_table(
+    columns: list[str],
+    before_rows: list[list[object]],
+    after_rows: list[list[object]],
+    changed_indices: list[int],
+    *,
+    lang: str = "en",
+) -> str:
+    """The changed rows, before and after, as one table. Shared by the artifact page and the
+    workbench's apply response so the two cannot render the evidence differently."""
+    thead = "".join(f"<th>{escape(c)}</th>" for c in columns)
+    diff_rows = []
+    width = len(columns)
+
+    def at(index: int, rows: list[list[object]]) -> list[object]:
+        # A row present on one side only must still render every column, or the row shows up with
+        # an empty partner and nothing highlighted.
+        values = rows[index] if index < len(rows) else []
+        return [*values, *([None] * (width - len(values)))]
+
+    def cell(value: object, cls: str | None) -> str:
+        text = escape(str(value)) if value is not None else "∅"
+        if cls is None:
+            return f"<td>{text}</td>"
+        # `<code>` with pre-wrap: HTML collapses exactly the blanks a whitespace repair removes.
+        return f'<td class="{cls}"><code>{text}</code></td>'
+
+    for i in changed_indices:
+        before = at(i, before_rows)
+        after = at(i, after_rows)
+        line_no = i + 2
+        differs = changed_cells(before, after)
+        before_cells = "".join(
+            cell(v, "diff-del" if i2 in differs else None) for i2, v in enumerate(before)
+        )
+        after_cells = "".join(
+            cell(v, "diff-add" if i2 in differs else None) for i2, v in enumerate(after)
+        )
+        diff_rows.append(
+            '<tr class="diff-row">'
+            f'<td rowspan="2" class="meta">{escape(t(lang, "ui.artifact_line"))} {line_no}</td>'
+            f'<td class="meta diff-side">{escape(t(lang, "ui.artifact_before"))}</td>'
+            f"{before_cells}</tr>"
+        )
+        diff_rows.append(
+            f'<tr><td class="meta diff-side">{escape(t(lang, "ui.artifact_after"))}</td>'
+            f"{after_cells}</tr>"
+        )
+    return f"<table><tr><th></th><th></th>{thead}</tr>" + "".join(diff_rows) + "</table>"
 
 
 def render_batch_apply(
@@ -925,6 +964,7 @@ def _issue_rows(issues: list[Issue], run_id: str, *, lang: str = "en") -> str:
         rows.append(
             '<div class="issue-card">'
             f'<input type="checkbox" name="issue_ids" value="{escape(issue.id)}" '
+            f'form="{BATCH_REPAIR_FORM_ID}" '
             'class="issue-check" aria-label="select issue">'
             f"<h3>{_severity_badge(issue.severity.value)} "
             f"{escape(mask_text_pii(translate_title(lang, issue.title, issue.issue_type)))}</h3>"
@@ -947,6 +987,7 @@ def render_scan_detail(
     *,
     severity_filter: str | None = None,
     lang: str = "en",
+    known_sources: Sequence[str] = (),
 ) -> str:
     overall = (
         f"{scan.quality_score.overall:.1f}" if scan.quality_score else t(lang, "meta.not_scored")
@@ -984,12 +1025,15 @@ def render_scan_detail(
         + "</div>",
         '<form method="post" '
         f'action="/ui/scans/{escape(scan.id)}/repairs/batch-propose" '
-        'id="batch-repair-form">'
-        f'<label for="batch-source-path">{escape(t(lang, "ui.source_path"))}</label>'
-        f'<input type="text" id="batch-source-path" name="source_path" '
-        f'value="{escape(scan.source_path or "")}" '
-        'placeholder="data/orders.csv" required>'
-        f'<button type="submit" id="batch-propose-btn" disabled>'
+        f'id="{BATCH_REPAIR_FORM_ID}">'
+        + _source_path_field(
+            known_sources,
+            scan.source_path,
+            html_id="batch-source-path",
+            label=t(lang, "ui.source_registered"),
+            lang=lang,
+        )
+        + '<button type="submit" id="batch-propose-btn" disabled>'
         f"{escape(t(lang, 'ui.batch_propose'))}</button>"
         "</form>",
         _issue_rows(issues, scan.id, lang=lang),
@@ -1009,6 +1053,48 @@ def render_scan_detail(
     return _page(f"Scan {scan.id}", "\n".join(body), lang=lang)
 
 
+def _source_path_field(
+    known_sources: Sequence[str],
+    current: str | None,
+    *,
+    html_id: str,
+    label: str,
+    lang: str,
+) -> str:
+    """A picker over registered sources, plus the copy-only promise the repair face owes the user.
+
+    The select is not the security boundary -- a crafted POST can still name any path, and
+    `resolve_allowed_scan_path` is what refuses it (row r5). This exists because a free-text box
+    invited a typo against the server's path space and never said where the bytes would go (UI-04).
+    """
+    options: list[str] = []
+    for candidate in [*known_sources, current or ""]:
+        if candidate and candidate not in options:
+            options.append(candidate)
+    if not options:
+        # Not `disabled`: a disabled control is barred from constraint validation and never
+        # submitted, so `required` on it does nothing and the POST arrives without `source_path` at
+        # all -- which FastAPI answers with bare JSON 422, the same UI-06 dead end as an unhandled
+        # exception. Left enabled and empty, the browser blocks the submit with a message at the
+        # control and the note below says why (review B-6).
+        return (
+            f'<label for="{html_id}">{escape(label)}</label>'
+            f'<select id="{html_id}" name="source_path" required></select>'
+            f'<p class="meta">{escape(t(lang, "ui.no_registered_sources"))}</p>'
+        )
+    tags = "".join(
+        f'<option value="{escape(path)}"'
+        + (" selected" if path == (current or options[0]) else "")
+        + f">{escape(path)}</option>"
+        for path in options
+    )
+    return (
+        f'<label for="{html_id}">{escape(label)}</label>'
+        f'<select id="{html_id}" name="source_path" required>{tags}</select>'
+        f'<p class="meta">{escape(t(lang, "ui.repair_copy_note"))}</p>'
+    )
+
+
 def render_workbench(
     issue: Issue,
     *,
@@ -1017,8 +1103,10 @@ def render_workbench(
     proposal: RepairProposal | None = None,
     preview: RepairPreview | None = None,
     run: RepairRun | None = None,
+    diff: tuple[list[str], list[list[object]], list[list[object]], list[int]] | None = None,
     error: str | None = None,
     lang: str = "en",
+    known_sources: Sequence[str] = (),
 ) -> str:
     cols = ", ".join(escape(c) for c in issue.columns) or "—"
     body = [
@@ -1067,13 +1155,35 @@ def render_workbench(
             f"{escape(t(lang, 'ui.rollback'))}</a>"
             "</div>"
         )
+        if diff is None:
+            body.append(f'<p class="meta">{escape(t(lang, "ui.artifact_unavailable"))}</p>')
+        elif not diff[3]:
+            body.append(f'<p class="meta">{escape(t(lang, "ui.artifact_no_changes"))}</p>')
+        else:
+            columns, before_rows, after_rows, changed_indices = diff
+            shown = changed_indices[:APPLY_DIFF_ROW_CAP]
+            body.append(f"<h2>{escape(t(lang, 'ui.artifact_heading'))}</h2>")
+            body.append(_diff_table(columns, before_rows, after_rows, shown, lang=lang))
+            hidden = len(changed_indices) - len(shown)
+            if hidden > 0:
+                body.append(
+                    f'<p class="meta">{escape(t(lang, "ui.artifact_more").format(n=hidden))}</p>'
+                )
+        body.append(
+            f'<p><a href="/ui/repairs/{escape(run.id)}/artifact">'
+            f"{escape(t(lang, 'ui.view_full_artifact'))}</a></p>"
+        )
     body.append(
         f"<h2>{escape(t(lang, 'ui.workbench_title'))}</h2>"
         '<form method="post">'
-        f'<label for="source_path">{escape(t(lang, "ui.source_file_path"))}</label>'
-        f'<input type="text" id="source_path" name="source_path" required '
-        f'value="{escape(source_path or "")}">'
-        f'<button type="submit" name="action" value="propose">'
+        + _source_path_field(
+            known_sources,
+            source_path,
+            html_id="source_path",
+            label=t(lang, "ui.source_file_path"),
+            lang=lang,
+        )
+        + f'<button type="submit" name="action" value="propose">'
         f"{escape(t(lang, 'ui.propose_repair'))}</button>"
         f'<button class="secondary" type="submit" name="action" value="apply">'
         f"{escape(t(lang, 'ui.apply_repair'))}</button>"
@@ -1356,11 +1466,25 @@ def render_compare(
     )
 
 
-def render_error(title: str, message: str, *, lang: str = "en") -> str:
+def render_error(
+    title: str,
+    message: str,
+    *,
+    lang: str = "en",
+    back_href: str | None = None,
+    back_label: str | None = None,
+) -> str:
+    """A failure page that still tells the user where to go next.
+
+    `back_href` defaults to Home; a caller that refused an action the user took *from* a specific
+    page passes that page, so the way out is the way back in rather than a reload of the root.
+    """
+    href = back_href or "/ui/"
+    label = back_label or t(lang, "ui.back_home")
     return _page(
         title,
         f'<div class="alert alert-err">{escape(message)}</div>'
-        f'<p><a href="/ui/">{escape(t(lang, "ui.back_home"))}</a></p>',
+        f'<p><a href="{escape(href)}">{escape(label)}</a></p>',
         lang=lang,
     )
 

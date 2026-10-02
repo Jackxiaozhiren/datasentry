@@ -6,6 +6,7 @@ key 未配置 → 503（与 /rpc/execute disabled 语义一致）；session
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -264,3 +265,61 @@ class TestPiiPurgeV18:
     def test_purge_endpoint_listed(self, tmp_path: Path, key_env: None) -> None:
         client, _ = _client(tmp_path)
         assert "POST /pii/sessions/purge" in client.get("/").json()["endpoints"]
+
+
+class TestRestoreAuditRecord:
+    """D5-02（阶段 2 行 r2）：每次明文还原留一条审计记录，且记录里没有明文（不变量 5）。"""
+
+    @staticmethod
+    def _lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+        return [r.getMessage() for r in caplog.records if "pii-restore" in r.getMessage()]
+
+    def test_successful_restore_is_audited_without_plaintext(
+        self, tmp_path: Path, key_env: None, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        client, vault = _client(tmp_path)
+        session_id = vault.save_mapping(_MAPPING)
+        with caplog.at_level(logging.INFO, logger="datasentry.api"):
+            resp = client.post(
+                f"/pii/sessions/{session_id}/restore", json={"text": "{{REDACTED:email:0}}"}
+            )
+        assert resp.status_code == 200
+        lines = self._lines(caplog)
+        assert len(lines) == 1, lines
+        assert f"session={session_id}" in lines[0]
+        assert "via=rest" in lines[0] and "ok=True" in lines[0]
+        assert "alice@example.com" not in lines[0]
+
+    def test_unknown_session_is_audited_as_failed(
+        self, tmp_path: Path, key_env: None, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        client, _ = _client(tmp_path)
+        with caplog.at_level(logging.INFO, logger="datasentry.api"):
+            resp = client.post("/pii/sessions/pii_nope/restore", json={"text": "x"})
+        assert resp.status_code == 404
+        lines = self._lines(caplog)
+        assert any("via=rest" in x and "ok=False" in x and "reason=not-found" in x for x in lines)
+
+    def test_missing_key_is_audited_as_failed(
+        self, tmp_path: Path, no_key_env: None, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        client, _ = _client(tmp_path)
+        with caplog.at_level(logging.INFO, logger="datasentry.api"):
+            assert client.post("/pii/sessions/pii_x/restore", json={"text": "x"}).status_code == 503
+        assert any("reason=key-missing" in x for x in self._lines(caplog))
+
+    def test_the_ui_twin_is_audited_too(
+        self, tmp_path: Path, key_env: None, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """`/pii/*` and its `/ui/*` twin must leave the same kind of record (D5-10's lesson)."""
+        client, vault = _client(tmp_path)
+        session_id = vault.save_mapping(_MAPPING)
+        with caplog.at_level(logging.INFO, logger="datasentry.api"):
+            resp = client.post(
+                "/ui/pii",
+                data={"session_id": session_id, "text": "{{REDACTED:email:0}}"},
+            )
+        assert resp.status_code == 200
+        lines = self._lines(caplog)
+        assert any("via=ui" in x and "ok=True" in x for x in lines), lines
+        assert all("alice@example.com" not in x for x in lines)

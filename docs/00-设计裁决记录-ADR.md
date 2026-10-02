@@ -419,6 +419,8 @@
 - **影响**：新增依赖 fastapi/uvicorn（运行）、httpx（测试）；端点清单
   13 个；`DataSentry` 新增 `list_scan_runs()`（此前仅 store 层有此方法）。
 
+- **修订（2026-09-28，阶段 2 行 r8，`D1-04`/`D1-08`）**：本 ADR 的第 3 条只覆盖 REST 面，MCP stdio 面彼时没有对应的错误码归属，实测三类错误全挤在 `-32603`（Server error）里，且错误帧不回显请求 id。现补齐归属表：解析失败 → `-32700`（此前静默丢弃该帧，客户端只会觉得服务器没反应）、非法 JSON 数组等非对象请求 → `-32600`、参数校验失败（缺 required、多未知参数、类型不符、`enum` 外取值、arguments 不是对象）→ `-32602`、未知方法 → `-32601`、未知工具 → `-32602`、确认闸门拒绝 → `-32602`（`ADR-119`），只有真正的服务端异常才回 `-32603`；参数校验按工具注册时对外声明的 `inputSchema` 执行，声明从此是约束而非文档。所有错误帧一律回显请求 `id`（解析失败无 id 可回时按 JSON-RPC 置 `null`）。判据：`AUDIT/tools/probe_mcp_error_codes.py` 五面 exit 0。
+
 ---
 
 ## ADR-024：Web UI 的服务端渲染边界（docs/03 1.2 五个核心页）
@@ -2093,6 +2095,15 @@
 - **影响**：mcp_server.py scan_file + 测试 3 新增（透传采样 /
   detectors+tags / 与 CLI 等价性：MCP 落库 run 的 SamplingInfo
   经 client.get_detector_runs 校验）。
+- **修订（2026-09-28，行 r1 随行 `D1-02`）**：上文只列了 3 个
+  `sampling_method` 取值，而 core 的 `SamplingConfig.method` 实际接受 6 个
+  （random / stratified / reservoir / time_based / rare_oversampling / none），
+  且 MCP schema 当时是裸 `{"type": "string"}` 无 `enum` ⇒ 照工具自述生成调用
+  的 Agent 永远用不到另外 3 个。现已把描述、`Literal` 注解与 `enum` 对齐到
+  6 值（`mcp_server.SAMPLING_METHODS`，测试与该 Literal 对钉）。同时更正
+  上文两处与代码不符的表述：默认值是 `reservoir`（不存在「sampling=None
+  即全量」这一形态），无效取值的错误码目前仍是 -32603，改判 -32602 属
+  `D1-04`（行 r8）。
 
 ## ADR-077：增量画像（V10，Step 77）
 
@@ -2870,3 +2881,146 @@
   焦点移入目标 pane 的表格）、run_test 不支持 thread worker。
 - **依据**：V24 需求（用户点名 Claude Code/Codex 风格 CLI）；
   Textual 官方 Pilot 测试文档。
+
+## ADR-119：MCP 写操作的确认闸门（D5-08 / D5-12）
+
+- **状态**：已确认（2026-09-28，阶段 2 行 r1）
+- **背景**：MCP stdio 面上 25 个工具里 10 个会改状态，其中 9 个没有任何
+  确认参数；`repair_apply_batch` 虽有 `preview_only`，但它非必填且默认
+  False（`AUDIT/tools/mcp_tool_census.py` 实测 `open=10`）。真实 stdio
+  探测（`AUDIT/tools/probe_d508_mcp_apply_no_preview.py`）显示：只给
+  scan_run_id + source_path 的一次调用即完成落库且 `isError=false`。
+  不变量 2「AI 建议只是提案，不做静默自主变更」在这条面上没有机制保障。
+- **决策**：
+  1. `_tool(..., mutating=True)` 注册时统一注入必填 `confirm: boolean`；
+     值不为 `true` 即拒绝，不执行任何写。
+  2. 拒绝以 JSON-RPC 错误帧（`-32602`）返回，而不是 `isError=false` 的
+     正常结果——只看错误帧的 Agent 必须能看见它。工具级业务失败仍走
+     `result.isError`。
+  3. `repair_apply_batch` 的 `preview_only` 由「可选、默认 False」改为
+     必填：调用方必须显式选「只看预览」或「确实落库」，沉默不再是同意。
+  4. `_rpc_error` 回显请求 `id`（此前所有错误帧都没有 id，按 id 关联响应
+     的客户端会一直等下去）。
+- **边界**：
+  - 破坏性变更，已记 CHANGELOG；REST/UI 面不受影响（它们各自的守护在
+    `D5-02`/`D5-10`/`D5-11` 行处理）。
+  - `confirm` 表达的是「调用方声明自己要写」，不是身份鉴权。
+  - 参数校验的码值统一（非法 `sampling_method` 目前仍回 -32603）属
+    `D1-04`/`D1-08`，行 r8。
+- **影响**：`src/datasentry/mcp_server.py`（`CONFIRM_PARAM`、
+  `ConfirmationRequired`、`_tool(mutating=)`、分发处一条 except）、
+  `tests/test_mcp_server.py`（`TestConfirmationGate` 6 例，先对
+  `git show HEAD` 的实现跑红再跑绿）、
+  `AUDIT/tools/mcp_tool_census.py`（按注册后的 schema 判定，并对
+  decorator 注入建模）。
+
+## ADR-120：写端点的统一授权闸门与 Web UI 的回环信任边界（D5-10 / D5-11 / P17 / P18）
+
+- **状态**：已确认（2026-09-28，阶段 2 行 r12）
+- **背景**：`D5-02` 的 token 闸门以「每个处理器自己调用 `_require_api_token`」的形式存在，
+  实测只覆盖 61 条路由里的 11 条；`D5-11` 量出 21 条会改状态的路由（含 `POST /scans`、
+  `POST /jobs`、全部 `/ui/pii*` 与批量修复端点）在管理员**已经**设置
+  `DATASENTRY_API_TOKEN` 之后仍可无凭证调用（本机实测 `POST /scans → 201`）。`api.py`
+  的注释把 UI 表单写端点与 MCP stdio 归为「同机交互面，本轮不拦截」，而 `Dockerfile`
+  绑 `0.0.0.0`，容器化后这一前提不再成立（P18）。
+- **决策**：
+  1. 授权改成**应用级中间件**（`create_app` 内的 `enforce_write_guard`），默认拒绝：
+     方法属于 `{POST, PUT, PATCH, DELETE}` 就必须通过闸门。逐端点调用保留为第二层，
+     但不再有任何一条路由依赖"作者记得调用"。
+  2. 唯一的豁免前缀是 `/rpc/`（worker token 在自己的处理器里判定，未配置 503、
+     不匹配 401）。该豁免写死为一个具名常量，`route_guard_census.py` 会在它扩大时立刻变红。
+  3. 凭据语义：`DATASENTRY_API_TOKEN` 未设置 = 本地单机默认（与 CLI、调度器同一信任
+     边界，行为零变化）；已设置 = 写请求必须带正确的 `X-Datasentry-Token`。
+  4. Web UI 的表单**发不出请求头**（P17）。这里不发明会话机制，而是把 UI 的写权限
+     收在两个可验证条件上：来源是回环（`ipaddress.ip_address(...).is_loopback`，整个
+     127/8 与 `::1`，不是字符串集合）**且** `Origin`/`Referer` 与 Host 同源。跨站表单
+     POST（浏览器无法伪造 Origin）因此被拒；容器里经端口映射进来的对端不是回环，
+     因此"同机交互面"不再替远程访问开门。
+- **边界**：
+  - 本机任意进程仍可裸调 `/ui/*` 写端点（在"回环=本机用户"这一既定边界内）；要收
+    这一层必须引入真实会话，属独立产品决策，本 ADR 不假装已解决。
+  - "未设置 token 时写端点对所有可达网卡开放"要由 `D5-01`/`D5-02`（行 r3/r2）在**启动
+    姿态**上收口：非回环绑定必须显式 opt-in。本 ADR 只解决路由层的统一性。
+  - MCP stdio 不是 HTTP 面，它的闸门是 `ADR-119` 的 `confirm`。
+- **影响**：`src/datasentry/api.py`（`MUTATING_METHODS`、`_is_loopback`、`_same_origin`、
+  `_write_allowed`、`enforce_write_guard`）、`tests/test_api_token.py`（新增 9 例，其中 6 例
+  对 `d8a8a6d` 为红）、`CHANGELOG.md` 破坏性一段、`AUDIT/tools/route_guard_census.py`
+  （认识中间件这一机制并对豁免集设棘轮）。判据：普查退出 0（`mutating_unguarded=0`），
+  剥掉中间件的负控制退出 1。
+
+## ADR-121：非回环绑定的启动姿态（D5-01 / D5-02）
+
+- **状态**：已确认（2026-09-28，阶段 2 行 r2+r3 合并执行）
+- **背景**：默认绑定已收为 `127.0.0.1`，但越界只剩一条 `logger.warning`，且回环判定是
+  `{"127.0.0.1", "localhost", "::1"}` 三元素集合——`127.0.0.2` 被误报为对外暴露，
+  `::ffff:127.0.0.1` 与空串则完全绕过判定。`Dockerfile` 里 `ENV DATASENTRY_HOST=0.0.0.0`
+  替所有镜像用户选了全网卡。实测基线（打桩 `uvicorn.run`）：无 token + `0.0.0.0` 照起。
+- **决策**：warning 改为**拒绝启动**。`_resolve_bind(host, token=, opted_in=)` 是三态：
+  回环 → 静默启动；非回环 + 已配 token → 启动并记一条 warning（写端点随即要求
+  `X-Datasentry-Token`，见 `ADR-120`）；非回环 + 无 token + 无逃生阀 → 抛
+  `InsecureBindRefused`，`main()` 转成 `SystemExit` 并打印三个可选项。逃生阀是
+  `DATASENTRY_ALLOW_INSECURE_BIND=1`，它必须**显式**设置且启动时照样 warning 自己认领了暴露面。
+  回环判定统一用 `ipaddress.ip_address(...).is_loopback`（与 `ADR-120` 的 UI 对端判定同一函数）。
+- **边界**：容器内仍需 `0.0.0.0`（宿主端口映射经 eth0 进入，绑回环会不通），因此镜像保留
+  该默认值，但把它变成**有条件的**：`docker-compose.yml` 以
+  `${DATASENTRY_API_TOKEN:?…}` 要求传凭据，未传时 compose 直接失败并给出可读原因，
+  好过容器起来后反复重启。真实会话机制（登录/Cookie）不在本 ADR，属独立产品决策。
+- **影响**：`src/datasentry/api.py`（`INSECURE_BIND_OPT_IN`、`InsecureBindRefused`、
+  `_resolve_bind`、`main()`）、`Dockerfile` 注释、`docker-compose.yml` 环境段、
+  `tests/test_api_bind.py`（19 例；`uvicorn.run` 全程打桩，不实绑端口）。
+  还原审计记录（`_audit_restore`，行 r2 的另一半）同批落地，规格见 `ADR-120` 的凭据语义段。
+
+## ADR-122：扫描收束按面启用，而不是塞进 client.scan_file 无条件执行（D5-13）
+
+- **状态**：已确认（2026-09-28，阶段 2 行 r15）
+- **背景**：`D5-13` 的原始缺口是调度面绕过了 `resolve_allowed_scan_path`——`POST /jobs` 不校验
+  `path`，且 `JobCreate.project` 是调用方可填的裸字符串，执行器以它新建工作区。行 r15 的
+  草案写「收口下移到 `client.scan_file`（它已持有 `self._workspace`），四端同源」。
+- **决策**：收口确实下移到 `client.scan_file`，但**按构造面启用**：
+  `DataSentry(project=…, enforce_scan_containment=True)`。REST 门面（`create_app`）与 MCP 门面
+  （`McpServer`）以 True 构造，因此任何新的网络调用点默认在闸内；CLI 与本地执行器保持
+  默认 False，因为 `scan_paths` 写明的既有口径是「CLI / 调度器走本地信任边界（操作员本机）」，
+  无条件收束会让 `datasentry scan ~/Downloads/x.csv` 这类正常用法失效。
+  worker 侧 `/rpc/execute` 同样不再收一层：它的边界是 worker token，且实测二次收束会打断
+  V21 的跨工作区作业分发（`tests/test_cli_remote.py`、`tests/test_scheduler_workers.py` 当场变红）。
+- **登记面的两处校验**（真正的网络入口）：`POST /jobs` 先对 `path` 跑与工作区收束同一函数
+  （与 `POST /scans` 同结论，补齐 D5-11 的孪生面对称性），再要求 `project` 落在
+  `allowed_roots(workspace)` 内。多 worker 部署因此必须显式声明根目录，已记 CHANGELOG 破坏性段。
+- **边界**：相对路径仍锚在 `Path.cwd()`（`D5-04` 未关的那一半），本 ADR 不改锚点，
+  且本轮新增测试一律用绝对路径，不把断言建在 cwd 上；行 r5 修锚点时两个面同时受益。
+- **判据形态的教训**：本行第一次的结构判据是 `inspect.getsource(...)` 上的子串断言，而收束
+  调用当时被误插进 docstring 里，判据照样绿。现改为 AST：断言调用集合里存在
+  `resolve_allowed_scan_path`、且 if 条件读取该私有属性。**"源码里出现这个名字"不是证据。**
+- **修订（2026-09-29，G2 之后的独立复核 A-2/A-3/A-4）**：本 ADR 的"按面启用"当时只覆盖了
+  `scan_file`。MCP 另外四个接路径的面——`contract_validate`、`job_create`、
+  `repair_propose_batch`、`repair_apply_batch`——仍把参数直接交给磁盘，实测
+  `repair_apply_batch` 会把工作区外文件的字节作为回滚快照复制进工作区、`contract_validate`
+  会把文件内容回显在错误文本里。**"MCP 面强制"这句因此当时并不成立**，只是没被测到。
+  现四面共用 `resolve_allowed_scan_path`，拒绝走 `-32602`（`McpClientError` 基类，与确认门同一通道）。
+  本 ADR 的**核心裁定不变**：CLI 与本地执行器仍按操作员本地信任边界不收束，worker RPC 由
+  worker token 负责——变的是"MCP 属于服务端面"这一条的覆盖范围，从只覆盖扫描扩到覆盖全部接路径的工具。
+  不变的是远程源（`s3://`、`postgresql://`）原样放行：收束管的是本地文件系统命名空间，不是网络目标。
+
+## ADR-123：webhook 目标地址类别在投递时判定（D5-03 / P26 的 B 案）
+
+- **状态**：已确认（2026-09-28，阶段 2 行 r4）
+- **背景**：`scheduler/models.py` 的 scheme 校验写着「私网/loopback 目标暂不拦截
+  （本地通知是合法主流场景），IP allowlist 列为后续项」。实测 scheme-only 规则背后的洞很宽：
+  `http://2130706433/`、`http://127.1/`、`http://good.example@169.254.169.254/` 都是合法
+  `http://` 前缀，服务端照发，元数据地址甚至不需要伪装。所以本行不是补一个漏，而是推翻一段
+  书面推迟——推翻时不能把那段推迟保护的功能一起砍掉。
+- **决策**：
+  1. 地址类别判定放在**投递时**（`webhook_target_refusal`），两处投递点共用：
+     `WebhookNotifier.notify` 与 `POST /jobs/{id}/test-webhook`。scheme 校验保持原位原语义。
+  2. 判据是解析后的地址而不是字面串：十进制/十六进制/短写/userinfo 伪装由解析器展开，
+     再按类别判定；`resolver` 可注入，使这三种形态无需真实 DNS 即可复现与测试。
+  3. 拒绝集＝无合法通知用途的类别：link-local 与云元数据、unspecified、多播、保留、
+     CGNAT（100.64/10）。放行集＝loopback 与 RFC1918，即 models.py 写明的本机/内网通知场景。
+  4. 解析失败**不判为拒绝**：连不通的目标自然投递失败，在这里拒绝会让调度器依赖真实 DNS
+     并否掉测试替身（实测 9 例），而攻击者关心的形态——能解析到元数据的域名——已被第 2 条覆盖。
+  5. 面向调用方的 422 判定不得放在投递失败兜底（`except Exception → 502`）之内。
+- **边界（不假装解决）**：判定与 httpx 建连各解析一次，两者之间翻转 DNS 记录不在本 ADR 防护内，
+  要覆盖需把连接钉到已判定的地址上（连带 SNI/Host），列为后续项。真实会话/凭据层不属于本面。
+- **判据两侧性**：`AUDIT/tools/probe_webhook_targets.py` 同时断言「被拒类别不可投递」与
+  「允许目标不可被拒」（后者记 OVERREACH），并对 `JobCreate` 与其 `JobUpdate` 孪生模型都跑
+  scheme 面；只测一侧的判据会在过度收紧时继续报绿。

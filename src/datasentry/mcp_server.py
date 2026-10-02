@@ -44,8 +44,93 @@ from typing import Any, Literal, cast
 
 from datasentry import __version__
 from datasentry.client import DataSentry
+from datasentry.redact import safe_detail
+from datasentry.scan_paths import ScanPathRejected
 
 _PROTOCOL_VERSION = "2024-11-05"
+
+# Required on every state-changing MCP tool: an agent that wants a write must say so, so the
+# default path proposes or refuses instead of mutating (invariants 2 and 4).
+CONFIRM_PARAM = "confirm"
+
+# The sampling methods `scan_file` advertises. `tests/test_mcp_server.py` pins this tuple against
+# `SamplingConfig.method` in core: D1-02 measured the MCP surface listing 3 of the 6 methods core
+# actually accepts, so an agent following the tool's own description could never reach the others.
+SAMPLING_METHODS: tuple[str, ...] = (
+    "random",
+    "stratified",
+    "reservoir",
+    "time_based",
+    "rare_oversampling",
+    "none",
+)
+
+
+class McpClientError(ValueError):
+    """The caller, not the server, got it wrong -- answers JSON-RPC -32602.
+
+    Anything the transport must report as a client error belongs on this base rather than being
+    mapped by exception type at the call site; a bare `ValueError` would land in -32603 and blame
+    the server for a rejected argument.
+    """
+
+
+class ConfirmationRequired(McpClientError):
+    """A state-changing MCP call arrived without `confirm=true` (D5-08, D5-12).
+
+    Raised instead of returned so the transport answers JSON-RPC -32602: a refusal has to be an
+    error on the wire, otherwise a caller that only checks `isError` reads "success" for a call
+    that wrote nothing.
+    """
+
+
+class PathRejected(McpClientError):
+    """A path argument leaves the configured workspace (D5-04/D5-09/D5-13, review A-2/A-3/A-4).
+
+    `scan_file` was confined through the facade, but the repair, job-registration and contract
+    faces handed their path straight to disk -- measured: `repair_apply_batch` on a file outside
+    the workspace copied that file's bytes into the workspace as a rollback snapshot, and
+    `contract_validate` echoed file content back in its error text.
+    """
+
+
+_JSON_TYPES: dict[str, tuple[type, ...]] = {
+    "string": (str,),
+    "integer": (int,),
+    "number": (int, float),
+    "boolean": (bool,),
+    "object": (dict,),
+    "array": (list,),
+}
+
+
+def _argument_error(schema: dict[str, Any], arguments: dict[str, Any]) -> str | None:
+    """Why a `tools/call` payload fails its own advertised schema, or None if it passes.
+
+    D1-04: the schema used to be decoration. Dispatch is `handler(**arguments)`, so nothing read
+    `required`, `type` or `enum` and every client mistake arrived as -32603 Server error. An
+    explicit null for an optional parameter is allowed through — the handler accepts None there.
+    """
+    props: dict[str, Any] = schema["properties"]
+    missing = [param for param in schema["required"] if param not in arguments]
+    if missing:
+        return f"missing required argument(s): {', '.join(missing)}"
+    unknown = [key for key in arguments if key not in props]
+    if unknown:
+        return f"unknown argument(s): {', '.join(unknown)}"
+    for key, value in arguments.items():
+        if value is None:
+            continue
+        spec = props[key]
+        declared = _JSON_TYPES.get(str(spec.get("type")), ())
+        if declared and not isinstance(value, declared):
+            return f"{key} must be of type {spec.get('type')}"
+        if spec.get("type") in ("integer", "number") and isinstance(value, bool):
+            return f"{key} must be of type {spec.get('type')}"
+        allowed = spec.get("enum")
+        if allowed is not None and value not in allowed:
+            return f"{key} must be one of {sorted(allowed)}"
+    return None
 
 
 def _json_safe[T](value: T) -> T:
@@ -66,7 +151,7 @@ class McpServer:
     """MCP stdio 服务器：单工作区门面（与 REST create_app 同构）。"""
 
     def __init__(self, project: str | Path | None = None) -> None:
-        self._client = DataSentry(project=project)
+        self._client = DataSentry(project=project, enforce_scan_containment=True)
         self._tools: dict[str, dict[str, Any]] = {}
         self._handlers: dict[str, Callable[..., Any]] = {}
         self._register_tools()
@@ -79,24 +164,62 @@ class McpServer:
         description: str,
         properties: dict[str, dict[str, Any]],
         required: list[str],
+        mutating: bool = False,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+            props = properties
+            needs = required
+            handler: Callable[..., Any] = fn
+            if mutating:
+                props = {
+                    **properties,
+                    CONFIRM_PARAM: {
+                        "type": "boolean",
+                        "description": (
+                            "mandatory acknowledgement that this call mutates state; the tool "
+                            "writes nothing unless it is true (D5-08, D5-12)"
+                        ),
+                    },
+                }
+                needs = [*required, CONFIRM_PARAM]
+
+                def guarded(**kwargs: Any) -> dict[str, Any]:
+                    if kwargs.pop(CONFIRM_PARAM, None) is not True:
+                        raise ConfirmationRequired(
+                            f"{name} mutates state: pass {CONFIRM_PARAM}=true to perform the call"
+                        )
+                    return cast(dict[str, Any], fn(**kwargs))
+
+                handler = guarded
             self._tools[name] = {
                 "name": name,
                 "description": description,
                 "inputSchema": {
                     "type": "object",
-                    "properties": properties,
-                    "required": required,
+                    "properties": props,
+                    "required": needs,
                 },
             }
-            self._handlers[name] = fn
+            self._handlers[name] = handler
             return fn
 
         return decorator
 
     def _register_tools(self) -> None:
         client = self._client
+
+        def confine(raw: str) -> str:
+            """Workspace containment for every path argument on this surface (review A-2/A-3/A-4).
+
+            Same function the REST and UI faces use, so one rule decides all four surfaces. Remote
+            sources pass through untouched, exactly as they do there.
+            """
+            from datasentry.scan_paths import ScanPathRejected, resolve_allowed_scan_path
+
+            try:
+                return resolve_allowed_scan_path(raw, workspace=client.workspace)
+            except ScanPathRejected as exc:
+                raise PathRejected(safe_detail(exc)) from exc
 
         @self._tool(
             "scan_file",
@@ -105,8 +228,9 @@ class McpServer:
             "a cloud storage file (s3:// gs:// az:// CSV/Parquet/JSONL, Step 57) "
             "and persist the quality report. Returns scan id, status, row count, "
             "quality score and issue counts. Optional sampling (sampling_size or "
-            "sampling_ratio; sampling_method random|reservoir|none, default "
-            "reservoir; sampling_seed, default 42), detector whitelist and tags "
+            "sampling_ratio; sampling_method random|stratified|reservoir|"
+            "time_based|rare_oversampling|none, default reservoir; sampling_seed, "
+            "default 42), detector whitelist and tags "
             "mirror the CLI (Step 76, ADR-076).",
             {
                 "path": {
@@ -119,7 +243,11 @@ class McpServer:
                 "seed": {"type": "integer"},
                 "sampling_size": {"type": "integer"},
                 "sampling_ratio": {"type": "number"},
-                "sampling_method": {"type": "string"},
+                "sampling_method": {
+                    "type": "string",
+                    "enum": list(SAMPLING_METHODS),
+                    "description": "sampling strategy accepted by core (ADR-076)",
+                },
                 "sampling_seed": {"type": "integer"},
                 "detectors": {"type": "array", "items": {"type": "string"}},
                 "tags": {"type": "object"},
@@ -133,11 +261,19 @@ class McpServer:
             seed: int = 42,
             sampling_size: int | None = None,
             sampling_ratio: float | None = None,
-            sampling_method: Literal["random", "reservoir", "none"] = "reservoir",
+            sampling_method: Literal[
+                "random",
+                "stratified",
+                "reservoir",
+                "time_based",
+                "rare_oversampling",
+                "none",
+            ] = "reservoir",
             sampling_seed: int = 42,
             detectors: list[str] | None = None,
             tags: dict[str, str] | None = None,
         ) -> dict[str, Any]:
+            from datasentry.scan_paths import resolve_allowed_scan_path
             from datasentry_core.models.scan import SamplingConfig, ScanConfig
 
             config = ScanConfig(seed=seed, detectors=detectors, scan_tags=tags or {})
@@ -149,7 +285,7 @@ class McpServer:
                     seed=sampling_seed,
                 )
             scan, _, issues = client.scan_file(
-                path,
+                resolve_allowed_scan_path(path, workspace=client.workspace),
                 dataset_id=dataset_id,
                 table_name=table_name,
                 config=config,
@@ -202,27 +338,69 @@ class McpServer:
         @self._tool(
             "drift_compare",
             "Compare two historical scans of a dataset: schema, row-count, "
-            "score and issue-distribution drift.",
+            "score and issue-distribution drift. Thresholds mirror the CLI "
+            "(`drift compare --row-ratio-threshold/--score-threshold`, "
+            "defaults 0.20/5.0; D1-06).",
             {
                 "reference_run_id": {"type": "string"},
                 "current_run_id": {"type": "string"},
+                "row_ratio_threshold": {"type": "number"},
+                "score_threshold": {"type": "number"},
             },
             ["reference_run_id", "current_run_id"],
         )
-        def drift_compare(reference_run_id: str, current_run_id: str) -> dict[str, Any]:
-            return _json_safe(client.drift_compare(reference_run_id, current_run_id).model_dump())
+        def drift_compare(
+            reference_run_id: str,
+            current_run_id: str,
+            row_ratio_threshold: float = 0.20,
+            score_threshold: float = 5.0,
+        ) -> dict[str, Any]:
+            return _json_safe(
+                client.drift_compare(
+                    reference_run_id,
+                    current_run_id,
+                    row_ratio_threshold=row_ratio_threshold,
+                    score_threshold=score_threshold,
+                ).model_dump()
+            )
 
         @self._tool(
             "drift_latest",
             "Drift between the two most recent scans of a dataset. Fails "
-            "if fewer than two completed scans exist.",
+            "if fewer than two completed scans exist. Thresholds mirror the "
+            "CLI (defaults 0.20/5.0; D1-06).",
             {
                 "dataset_id": {"type": "string"},
+                "row_ratio_threshold": {"type": "number"},
+                "score_threshold": {"type": "number"},
             },
             ["dataset_id"],
         )
-        def drift_latest(dataset_id: str) -> dict[str, Any]:
-            return _json_safe(client.drift_latest(dataset_id).model_dump())
+        def drift_latest(
+            dataset_id: str,
+            row_ratio_threshold: float = 0.20,
+            score_threshold: float = 5.0,
+        ) -> dict[str, Any]:
+            return _json_safe(
+                client.drift_latest(
+                    dataset_id,
+                    row_ratio_threshold=row_ratio_threshold,
+                    score_threshold=score_threshold,
+                ).model_dump()
+            )
+
+        @self._tool(
+            "report_export",
+            "Export the canonical JSON report of a scan run (same payload "
+            "as CLI `report export --as json` / REST `GET /scans/{id}/report`; "
+            "D1-06 capability parity). Read-only.",
+            {
+                "scan_run_id": {"type": "string"},
+            },
+            ["scan_run_id"],
+        )
+        def report_export(scan_run_id: str) -> dict[str, Any]:
+            return _json_safe(client.export_report(scan_run_id))
 
         @self._tool(
             "trends_list",
@@ -327,6 +505,7 @@ class McpServer:
             issue_ids: list[str] | None = None,
         ) -> dict[str, Any]:
             client2 = client
+            source_path = confine(source_path)
             ids = issue_ids or [i.id for i in client2.list_issues(scan_run_id=scan_run_id)]
             issues: list[dict[str, Any]] = []
             errors: dict[str, str] = {}
@@ -334,7 +513,7 @@ class McpServer:
                 try:
                     proposal = client2.repair_propose(issue_id, source_path)
                 except Exception as exc:
-                    errors[issue_id] = str(exc)
+                    errors[issue_id] = safe_detail(exc)
                     continue
                 if proposal is None:
                     issues.append({"issue_id": issue_id, "proposed": False})
@@ -356,8 +535,11 @@ class McpServer:
             "Apply repair proposals for one or more issues of a scan run. "
             "WRITES DATA: each repair writes a repaired copy plus a before "
             "snapshot under .datasentry/repairs/; the source file is never "
-            "overwritten. Issues without a proposal are skipped (no_proposal), "
-            "not failed. Returns applied runs and per-issue errors.",
+            "overwritten. D5-08: prefer repair_propose_batch first. preview_only "
+            "is mandatory: true reviews operations without writing, false "
+            "applies them. Issues without a "
+            "proposal are skipped (no_proposal), not failed. Returns applied "
+            "runs and per-issue errors.",
             {
                 "scan_run_id": {"type": "string"},
                 "source_path": {"type": "string", "description": "source data file"},
@@ -366,28 +548,49 @@ class McpServer:
                     "items": {"type": "string"},
                     "description": "issue ids to apply (default: all of the run)",
                 },
+                "preview_only": {
+                    "type": "boolean",
+                    "description": "when true, return proposals without writing "
+                    "any data (D5-08 preview-first)",
+                },
             },
-            ["scan_run_id", "source_path"],
+            ["scan_run_id", "source_path", "preview_only"],
+            mutating=True,
         )
         def repair_apply_batch(
             scan_run_id: str,
             source_path: str,
+            preview_only: bool,
             issue_ids: list[str] | None = None,
         ) -> dict[str, Any]:
             client2 = client
+            source_path = confine(source_path)
             ids = issue_ids or [i.id for i in client2.list_issues(scan_run_id=scan_run_id)]
             applied: list[dict[str, Any]] = []
             errors: dict[str, str] = {}
             for issue_id in ids:
                 try:
-                    if client2.repair_propose(issue_id, source_path) is None:
+                    proposal = client2.repair_propose(issue_id, source_path)
+                    if proposal is None:
                         applied.append(
                             {"issue_id": issue_id, "applied": False, "reason": "no_proposal"}
                         )
                         continue
+                    if preview_only:
+                        applied.append(
+                            {
+                                "issue_id": issue_id,
+                                "applied": False,
+                                "reason": "preview_only",
+                                "operation": proposal.operation.value,
+                                "target_columns": proposal.target_columns,
+                                "estimated_rows_changed": proposal.estimated_rows_changed,
+                            }
+                        )
+                        continue
                     run = client2.repair_apply(issue_id, source_path)
                 except Exception as exc:
-                    errors[issue_id] = str(exc)
+                    errors[issue_id] = safe_detail(exc)
                     continue
                 applied.append(
                     {
@@ -412,6 +615,7 @@ class McpServer:
                 },
             },
             ["repair_run_ids"],
+            mutating=True,
         )
         def repair_rollback_batch(repair_run_ids: list[str]) -> dict[str, Any]:
             client2 = client
@@ -421,7 +625,7 @@ class McpServer:
                 try:
                     run = client2.repair_rollback(run_id)
                 except Exception as exc:
-                    errors[run_id] = str(exc)
+                    errors[run_id] = safe_detail(exc)
                     continue
                 rolled_back.append({"run_id": run.id, "status": run.status.value})
             return _json_safe({"rolled_back": rolled_back, "errors": errors, "failed": len(errors)})
@@ -439,7 +643,7 @@ class McpServer:
             try:
                 scan, report = client.repair_verify(repair_run_id)
             except Exception as exc:
-                return _json_safe({"error": str(exc)})
+                return _json_safe({"error": safe_detail(exc)})
             return _json_safe({"verify_scan_run_id": scan.id, **report})
 
         @self._tool(
@@ -452,13 +656,15 @@ class McpServer:
         def contract_validate(path: str) -> dict[str, Any]:
             import yaml
 
+            path = confine(path)
+
             from datasentry_core.models.contract import Contract
 
             try:
                 raw = yaml.safe_load(Path(path).expanduser().read_text(encoding="utf-8"))
                 contract = Contract.model_validate(raw)
             except Exception as exc:
-                return {"valid": False, "error": str(exc)}
+                return {"valid": False, "error": safe_detail(exc)}
             return _json_safe({"valid": True, "contract": contract.model_dump()})
 
         @self._tool(
@@ -494,6 +700,7 @@ class McpServer:
                 "gate_quality_min": {"type": "number"},
             },
             ["name", "path", "cron"],
+            mutating=True,
         )
         def job_create(
             name: str,
@@ -513,8 +720,8 @@ class McpServer:
             try:
                 validate_cron(cron)
             except InvalidCronError as exc:
-                return {"ok": False, "error": str(exc)}
-            path = str(Path(path).expanduser())
+                return {"ok": False, "error": safe_detail(exc)}
+            path = confine(path)
             now = utcnow()
             job = ScheduledJob(
                 job_id=f"job_{uuid.uuid4().hex[:12]}",
@@ -543,6 +750,7 @@ class McpServer:
             "id and outcome; mutual exclusion: 409-style error if already running.",
             {"job_id": {"type": "string"}},
             ["job_id"],
+            mutating=True,
         )
         def job_trigger(job_id: str) -> dict[str, Any]:
             from datasentry.scheduler.core import LocalScanExecutor, Scheduler
@@ -575,6 +783,7 @@ class McpServer:
                 "gate_quality_min": {"type": "number"},
             },
             ["job_id"],
+            mutating=True,
         )
         def job_update(
             job_id: str,
@@ -601,7 +810,7 @@ class McpServer:
                 try:
                     validate_cron(cron)
                 except InvalidCronError as exc:
-                    return {"ok": False, "error": str(exc)}
+                    return {"ok": False, "error": safe_detail(exc)}
                 changes["cron"] = cron
                 changes["next_run_at"] = next_run(cron, utcnow())
             if retry_attempts is not None:
@@ -620,6 +829,7 @@ class McpServer:
             "Delete a scheduled job (Step 88, ADR-088). Returns removed=true.",
             {"job_id": {"type": "string"}},
             ["job_id"],
+            mutating=True,
         )
         def job_remove(job_id: str) -> dict[str, Any]:
             from datasentry.scheduler.store import SchedulerStore
@@ -641,9 +851,8 @@ class McpServer:
             [],
         )
         def pii_sessions() -> dict[str, Any]:
-            from datasentry.pii_vault import PIIVault
 
-            vault = PIIVault(self._client._store)
+            vault = self._client.pii_vault()
             if not vault.key_configured:
                 return {
                     "ok": False,
@@ -659,7 +868,7 @@ class McpServer:
                         "keyVersion": s["key_version"],
                         "createdAt": s["created_at"].isoformat(),
                     }
-                    for s in self._client._store.list_pii_mappings()
+                    for s in self._client.list_pii_mappings()
                 ],
             }
 
@@ -680,11 +889,12 @@ class McpServer:
                 },
             },
             ["session_id", "text"],
+            mutating=True,
         )
         def pii_restore(session_id: str, text: str) -> dict[str, Any]:
-            from datasentry.pii_vault import PIIVault, VaultKeyMissingError
+            from datasentry.pii_vault import VaultKeyMissingError
 
-            vault = PIIVault(self._client._store)
+            vault = self._client.pii_vault()
             if not vault.key_configured:
                 return {
                     "ok": False,
@@ -694,9 +904,9 @@ class McpServer:
             try:
                 restored = vault.restore_text(text, session_id)
             except KeyError as exc:
-                return {"ok": False, "error": str(exc)}
+                return {"ok": False, "error": safe_detail(exc)}
             except VaultKeyMissingError as exc:
-                return {"ok": False, "error": str(exc)}
+                return {"ok": False, "error": safe_detail(exc)}
             return {"ok": True, "sessionId": session_id, "restored": restored}
 
         @self._tool(
@@ -707,9 +917,10 @@ class McpServer:
             "ok:false when the session does not exist.",
             {"session_id": {"type": "string"}},
             ["session_id"],
+            mutating=True,
         )
         def pii_delete_session(session_id: str) -> dict[str, Any]:
-            deleted = self._client._store.delete_pii_mapping(session_id)
+            deleted = self._client.delete_pii_mapping(session_id)
             if not deleted:
                 return {"ok": False, "error": f"pii mapping session not found: {session_id}"}
             return {"ok": True, "sessionId": session_id, "deleted": True}
@@ -730,11 +941,12 @@ class McpServer:
                 },
             },
             [],
+            mutating=True,
         )
         def pii_rotate_key(newKey: str | None = None) -> dict[str, Any]:
-            from datasentry.pii_vault import PIIVault, VaultKeyMissingError
+            from datasentry.pii_vault import VaultKeyMissingError
 
-            vault = PIIVault(self._client._store)
+            vault = self._client.pii_vault()
             if not vault.key_configured:
                 return {
                     "ok": False,
@@ -744,7 +956,7 @@ class McpServer:
             try:
                 result = vault.rotate_key(new_key=newKey)
             except VaultKeyMissingError as exc:
-                return {"ok": False, "error": str(exc)}
+                return {"ok": False, "error": safe_detail(exc)}
             return {
                 "ok": True,
                 "keyVersion": "file",
@@ -766,22 +978,24 @@ class McpServer:
                 },
             },
             ["olderThanDays"],
+            mutating=True,
         )
         def pii_purge_sessions(olderThanDays: int) -> dict[str, Any]:
-            from datasentry.pii_vault import PIIVault
 
             if olderThanDays < 1:
                 return {"ok": False, "error": "olderThanDays must be >= 1"}
-            vault = PIIVault(self._client._store)
+            vault = self._client.pii_vault()
             return {"ok": True, "purged": vault.purge_sessions(olderThanDays)}
 
     # ---- JSON-RPC 分发 --------------------------------------------------
 
-    def _rpc_error(self, code: int, message: str, data: Any = None) -> dict[str, Any]:
+    def _rpc_error(
+        self, message_id: Any, code: int, message: str, data: Any = None
+    ) -> dict[str, Any]:
         error: dict[str, Any] = {"code": code, "message": message}
         if data is not None:
             error["data"] = data
-        return {"jsonrpc": "2.0", "error": error}
+        return {"jsonrpc": "2.0", "id": message_id, "error": error}
 
     def _handle_message(self, message: dict[str, Any]) -> dict[str, Any] | None:
         method = message.get("method")
@@ -810,13 +1024,30 @@ class McpServer:
         if method == "tools/call":
             name = params.get("name")
             arguments = params.get("arguments") or {}
-            handler = self._handlers.get(cast(str, name))
+            # A non-string `name` must not reach the dict lookup: `{"name": ["x"]}` raised
+            # `TypeError: unhashable type: 'list'` out of `_handle_message` and killed the stdio
+            # loop -- a client-side mistake with a server-side consequence, exactly what r8's
+            # error-code work was for (independent review A-9).
+            if not isinstance(name, str):
+                return self._rpc_error(message_id, -32602, "tool name must be a string")
+            handler = self._handlers.get(name)
             if handler is None:
-                return self._rpc_error(-32602, f"unknown tool: {name}")
+                return self._rpc_error(message_id, -32602, f"unknown tool: {name}")
+            if not isinstance(arguments, dict):
+                return self._rpc_error(message_id, -32602, "arguments must be a JSON object")
+            schema = cast(dict[str, Any], self._tools[name]["inputSchema"])
+            problem = _argument_error(schema, arguments)
+            if problem is not None:
+                return self._rpc_error(message_id, -32602, problem)
             try:
                 result = handler(**arguments)
+            except (McpClientError, ScanPathRejected) as exc:
+                # `scan_file` raises a bare `ScanPathRejected` (its handler calls
+                # `resolve_allowed_scan_path` directly, not through `confine()`), and a permanent
+                # refusal is not an internal error (A-8-mcp).
+                return self._rpc_error(message_id, -32602, safe_detail(exc))
             except Exception as exc:
-                return self._rpc_error(-32603, str(exc))
+                return self._rpc_error(message_id, -32603, safe_detail(exc))
             return {
                 "jsonrpc": "2.0",
                 "id": message_id,
@@ -826,7 +1057,7 @@ class McpServer:
                 },
             }
         if message_id is not None:
-            return self._rpc_error(-32601, f"method not found: {method}")
+            return self._rpc_error(message_id, -32601, f"method not found: {method}")
         return None
 
     def serve_stdio(self) -> None:
@@ -837,12 +1068,21 @@ class McpServer:
                 continue
             try:
                 message = json.loads(stripped)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                self._write(self._rpc_error(None, -32700, f"parse error: {exc.msg}"))
+                continue
+            if not isinstance(message, dict):
+                self._write(
+                    self._rpc_error(None, -32600, "invalid request: expected a JSON object")
+                )
                 continue
             response = self._handle_message(message)
             if response is not None:
-                sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
-                sys.stdout.flush()
+                self._write(response)
+
+    def _write(self, response: dict[str, Any]) -> None:
+        sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
+        sys.stdout.flush()
 
     def close(self) -> None:
         self._client.close()
@@ -855,7 +1095,15 @@ def build_mcp_parser(
         "mcp",
         help="MCP stdio server (Step 43): JSON-RPC tools for LLM agents",
     )
-    parser.add_argument("--project", default=None, help="workspace directory")
+    # SUPPRESS, not `default=None`: argparse writes the sub-parser's default into the shared
+    # namespace, so a `datasentry --project X mcp` invocation had its global workspace silently
+    # overwritten by None and fell back to the current directory (D7-15). With SUPPRESS the
+    # attribute is only set when the flag is actually given, so the global value survives.
+    parser.add_argument(
+        "--project",
+        default=argparse.SUPPRESS,
+        help="workspace directory (overrides the global --project)",
+    )
     return parser
 
 

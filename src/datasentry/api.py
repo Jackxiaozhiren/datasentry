@@ -27,24 +27,30 @@ body 统一 {"ok": false, "detail": "..."}。
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
 import re
+import secrets
 import threading
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, cast
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import FastAPI, Form, Header, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
 from datasentry import __version__, ui
 from datasentry import client as sdk
 from datasentry.pii_vault import PIIVault, VaultKeyMissingError, format_mapping_summary
+from datasentry.redact import safe_detail
 from datasentry.scheduler.core import LocalScanExecutor, Scheduler, SchedulerWorker
 from datasentry.scheduler.models import (
     JobCommand,
@@ -53,6 +59,7 @@ from datasentry.scheduler.models import (
     ScheduledJob,
     iso,
     utcnow,
+    webhook_target_refusal,
 )
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
@@ -67,29 +74,48 @@ _SCAN_PROGRESS: dict[str, dict[str, object]] = {}
 _PROGRESS_LOCK = threading.Lock()
 
 
-def _expand_scan_paths(raw: str) -> list[str]:
+def _expand_scan_paths(raw: str, *, workspace: str | Path) -> list[str]:
     """Web 批量扫描路径解析：逗号/分号/换行分隔 + glob 展开 + 存在校验 + 去重。
 
+    D5-04：每个候选先过 workspace 收束（`scan_paths`）；越界直接抛
+    `ScanPathRejected` 中断整批（fail-closed），不再“接受外部路径再回显内容”。
     缺失文件不进入结果，但记录在 _last_missing_paths 供错误页展示。
     """
+    from datasentry.scan_paths import resolve_allowed_scan_path
+
     global _last_missing_paths
     import glob as _glob
 
     seen: set[str] = set()
     paths: list[str] = []
     missing: list[str] = []
+    from datasentry.scan_paths import allowed_roots
+
+    root = allowed_roots(workspace)[0]
     for part in re.split(r"[,\n;]+", raw):
         part = part.strip().strip("\"'")
         if not part:
             continue
-        expanded = _glob.glob(str(Path(part).expanduser()))
+        # Glob from the workspace, not the process CWD. `Path.cwd()`-relative expansion is the same
+        # base mismatch as the plain relative case (review A-1): `*.csv` matched files sitting next
+        # to the workspace, and after that was closed a legitimate `cust*.csv` inside the workspace
+        # matched nothing at all. Absolute patterns keep their own base.
+        typed = str(Path(part).expanduser())
+        pattern = typed if Path(typed).is_absolute() else str(root / typed)
+        expanded = _glob.glob(pattern)
         candidates = [str(p) for p in expanded] if expanded else [part]
         for c in candidates:
-            if c in seen:
+            # 越界即整批拒绝（不在 missing 里静默记一笔了事），并且**用锚定后的写法**继续：
+            # 只校验却把原始相对串交给下游，等于"按工作区判、按进程 CWD 开"，正是
+            # `resolve_allowed_scan_path` 内部修掉的那个错配在这里被重新引入（独立复核 A-1
+            # 实测 `POST /ui/scans path=payroll.csv` 扫到工作区同级文件）。缺失项仍回显用户
+            # 自己写的形式，锚定后的绝对路径属服务端布局，不进面向用户的页面。
+            anchored = resolve_allowed_scan_path(c, workspace=workspace)
+            if anchored in seen:
                 continue
-            seen.add(c)
-            if Path(c).exists():
-                paths.append(c)
+            seen.add(anchored)
+            if Path(anchored).exists():
+                paths.append(anchored)
             else:
                 missing.append(c)
     _last_missing_paths = missing
@@ -133,7 +159,12 @@ def _on_progress_for(path: str) -> Any:
 
 
 class ScanRequest(BaseModel):
-    """POST /scans 请求体：源文件路径（workspace 相对或绝对）+ 扫描配置。"""
+    """POST /scans 请求体：源文件路径 + 扫描配置。
+
+    D5-09 路径语义（以本次实现为准，旧“workspace 相对”表述作废）：
+    绝对路径须落在 workspace（或 `DATASENTRY_ALLOWED_ROOTS`）内；
+    相对路径按服务进程 CWD 解析且不许逃出；远端 DSN/URI 透传。
+    """
 
     path: str
     dataset_id: str | None = None
@@ -169,6 +200,7 @@ class HealthResponse(BaseModel):
     ok: bool
     service: str
     version: str
+    # D5-06：只暴露 workspace 目录名，不再回显服务端绝对路径。
     workspace: str
 
 
@@ -200,7 +232,7 @@ def _config_from(req: ScanRequest) -> ScanConfig:
         detectors=req.detectors,
         seed=req.seed,
         scan_tags=req.tags,
-        sampling=req.sampling or SamplingConfig(method="none"),
+        sampling=req.sampling or SamplingConfig(),
     )
 
 
@@ -224,7 +256,123 @@ def _error(exc: Exception) -> int:
 
 
 def _handle(exc: Exception) -> HTTPException:
-    return HTTPException(status_code=_error(exc), detail=str(exc))
+    """D5-06：4xx 保留可读 detail；5xx 只给固定文案 + request 级日志。
+
+    旧行为 detail=str(exc) 把服务端绝对路径与驱动异常原文回显给调用方，
+    帮攻击者测绘文件系统布局。KeyError 仍按 404 映射（调用处显式处理）。
+    """
+    status = _error(exc)
+    if status >= 500:
+        logger.exception("unhandled API error (%s)", type(exc).__name__)
+        return HTTPException(status_code=status, detail="internal error (see server logs)")
+    return HTTPException(status_code=status, detail=safe_detail(exc))
+
+
+def _require_api_token(token: str | None) -> None:
+    """D5-02：`DATASENTRY_API_TOKEN` 设置时，数据面端点需 `X-Datasentry-Token`。
+
+    未设置 = 本地单机默认（与 CLI 同信任边界），行为零变化；设置后无头/
+    错头一律 401。覆盖范围：`/pii/*` 全量 + repairs 写端点（apply/rollback）。
+
+    行 r12 之前这条是唯一的闸门，并把「UI 表单写端点与 MCP stdio」当作同机
+    交互面豁免；`D5-11` 实测该豁免使 21 条会改状态的路由在管理员设了 token
+    之后仍可裸调（`POST /scans` 回 201）。豁免已收回：`enforce_write_guard`
+    中间件覆盖全部写请求，本函数保留为数据面端点的第二层（同一凭据同一语义）。
+    """
+    expected = os.environ.get("DATASENTRY_API_TOKEN")
+    if not expected:
+        return
+    if not token or not secrets.compare_digest(token, expected):
+        raise HTTPException(status_code=401, detail="invalid or missing API token")
+
+
+# One fail-closed gate for every state-changing request (D5-10, D5-11). The per-handler
+# `_require_api_token` calls were the only mechanism, which is how 21 mutating routes stayed
+# reachable with no credential: a new route simply forgot to call it. A middleware cannot be
+# forgotten by the next route added.
+MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+UI_WRITE_PREFIX = "/ui/"
+WORKER_RPC_PREFIX = "/rpc/"
+
+
+def _is_loopback(host: str) -> bool:
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return host == "localhost"
+
+
+INSECURE_BIND_OPT_IN = "DATASENTRY_ALLOW_INSECURE_BIND"
+
+
+class InsecureBindRefused(RuntimeError):
+    """D5-01/D5-02: a non-loopback bind with nobody allowed to answer for it."""
+
+
+def resolve_bind(host: str, *, token: str | None, opted_in: bool) -> str | None:
+    """Decide whether this bind address may start, returning the warning to log or None.
+
+    Raises instead of warning: `D5-01` measured that a warning is read as permission, and the
+    default face behind it is a writable REST/UI surface. Loopback always starts; a non-loopback
+    bind needs either an API token (writes then require the header) or an explicit opt-in.
+    """
+    if _is_loopback(host):
+        return None
+    if token:
+        return f"binding {host!r} on a non-loopback interface; writes require X-Datasentry-Token"
+    if opted_in:
+        return (
+            f"binding {host!r} with NO API token because {INSECURE_BIND_OPT_IN} is set: "
+            "every route that is not write-gated is reachable by anyone who can route to this port"
+        )
+    raise InsecureBindRefused(
+        f"refusing to bind {host!r}: it is not a loopback address and no API token is "
+        f"configured. Set DATASENTRY_API_TOKEN (writes then need the X-Datasentry-Token "
+        f"header), bind 127.0.0.1, or set {INSECURE_BIND_OPT_IN}=1 to accept the exposure "
+        "deliberately."
+    )
+
+
+def _audit_restore(*, session_id: str, via: str, ok: bool, reason: str = "") -> None:
+    """One line per plaintext-restore request (D5-02). Never the text and never the value:
+    invariant 5 keeps secrets and PII out of logs, so only the opaque id, the surface, the
+    outcome and a fixed reason code are recorded."""
+    logger.info(
+        "pii-restore session=%s via=%s ok=%s%s",
+        session_id,
+        via,
+        ok,
+        f" reason={reason}" if reason else "",
+    )
+
+
+def _same_origin(request: Request) -> bool:
+    """Refuse cross-site form posts. A browser sets Origin itself and a page cannot forge it."""
+    origin = request.headers.get("origin") or request.headers.get("referer")
+    if not origin:
+        return True
+    host = urlparse(origin).hostname
+    request_host = urlparse(f"//{request.headers.get('host', '')}").hostname
+    return host is not None and host == request_host
+
+
+def _write_allowed(request: Request) -> tuple[bool, str]:
+    expected = os.environ.get("DATASENTRY_API_TOKEN")
+    peer = request.client.host if request.client else ""
+    if not expected:
+        if not _same_origin(request):
+            return False, "cross-origin write refused"
+        return True, ""
+    supplied = request.headers.get("x-datasentry-token")
+    if supplied and secrets.compare_digest(supplied, expected):
+        return True, ""
+    if (
+        request.url.path.startswith(UI_WRITE_PREFIX)
+        and _is_loopback(peer)
+        and _same_origin(request)
+    ):
+        return True, ""
+    return False, "invalid or missing API token"
 
 
 def _get_issue(client: sdk.DataSentry, issue_id: str) -> Issue | None:
@@ -319,6 +467,66 @@ def _job_command_from(req: JobCreate, workspace: str) -> JobCommand:
     )
 
 
+def _ui_allowed_source(client: sdk.DataSentry, source_path: str) -> tuple[str, HTMLResponse | None]:
+    """Same confinement as `_require_allowed_source`, but answering in the UI's own currency.
+
+    `/ui/*` renders HTML; a raised `HTTPException` would hand the browser bare JSON (UI-06), so the
+    refusal comes back as a response for the caller to return.
+    """
+    from datasentry.scan_paths import ScanPathRejected, resolve_allowed_scan_path
+
+    try:
+        return resolve_allowed_scan_path(source_path, workspace=client.workspace), None
+    except ScanPathRejected as exc:
+        refusal = HTMLResponse(
+            ui.render_error(_t("en", "ui.scan_failed"), safe_detail(exc)), status_code=422
+        )
+        return source_path, refusal
+
+
+def _require_allowed_source(client: sdk.DataSentry, source_path: str) -> str:
+    """D5-04/D5-09: a repair reads *and writes beside* the file it is given, so `source_path` is
+    path input just like a scan target, and goes through the same workspace confinement."""
+    from datasentry.scan_paths import ScanPathRejected, resolve_allowed_scan_path
+
+    try:
+        return resolve_allowed_scan_path(source_path, workspace=client.workspace)
+    except ScanPathRejected as exc:
+        raise HTTPException(status_code=422, detail=safe_detail(exc)) from exc
+
+
+def _registered_sources(client: sdk.DataSentry) -> list[str]:
+    """Source paths this workspace has already scanned, most recent first (UI-04).
+
+    Feeds the repair faces' picker so the user names a dataset the server knows instead of typing
+    into its filesystem namespace. Convenience, not the boundary: a crafted POST still has to pass
+    `resolve_allowed_scan_path` (row r5).
+    """
+    paths: list[str] = []
+    for run in client.list_scan_runs():
+        path = run.source_path
+        if path and path not in paths:
+            paths.append(path)
+    return paths
+
+
+def _no_issue_selected(run_id: str) -> HTMLResponse:
+    """The batch faces' refusal when a submit carries no issue at all (UI-07).
+
+    It used to read "no issues selected", which contradicts the ticks still visible on the page the
+    user came from; it now names the action to take and links back to that scan.
+    """
+    return HTMLResponse(
+        ui.render_error(
+            _t("en", "ui.batch_repair_title"),
+            _t("en", "ui.select_at_least_one"),
+            back_href=f"/ui/scans/{run_id}",
+            back_label=_t("en", "ui.back_to_scan"),
+        ),
+        status_code=400,
+    )
+
+
 def _pii_vault(client: sdk.DataSentry) -> PIIVault:
     """绑定工作区元数据库的 PII vault（V17，Step 99，ADR-099）。
 
@@ -326,7 +534,7 @@ def _pii_vault(client: sdk.DataSentry) -> PIIVault:
     disabled 语义一致（CLI 侧等价 EXIT_CONFIG）。删除端点不经过
     本函数：删除密文行无需密钥（与 CLI llm restore --delete 一致）。
     """
-    vault = PIIVault(client._store)
+    vault = client.pii_vault()
     if not vault.key_configured:
         raise HTTPException(
             status_code=503,
@@ -352,7 +560,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         project = os.environ.get("DATASENTRY_PROJECT")
     if worker_token is None:
         worker_token = os.environ.get("DATASENTRY_WORKER_TOKEN")
-    client = sdk.DataSentry(project=project)
+    client = sdk.DataSentry(project=project, enforce_scan_containment=True)
     scheduler = _build_scheduler(client)
     worker = SchedulerWorker(scheduler)
     # V22（Step 115，ADR-115）：in-flight run 取消标记 registry（线程安全）。
@@ -372,6 +580,50 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             worker.stop()
 
     app = FastAPI(title="DataSentry API", version=__version__, lifespan=_lifespan)
+
+    @app.middleware("http")
+    async def enforce_write_guard(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """D5-10/D5-11: mutating requests are authorised here or not at all.
+
+        `/rpc/*` is exempt because it authenticates with the worker token in its own handler; that
+        exemption is a named prefix, and `AUDIT/tools/route_guard_census.py` fails if it grows.
+        """
+        if request.method in MUTATING_METHODS and not request.url.path.startswith(
+            WORKER_RPC_PREFIX
+        ):
+            allowed, detail = _write_allowed(request)
+            if not allowed:
+                return JSONResponse({"ok": False, "detail": detail}, status_code=401)
+        return await call_next(request)
+
+    @app.exception_handler(RequestValidationError)
+    async def render_validation_error(request: Request, exc: RequestValidationError) -> Response:
+        """UI forms answer in HTML; the REST face keeps FastAPI's JSON contract (UI-06).
+
+        A form field submitted empty arrives as *missing* to Starlette's parser, so a browser
+        pressing a button on an unfillable form used to get `{"detail":[{"type":"missing",…}]}` --
+        a page with no navigation to escape it. `source_path` on an empty workspace reaches this
+        path without anyone hand-crafting a request (row r6 made it reachable).
+        """
+        if request.url.path.startswith(UI_WRITE_PREFIX):
+            fields = ", ".join(
+                ".".join(str(part) for part in err.get("loc", ()) if part != "body")
+                for err in exc.errors()
+            )
+            return HTMLResponse(
+                ui.render_error(
+                    _t("en", "ui.scan_failed"),
+                    f"missing form field: {fields or 'unknown'}",
+                ),
+                status_code=422,
+            )
+        return JSONResponse(
+            {"detail": jsonable_encoder(exc.errors())},
+            status_code=422,
+        )
+
     app.state.client = client
     app.state.scheduler = scheduler
 
@@ -381,7 +633,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             ok=True,
             service="datasentry",
             version=__version__,
-            workspace=str(client.workspace),
+            workspace=client.workspace.name,
         )
 
     @app.get("/", tags=["meta"])
@@ -398,9 +650,12 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
 
     @app.post("/scans", response_model=ScanResponse, tags=["scans"], status_code=201)
     def create_scan(req: ScanRequest) -> ScanResponse:
+        from datasentry.scan_paths import resolve_allowed_scan_path
+
         try:
+            scan_path = resolve_allowed_scan_path(req.path, workspace=client.workspace)
             scan, runs, issues = client.scan_file(
-                req.path,
+                scan_path,
                 dataset_id=req.dataset_id,
                 table_name=req.table_name,
                 config=_config_from(req),
@@ -531,8 +786,9 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         tags=["repairs"],
     )
     def repair_propose(run_id: str, req: ProposeRequest) -> RepairProposal | None:
+        source_path = _require_allowed_source(client, req.source_path)
         try:
-            return client.repair_propose(req.issue_id, req.source_path)
+            return client.repair_propose(req.issue_id, source_path)
         except Exception as exc:
             raise _handle(exc) from exc
 
@@ -541,8 +797,9 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         tags=["repairs"],
     )
     def repair_preview(run_id: str, req: PreviewRequest) -> dict[str, object] | None:
+        source_path = _require_allowed_source(client, req.source_path)
         try:
-            result = client.repair_preview(req.issue_id, req.source_path)
+            result = client.repair_preview(req.issue_id, source_path)
         except Exception as exc:
             raise _handle(exc) from exc
         if result is None:
@@ -558,9 +815,15 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         response_model=RepairRun,
         tags=["repairs"],
     )
-    def repair_apply(run_id: str, req: ApplyRequest) -> RepairRun:
+    def repair_apply(
+        run_id: str,
+        req: ApplyRequest,
+        token: Annotated[str | None, Header(alias="X-Datasentry-Token")] = None,
+    ) -> RepairRun:
+        _require_api_token(token)
+        source_path = _require_allowed_source(client, req.source_path)
         try:
-            return client.repair_apply(req.issue_id, req.source_path)
+            return client.repair_apply(req.issue_id, source_path)
         except Exception as exc:
             raise _handle(exc) from exc
 
@@ -569,7 +832,11 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         response_model=RepairRun,
         tags=["repairs"],
     )
-    def repair_rollback(run_id: str) -> RepairRun:
+    def repair_rollback(
+        run_id: str,
+        token: Annotated[str | None, Header(alias="X-Datasentry-Token")] = None,
+    ) -> RepairRun:
+        _require_api_token(token)
         try:
             return client.repair_rollback(run_id)
         except Exception as exc:
@@ -585,9 +852,9 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         try:
             scan, report = client.repair_verify(repair_run_id)
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail=safe_detail(exc)) from exc
         except (ValueError, FileNotFoundError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail=safe_detail(exc)) from exc
         return {"verify_scan_run_id": scan.id, **report}
 
     @app.get("/repairs/{repair_run_id}/diff", tags=["repairs"])
@@ -596,9 +863,9 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         try:
             run, columns, before_rows, after_rows, changed = client.repair_diff(repair_run_id)
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail=safe_detail(exc)) from exc
         except (ValueError, FileNotFoundError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail=safe_detail(exc)) from exc
         rows = []
         for i in changed:
             b = before_rows[i] if i < len(before_rows) else []
@@ -626,9 +893,16 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
 
     @app.post("/ui/scans", response_class=HTMLResponse, tags=["ui"])
     def ui_create_scan(path: str = Form()) -> Response:
+        from datasentry.scan_paths import ScanPathRejected
+
         global _last_batch
         _last_batch = None
-        paths = _expand_scan_paths(path)
+        try:
+            paths = _expand_scan_paths(path, workspace=client.workspace)
+        except ScanPathRejected as exc:
+            return HTMLResponse(
+                ui.render_error(_t("en", "ui.scan_failed"), safe_detail(exc)), status_code=422
+            )
         if not paths:
             detail = (
                 f"not found: {_last_missing_paths[0]}"
@@ -647,7 +921,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             try:
                 scan, _runs, _issues = client.scan_file(p, on_progress=_on_progress_for(p))
             except Exception as exc:
-                failed.append({"path": p, "error": str(exc)})
+                failed.append({"path": p, "error": safe_detail(exc)})
                 _publish_progress(p, 0, 0, "", False)
                 continue
             run = scan
@@ -675,7 +949,14 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
     def ui_scans_list(lang: str = Query(default="en")) -> HTMLResponse:
         global _last_batch
         batch, _last_batch = _last_batch, None
-        return HTMLResponse(ui.render_home(client.list_scan_runs(), batch=batch, lang=lang))
+        return HTMLResponse(
+            ui.render_home(
+                client.list_scan_runs(),
+                batch=batch,
+                lang=lang,
+                title=_t(lang, "ui.nav_scans"),
+            )
+        )
 
     @app.post(
         "/ui/scans/{run_id}/repairs/batch-propose",
@@ -688,12 +969,12 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         source_path: str = Form(),
     ) -> HTMLResponse:
         """V30：批量修复提案（只 propose，不 apply；写路径仍走单条工作台）。"""
+        source_path, refusal = _ui_allowed_source(client, source_path)
+        if refusal is not None:
+            return refusal
         issue_ids = issue_ids or []
         if not issue_ids:
-            return HTMLResponse(
-                ui.render_error(_t("en", "ui.scan_failed"), "no issues selected"),
-                status_code=400,
-            )
+            return _no_issue_selected(run_id)
         proposals: dict[str, object] = {}
         errors: dict[str, str] = {}
         for issue_id in issue_ids:
@@ -702,7 +983,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
                 if prop is not None:
                     proposals[issue_id] = prop
             except Exception as exc:
-                errors[issue_id] = str(exc)
+                errors[issue_id] = safe_detail(exc)
         issues = client.list_issues(scan_run_id=run_id)
         by_id = {i.id: i for i in issues}
         selected = [by_id[i] for i in issue_ids if i in by_id]
@@ -727,12 +1008,12 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         source_path: str = Form(),
     ) -> HTMLResponse:
         """V31：批量应用修复（写数据；结果页含每行回滚入口）。"""
+        source_path, refusal = _ui_allowed_source(client, source_path)
+        if refusal is not None:
+            return refusal
         issue_ids = issue_ids or []
         if not issue_ids:
-            return HTMLResponse(
-                ui.render_error(_t("en", "ui.scan_failed"), "no issues selected"),
-                status_code=400,
-            )
+            return _no_issue_selected(run_id)
         runs: dict[str, object] = {}
         skipped: dict[str, str] = {}
         errors: dict[str, str] = {}
@@ -742,11 +1023,11 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
                 runs[issue_id] = run
             except ValueError as exc:
                 if "no repair proposal" in str(exc):
-                    skipped[issue_id] = str(exc)
+                    skipped[issue_id] = safe_detail(exc)
                 else:
-                    errors[issue_id] = str(exc)
+                    errors[issue_id] = safe_detail(exc)
             except Exception as exc:
-                errors[issue_id] = str(exc)
+                errors[issue_id] = safe_detail(exc)
         issues = client.list_issues(scan_run_id=run_id)
         by_id = {i.id: i for i in issues}
         selected = [by_id[i] for i in issue_ids if i in by_id]
@@ -783,7 +1064,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             try:
                 runs.append(client.repair_rollback(repair_run_id))
             except Exception as exc:
-                errors[repair_run_id] = str(exc)
+                errors[repair_run_id] = safe_detail(exc)
         return HTMLResponse(ui.render_batch_rollback(runs, errors))
 
     @app.get("/ui/repairs", response_class=HTMLResponse, tags=["ui"])
@@ -803,7 +1084,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             )
         except (ValueError, FileNotFoundError) as exc:
             return HTMLResponse(
-                ui.render_error(_t("en", "ui.scan_failed"), str(exc)), status_code=400
+                ui.render_error(_t("en", "ui.scan_failed"), safe_detail(exc)), status_code=400
             )
         return HTMLResponse(
             ui.render_repair_artifact(run, columns, before_rows, after_rows, changed, lang=lang)
@@ -821,7 +1102,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             )
         except (ValueError, FileNotFoundError) as exc:
             return HTMLResponse(
-                ui.render_error(_t("en", "ui.scan_failed"), str(exc)), status_code=400
+                ui.render_error(_t("en", "ui.scan_failed"), safe_detail(exc)), status_code=400
             )
         return RedirectResponse(
             url=f"/ui/compare?runs={report['source_scan_run_id']}&runs={scan.id}",
@@ -832,9 +1113,18 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
     def ui_repairs_rollback(repair_run_id: str) -> Response:
         try:
             client.repair_rollback(repair_run_id)
-        except Exception as exc:
+        except KeyError:
             return HTMLResponse(
-                ui.render_error(_t("en", "ui.rollback_failed"), str(exc)), status_code=404
+                ui.render_error(_t("en", "ui.rollback_failed"), "repair run not found"),
+                status_code=404,
+            )
+        except Exception:
+            logger.exception("ui rollback failed for %s", repair_run_id)
+            return HTMLResponse(
+                ui.render_error(
+                    _t("en", "ui.rollback_failed"), "rollback failed (see server logs)"
+                ),
+                status_code=500,
             )
         return RedirectResponse(url="/ui/repairs", status_code=303)
 
@@ -848,7 +1138,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             report = client.drift_compare(runs[0], runs[1])
         except KeyError as exc:
             return HTMLResponse(
-                ui.render_error(_t("en", "ui.scan_failed"), str(exc)), status_code=404
+                ui.render_error(_t("en", "ui.scan_failed"), safe_detail(exc)), status_code=404
             )
         runs_map = {r.id: r for r in client.list_scan_runs()}
         reference = runs_map.get(runs[0])
@@ -879,12 +1169,11 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
     @app.get("/ui/pii", response_class=HTMLResponse, tags=["ui"])
     def ui_pii(lang: str = Query(default="en")) -> HTMLResponse:
         """PII 加密会话管理页（V17，Step 101，ADR-101）：列表 + 还原表单。"""
-        from datasentry.pii_vault import PIIVault
 
-        vault = PIIVault(client._store)
+        vault = client.pii_vault()
         return HTMLResponse(
             ui.render_pii(
-                client._store.list_pii_mappings(),
+                client.list_pii_mappings(),
                 key_source=vault.key_source,
                 key_configured=vault.key_configured,
                 lang=lang,
@@ -896,23 +1185,27 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         session_id: str = Form(), text: str = Form(), lang: str = Query(default="en")
     ) -> HTMLResponse:
         """还原表单提交：同页展示还原结果（仅内存响应体，不落盘）。"""
-        from datasentry.pii_vault import PIIVault, VaultKeyMissingError
+        from datasentry.pii_vault import VaultKeyMissingError
 
-        vault = PIIVault(client._store)
+        vault = client.pii_vault()
         restored: str | None = None
         error: str | None = None
         if not vault.key_configured:
             error = _t(lang, "ui.pii_key_missing")
+            _audit_restore(session_id=session_id, via="ui", ok=False, reason="key-missing")
         else:
             try:
                 restored = vault.restore_text(text, session_id)
+                _audit_restore(session_id=session_id, via="ui", ok=True)
             except KeyError as exc:
-                error = str(exc)
+                error = safe_detail(exc)
+                _audit_restore(session_id=session_id, via="ui", ok=False, reason="not-found")
             except VaultKeyMissingError as exc:
-                error = str(exc)
+                error = safe_detail(exc)
+                _audit_restore(session_id=session_id, via="ui", ok=False, reason="key-missing")
         return HTMLResponse(
             ui.render_pii(
-                client._store.list_pii_mappings(),
+                client.list_pii_mappings(),
                 key_source=vault.key_source,
                 key_configured=vault.key_configured,
                 restored=restored,
@@ -924,9 +1217,9 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
     @app.post("/ui/pii/rotate", response_class=HTMLResponse, tags=["ui"])
     def ui_pii_rotate(lang: str = Query(default="en")) -> HTMLResponse:
         """轮换密钥按钮：重加密全部映射 + 写入本地 key 文件（V18，ADR-102）。"""
-        from datasentry.pii_vault import PIIVault, VaultKeyMissingError
+        from datasentry.pii_vault import VaultKeyMissingError
 
-        vault = PIIVault(client._store)
+        vault = client.pii_vault()
         key_ok: str | None = None
         key_result: dict[str, Any] | None = None
         error: str | None = None
@@ -936,13 +1229,13 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             try:
                 result = vault.rotate_key()
             except VaultKeyMissingError as exc:
-                error = str(exc)
+                error = safe_detail(exc)
             else:
                 key_ok = _t(lang, "ui.pii_rotate_ok")
                 key_result = {"rotated": result["rotated"], "key_file": result["key_file"]}
         return HTMLResponse(
             ui.render_pii(
-                client._store.list_pii_mappings(),
+                client.list_pii_mappings(),
                 key_source=vault.key_source,
                 key_configured=vault.key_configured,
                 error=error,
@@ -957,9 +1250,9 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         new_key: str = Form(default=""), lang: str = Query(default="en")
     ) -> HTMLResponse:
         """设置密钥表单：以指定材料轮换（与 CLI rotate-key --new-key 对齐，V18）。"""
-        from datasentry.pii_vault import PIIVault, VaultKeyMissingError
+        from datasentry.pii_vault import VaultKeyMissingError
 
-        vault = PIIVault(client._store)
+        vault = client.pii_vault()
         key_ok: str | None = None
         key_result: dict[str, Any] | None = None
         error: str | None = None
@@ -969,13 +1262,13 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             try:
                 result = vault.rotate_key(new_key=new_key or None)
             except VaultKeyMissingError as exc:
-                error = str(exc)
+                error = safe_detail(exc)
             else:
                 key_ok = _t(lang, "ui.pii_set_key_ok")
                 key_result = {"rotated": result["rotated"], "key_file": result["key_file"]}
         return HTMLResponse(
             ui.render_pii(
-                client._store.list_pii_mappings(),
+                client.list_pii_mappings(),
                 key_source=vault.key_source,
                 key_configured=vault.key_configured,
                 error=error,
@@ -990,9 +1283,8 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         older_than_days: int = Form(default=30), lang: str = Query(default="en")
     ) -> HTMLResponse:
         """清理表单：删除早于 N 天的会话（无需密钥，V18，Step 103，ADR-103）。"""
-        from datasentry.pii_vault import PIIVault
 
-        vault = PIIVault(client._store)
+        vault = client.pii_vault()
         error: str | None = None
         purge_ok: str | None = None
         purged: int | None = None
@@ -1003,7 +1295,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             purged = vault.purge_sessions(older_than_days)
         return HTMLResponse(
             ui.render_pii(
-                client._store.list_pii_mappings(),
+                client.list_pii_mappings(),
                 key_source=vault.key_source,
                 key_configured=vault.key_configured,
                 error=error,
@@ -1027,7 +1319,13 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             )
         issues = client.list_issues(scan_run_id=run_id, severity_at_least=severity)
         return HTMLResponse(
-            ui.render_scan_detail(scan, issues, severity_filter=severity, lang=lang)
+            ui.render_scan_detail(
+                scan,
+                issues,
+                severity_filter=severity,
+                lang=lang,
+                known_sources=_registered_sources(client),
+            )
         )
 
     @app.get(
@@ -1041,7 +1339,15 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             return HTMLResponse(
                 ui.render_error(_t("en", "ui.issue_not_found"), issue_id), status_code=404
             )
-        return HTMLResponse(ui.render_workbench(issue, run_id=run_id))
+        scan = client.get_scan(run_id)
+        return HTMLResponse(
+            ui.render_workbench(
+                issue,
+                run_id=run_id,
+                source_path=scan.source_path if scan else None,
+                known_sources=_registered_sources(client),
+            )
+        )
 
     @app.post(
         "/ui/scans/{run_id}/issues/{issue_id}",
@@ -1054,6 +1360,9 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         source_path: str = Form(),
         action: str = Form(),
     ) -> HTMLResponse:
+        source_path, refusal = _ui_allowed_source(client, source_path)
+        if refusal is not None:
+            return refusal
         issue = _get_issue(client, issue_id)
         if issue is None:
             return HTMLResponse(
@@ -1063,6 +1372,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         proposal: RepairProposal | None = None
         preview: RepairPreview | None = None
         run: RepairRun | None = None
+        diff: tuple[list[str], list[list[object]], list[list[object]], list[int]] | None = None
         try:
             if action == "propose":
                 proposal = client.repair_propose(issue_id, source_path)
@@ -1074,10 +1384,14 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
                     error = "no repair proposal available for this issue"
             elif action == "apply":
                 run = client.repair_apply(issue_id, source_path)
+                _, columns, before_rows, after_rows, changed = client.repair_diff(run.id)
+                diff = (columns, before_rows, after_rows, changed)
             else:
                 error = f"unknown action: {action}"
         except Exception as exc:
-            error = str(exc)
+            # Not `str(exc)`: `repair_diff` names the artefact paths it could not read, and this is
+            # a page served to anyone who can reach the port (D2-02, D5-06).
+            error = safe_detail(exc)
         return HTMLResponse(
             ui.render_workbench(
                 issue,
@@ -1086,7 +1400,9 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
                 proposal=proposal,
                 preview=preview,
                 run=run,
+                diff=diff,
                 error=error,
+                known_sources=_registered_sources(client),
             )
         )
 
@@ -1098,9 +1414,18 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
     def ui_rollback(run_id: str, repair_run_id: str) -> Response:
         try:
             client.repair_rollback(repair_run_id)
-        except Exception as exc:
+        except KeyError:
             return HTMLResponse(
-                ui.render_error(_t("en", "ui.rollback_failed"), str(exc)), status_code=404
+                ui.render_error(_t("en", "ui.rollback_failed"), "repair run not found"),
+                status_code=404,
+            )
+        except Exception:
+            logger.exception("ui rollback failed for %s", repair_run_id)
+            return HTMLResponse(
+                ui.render_error(
+                    _t("en", "ui.rollback_failed"), "rollback failed (see server logs)"
+                ),
+                status_code=500,
             )
         return RedirectResponse(url=f"/ui/scans/{run_id}", status_code=303)
 
@@ -1113,7 +1438,29 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         try:
             validate_cron(req.cron)
         except InvalidCronError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise HTTPException(status_code=422, detail=safe_detail(exc)) from exc
+        from datasentry.scan_paths import ScanPathRejected, allowed_roots, resolve_allowed_scan_path
+
+        # D5-13: a job is a scheduled scan the caller will not be watching, so both of its
+        # filesystem handles are checked here -- the path to scan, and the project directory the
+        # executor would otherwise happily create a workspace inside of.
+        try:
+            resolve_allowed_scan_path(req.path, workspace=client.workspace)
+        except ScanPathRejected as exc:
+            raise HTTPException(status_code=422, detail=safe_detail(exc)) from exc
+        if req.project:
+            project_root = Path(req.project).expanduser().resolve()
+            if not any(
+                project_root == root or project_root.is_relative_to(root)
+                for root in allowed_roots(client.workspace)
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "job project must be the server workspace or a "
+                        "DATASENTRY_ALLOWED_ROOTS entry"
+                    ),
+                )
         now = utcnow()
         job = ScheduledJob(
             job_id=f"job_{uuid.uuid4().hex[:12]}",
@@ -1155,7 +1502,11 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
 
     @app.post("/jobs/{job_id}/test-webhook", tags=["jobs"])
     def test_job_webhook(job_id: str) -> dict[str, Any]:
-        """发送样例通知负载到任务 webhook（V13，ADR-087 协作链路验证）。"""
+        """发送样例通知负载到任务 webhook（V13，ADR-087 协作链路验证）。
+
+        D5-03：响应不再回显远端 status_code（盲打回显 oracle），仅返回
+        notified 布尔值；elapsed_ms 保留用于排障。
+        """
         from datasentry.scheduler.models import JobResult
 
         job = scheduler.store.get_job(job_id)
@@ -1170,6 +1521,11 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             "timestamp": iso(utcnow()),
             "payload": JobResult().model_dump(),
         }
+        refusal = webhook_target_refusal(job.webhook_url)
+        if refusal:
+            # Before the try/except below: a 422 for the caller's target must not be swallowed
+            # by the delivery-failure handler and re-labelled 502.
+            raise HTTPException(status_code=422, detail=refusal)
         try:
             import time
 
@@ -1179,23 +1535,15 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             with httpx.Client(timeout=5.0) as client:
                 response = client.post(job.webhook_url, json=payload)
             elapsed_ms = int((time.monotonic() - started) * 1000)
-            if response.status_code >= 400:
-                return {
-                    "job_id": job_id,
-                    "url": job.webhook_url,
-                    "status_code": response.status_code,
-                    "elapsed_ms": elapsed_ms,
-                    "notified": False,
-                }
             return {
                 "job_id": job_id,
-                "url": job.webhook_url,
-                "status_code": response.status_code,
                 "elapsed_ms": elapsed_ms,
-                "notified": True,
+                "notified": response.status_code < 400,
             }
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"webhook delivery failed: {exc}") from exc
+            raise HTTPException(
+                status_code=502, detail=f"webhook delivery failed: {safe_detail(exc)}"
+            ) from exc
 
     @app.post("/jobs/{job_id}/trigger", tags=["jobs"], status_code=202)
     def trigger_job(job_id: str) -> dict[str, Any]:
@@ -1220,7 +1568,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             try:
                 validate_cron(req.cron)
             except InvalidCronError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
+                raise HTTPException(status_code=422, detail=safe_detail(exc)) from exc
             changes["cron"] = req.cron
             changes["next_run_at"] = next_run(req.cron, utcnow())
         if req.retry_attempts is not None:
@@ -1261,7 +1609,9 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         try:
             command = JobCommand.model_validate(body)
         except Exception as exc:
-            raise HTTPException(status_code=422, detail=f"invalid job command: {exc}") from exc
+            raise HTTPException(
+                status_code=422, detail=f"invalid job command: {safe_detail(exc)}"
+            ) from exc
         run_token = command.run_token or ""
         with inflight_lock:
             inflight_cancelled[run_token] = False
@@ -1351,8 +1701,11 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
     # ---- PII 加密 vault 管理面（V17，Step 99，ADR-099） -------------------
 
     @app.get("/pii/sessions", tags=["pii"])
-    def pii_list_sessions() -> dict[str, Any]:
+    def pii_list_sessions(
+        token: Annotated[str | None, Header(alias="X-Datasentry-Token")] = None,
+    ) -> dict[str, Any]:
         """加密会话列表（不含密文；含 key_source 提示，与 CLI llm restore 对齐）。"""
+        _require_api_token(token)
         vault = _pii_vault(client)
         return {
             "sessions": [
@@ -1361,21 +1714,25 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
                     "key_version": s["key_version"],
                     "created_at": s["created_at"].isoformat(),
                 }
-                for s in client._store.list_pii_mappings()
+                for s in client.list_pii_mappings()
             ],
             "key_source": vault.key_source,
         }
 
     @app.get("/pii/sessions/{session_id}", tags=["pii"])
-    def pii_session_summary(session_id: str) -> dict[str, Any]:
+    def pii_session_summary(
+        session_id: str,
+        token: Annotated[str | None, Header(alias="X-Datasentry-Token")] = None,
+    ) -> dict[str, Any]:
         """会话映射摘要（kind → count + 掩码→原文预览）；缺 key 503、不存在 404。"""
+        _require_api_token(token)
         vault = _pii_vault(client)
         try:
             mapping = vault.load_mapping(session_id)
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail=safe_detail(exc)) from exc
         except VaultKeyMissingError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+            raise HTTPException(status_code=503, detail=safe_detail(exc)) from exc
         return {
             "session_id": session_id,
             "key_source": vault.key_source,
@@ -1383,15 +1740,29 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         }
 
     @app.post("/pii/sessions/{session_id}/restore", tags=["pii"])
-    def pii_restore(session_id: str, req: PiiRestoreRequest) -> dict[str, Any]:
+    def pii_restore(
+        session_id: str,
+        req: PiiRestoreRequest,
+        token: Annotated[str | None, Header(alias="X-Datasentry-Token")] = None,
+    ) -> dict[str, Any]:
         """还原文本明文（显式授权语义：调用即授权查看明文，与 CLI restore 同源）。"""
-        vault = _pii_vault(client)
+        _require_api_token(token)
+        try:
+            vault = _pii_vault(client)
+        except HTTPException:
+            # 503 for an unconfigured key is raised while binding the vault, before the restore
+            # is even attempted — the audit record has to cover that refusal too.
+            _audit_restore(session_id=session_id, via="rest", ok=False, reason="key-missing")
+            raise
         try:
             restored = vault.restore_text(req.text, session_id)
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            _audit_restore(session_id=session_id, via="rest", ok=False, reason="not-found")
+            raise HTTPException(status_code=404, detail=safe_detail(exc)) from exc
         except VaultKeyMissingError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+            _audit_restore(session_id=session_id, via="rest", ok=False, reason="key-missing")
+            raise HTTPException(status_code=503, detail=safe_detail(exc)) from exc
+        _audit_restore(session_id=session_id, via="rest", ok=True)
         return {
             "session_id": session_id,
             "key_source": vault.key_source,
@@ -1399,25 +1770,36 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         }
 
     @app.delete("/pii/sessions/{session_id}", tags=["pii"], status_code=204)
-    def pii_delete_session(session_id: str) -> Response:
+    def pii_delete_session(
+        session_id: str,
+        token: Annotated[str | None, Header(alias="X-Datasentry-Token")] = None,
+    ) -> Response:
         """删除加密会话（密文行，无需密钥）；不存在 404。"""
-        if not client._store.delete_pii_mapping(session_id):
+        _require_api_token(token)
+        if not client.delete_pii_mapping(session_id):
             raise HTTPException(
                 status_code=404, detail=f"pii mapping session not found: {session_id}"
             )
         return Response(status_code=204)
 
     @app.post("/pii/sessions/purge", tags=["pii"])
-    def pii_purge_sessions(req: PiiPurgeRequest) -> dict[str, Any]:
+    def pii_purge_sessions(
+        req: PiiPurgeRequest,
+        token: Annotated[str | None, Header(alias="X-Datasentry-Token")] = None,
+    ) -> dict[str, Any]:
         """删除创建时间早于 N 天的加密会话（V18，Step 103，ADR-103）。
 
         无需密钥（与 DELETE 同语义：只删密文行不解密）。
         """
-        vault = PIIVault(client._store)
+        _require_api_token(token)
+        vault = client.pii_vault()
         return {"purged": vault.purge_sessions(req.older_than_days)}
 
     @app.post("/pii/rotate-key", tags=["pii"])
-    def pii_rotate_key(req: PiiRotateRequest | None = None) -> dict[str, Any]:
+    def pii_rotate_key(
+        req: PiiRotateRequest | None = None,
+        token: Annotated[str | None, Header(alias="X-Datasentry-Token")] = None,
+    ) -> dict[str, Any]:
         """轮换加密密钥：全部映射以新密钥重加密 + 写入本地 key 文件。
 
         可选请求体 {"new_key": "..."} 指定新密钥材料（与 CLI
@@ -1426,11 +1808,12 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         密钥已落盘，与落库行的 key_version 一致）；不返回新密钥
         材料本身（远程面不泄露）。
         """
+        _require_api_token(token)
         vault = _pii_vault(client)
         try:
             result = vault.rotate_key(new_key=req.new_key if req else None)
         except VaultKeyMissingError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+            raise HTTPException(status_code=503, detail=safe_detail(exc)) from exc
         return {
             "key_version": "file",
             "rotated": result["rotated"],
@@ -1476,8 +1859,44 @@ _ENDPOINTS = frozenset(
 )
 
 
-def main() -> None:
-    """启动 API 服务（容器/开发入口，默认 0.0.0.0:8000）。"""
+def main(argv: list[str] | None = None) -> None:
+    """启动 API 服务（容器/开发入口，默认回环 127.0.0.1:8000）。
+
+    D5-01：旧默认 0.0.0.0 把无鉴权 REST 面暴露到全网卡。现默认仅回环；
+    容器/局域网场景显式 --host 0.0.0.0 或 DATASENTRY_HOST 环境变量覆盖。
+    非回环绑定不再只是 warning（行 r2+r3）：要么配置 `DATASENTRY_API_TOKEN`
+    （写端点随即要求 `X-Datasentry-Token`，见 `ADR-120`），要么显式
+    `DATASENTRY_ALLOW_INSECURE_BIND=1` 认下这个暴露面，否则拒绝启动。
+    回环判定用 `ipaddress`（整个 127/8、`::1`、`::ffff:127.0.0.1`），
+    不再是三个字符串的集合。
+    """
+    import argparse
+    import os
+
     import uvicorn
 
-    uvicorn.run(create_app(), host="0.0.0.0", port=8000)
+    parser = argparse.ArgumentParser(description="DataSentry REST API + Web UI")
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("DATASENTRY_HOST", "127.0.0.1"),
+        help="bind host (default 127.0.0.1; containers use 0.0.0.0 via "
+        "DATASENTRY_HOST; default changed by D5-01)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("DATASENTRY_PORT", "8000")),
+        help="bind port (default 8000)",
+    )
+    args = parser.parse_args(argv)
+    host = args.host
+    opted_in = os.environ.get(INSECURE_BIND_OPT_IN, "") == "1"
+    try:
+        warning = resolve_bind(
+            host, token=os.environ.get("DATASENTRY_API_TOKEN"), opted_in=opted_in
+        )
+    except InsecureBindRefused as exc:
+        raise SystemExit(str(exc)) from exc
+    if warning:
+        logger.warning(warning)
+    uvicorn.run(create_app(), host=host, port=args.port)

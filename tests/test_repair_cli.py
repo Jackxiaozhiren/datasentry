@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -477,3 +478,107 @@ class TestRepairCli:
             ]
         )
         assert code == 3
+
+
+def _artefacts(workspace: Path) -> list[Path]:
+    return sorted((workspace / ".datasentry" / "repairs").glob("*.csv"))
+
+
+def _repaired_copies(workspace: Path) -> list[Path]:
+    """Repaired copies only.
+
+    `*.csv` alone is satisfied by the engine's own `<id>.before.csv` backup, which `apply` writes
+    *before* the copy is produced -- so a regression that deleted the copy but kept the backup left
+    the denominator non-empty and all three guards green (independent review C-7).
+    """
+    return [
+        p for p in _artefacts(workspace) if ".before" not in p.name and ".rolled_back" not in p.name
+    ]
+
+
+def _rolled_back_copies(workspace: Path) -> list[Path]:
+    return [p for p in _artefacts(workspace) if ".rolled_back" in p.name]
+
+
+class TestCliNeverOverwritesSource:
+    """D3-01（r9）：不变量 3 在 CLI 面的字节级守护。
+
+    engine 层已由外部改动补上（`test_repair_engine.py:136` 点名 D3-01），本类补 CLI 的两条
+    通路：单条 `repair apply` 与 `repair apply-batch`。断言的是**源文件字节**前后相同——
+    不是回滚副本、不是副本内容，因为这条不变量的失效形态是"原始数据集被静默销毁而全套测试仍绿"。
+    """
+
+    def test_single_apply_leaves_source_bytes_untouched(
+        self, repair_csv: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        issue = _issue_for_detector(repair_csv, workspace, "leading_or_trailing_whitespace")
+        before = hashlib.sha256(repair_csv.read_bytes()).hexdigest()
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "repair",
+                "apply",
+                issue.id,
+                "--file",
+                str(repair_csv),
+            ]
+        )
+        assert code == 0
+        assert json.loads(capsys.readouterr().out)["data"]["applied"] is True
+        assert hashlib.sha256(repair_csv.read_bytes()).hexdigest() == before, (
+            "不变量 3 失效: CLI apply 改动了源文件"
+        )
+        assert _repaired_copies(workspace), "apply 未产出修复副本, 上面的「相同」就没有分母"
+
+    def test_apply_batch_leaves_source_bytes_untouched(
+        self, repair_csv: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        scan = _scan_run(repair_csv, workspace)
+        before = hashlib.sha256(repair_csv.read_bytes()).hexdigest()
+        for argv in (
+            ["repair", "propose-batch", scan, "--file", str(repair_csv), "--all"],
+            ["repair", "apply-batch", scan, "--file", str(repair_csv), "--all"],
+        ):
+            code = main(["--project", str(workspace), "--format", "json", *argv])
+            assert code == 0, argv
+            capsys.readouterr()
+        assert hashlib.sha256(repair_csv.read_bytes()).hexdigest() == before, (
+            "不变量 3 失效: CLI apply-batch 改动了源文件"
+        )
+        assert _repaired_copies(workspace), "apply-batch 未产出修复副本, 上面的「相同」就没有分母"
+
+    def test_rollback_leaves_source_bytes_untouched(
+        self, repair_csv: Path, workspace: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """回滚同样不许碰源文件——它的产物是 `.rolled_back.csv`。
+
+        基线取在 **apply 之前**: 若只在 apply 之后取, 一次"apply 顺手原地覆盖"就偷过了这条守护
+        （第一版正是如此, 负向控制下它仍绿）。整段 apply → rollback 旅程比对同一份原始字节。
+        """
+        issue = _issue_for_detector(repair_csv, workspace, "leading_or_trailing_whitespace")
+        original = hashlib.sha256(repair_csv.read_bytes()).hexdigest()
+        main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "repair",
+                "apply",
+                issue.id,
+                "--file",
+                str(repair_csv),
+            ]
+        )
+        run_id = json.loads(capsys.readouterr().out)["data"]["run_id"]
+        assert hashlib.sha256(repair_csv.read_bytes()).hexdigest() == original, (
+            "不变量 3 失效: apply 改动了源文件"
+        )
+        code = main(["--project", str(workspace), "--format", "json", "repair", "rollback", run_id])
+        assert code == 0
+        capsys.readouterr()
+        assert hashlib.sha256(repair_csv.read_bytes()).hexdigest() == original
+        assert _rolled_back_copies(workspace), "rollback 未产出 .rolled_back 副本"

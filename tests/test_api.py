@@ -28,7 +28,9 @@ class TestApiApp:
         body = resp.json()
         assert body["ok"] is True
         assert body["service"] == "datasentry"
-        assert body["workspace"] == str(tmp_path)
+        # D5-06：health 只暴露目录名，不回显服务端绝对路径。
+        assert body["workspace"] == tmp_path.name
+        assert str(tmp_path) not in resp.text
 
     def test_root_lists_endpoints(self, tmp_path: Path) -> None:
         client = TestClient(create_app(project=tmp_path))
@@ -329,3 +331,189 @@ class TestRepairApi:
         )
         assert resp.status_code == 200
         assert resp.json() is None
+
+
+class TestFourxxCarriesNoServerPaths:
+    """D2-02 / D5-06（阶段 2 行 r13）：4xx 保留原因、去掉服务端路径；真故障不伪装成 404。"""
+
+    def test_unknown_repair_run_does_not_echo_a_path(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        resp = client.post("/repairs/rep_missing/verify")
+        assert resp.status_code == 404
+        assert str(tmp_path) not in resp.text
+
+    def test_rollback_failure_is_500_not_404(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A broken backend used to surface as 404 with the raw exception text, which reads to a
+        client as "your id is wrong" and to an attacker as a filesystem map."""
+        app = create_app(project=tmp_path)
+
+        def explode(run_id: str) -> None:
+            raise RuntimeError("warehouse exploded while opening /var/lib/datasentry/main.db")
+
+        monkeypatch.setattr(app.state.client, "repair_rollback", explode)
+        resp = TestClient(app, raise_server_exceptions=False).post("/repairs/rep_1/rollback")
+        assert resp.status_code == 500
+        assert "warehouse exploded" not in resp.text
+        assert "/var/lib/datasentry" not in resp.text
+
+    def test_reason_survives_redaction(self, tmp_path: Path) -> None:
+        """The message must stay actionable: only the path is replaced, not the whole detail."""
+        from datasentry.redact import safe_detail
+
+        raw = "[Errno 2] No such file or directory: '/srv/ds/workspace/orders.csv'"
+        assert safe_detail(FileNotFoundError(raw)) == (
+            "[Errno 2] No such file or directory: '<path>'"
+        )
+        assert safe_detail(KeyError("repair run rep_9 not found")) == (
+            "'repair run rep_9 not found'"
+        )
+        assert safe_detail(ValueError("")) == "ValueError"
+
+    def test_spaced_and_apostrophised_paths_are_fully_redacted(self) -> None:
+        """A-8 第一半：字符类排除空白与撇号，于是"遮到第一个空格为止"，尾段照旧外泄。
+
+        macOS 与挂载点里带空格的路径是常态（`Application Support`、`My Documents`），
+        而这条控制声称的正是"不外泄服务端文件系统地图"。
+        """
+        from datasentry.redact import safe_detail
+
+        cases = {
+            "data source not found: /srv/My Data/orders.csv": "data source not found: <path>",
+            'open file "/srv/prod data/orders.csv": permission denied': (
+                'open file "<path>": permission denied'
+            ),
+            "[Errno 2] No such file or directory: '/home/O'Brien/vault.key'": (
+                "[Errno 2] No such file or directory: '<path>'"
+            ),
+            "cannot read C:\\Users\\Zhi Ren\\orders.csv": "cannot read <path>",
+            "read /srv/My\tData/orders.csv then failed": "read <path> then failed",
+            "cannot open \\\\nas\\share\\fin.xlsx": "cannot open <path>",
+        }
+        for raw, want in cases.items():
+            assert safe_detail(ValueError(raw)) == want, raw
+
+    def test_prose_after_a_path_is_not_swallowed(self) -> None:
+        """对照：脱敏不能顺手吃掉原因本身。"""
+        from datasentry.redact import safe_detail
+
+        assert safe_detail(ValueError("failed to read /tmp/x.csv but continued")) == (
+            "failed to read <path> but continued"
+        )
+        assert safe_detail(ValueError("no repair proposal available for this issue")) == (
+            "no repair proposal available for this issue"
+        )
+        assert safe_detail(ValueError("GET /v1/health returned 500")) == ("GET <path> returned 500")
+        # 一个比例/日期/文档引用都不该把整条原因吃掉（复核 #5：旧规则"后面还有斜杠就一直吃"）
+        assert safe_detail(ValueError("failed to read /srv/a/b.csv after 3/5 attempts")) == (
+            "failed to read <path> after 3/5 attempts"
+        )
+        assert safe_detail(ValueError("expected /srv/a/b but got 12 of 20 rows/limit")) == (
+            "expected <path> but got 12 of 20 rows/limit"
+        )
+
+    def test_documented_residual_a_stop_char_leaves_only_a_relative_fragment(self) -> None:
+        """把边界钉在文案上：绝对前缀一定消失，剩下的只是文件名，不是文件系统地图。
+
+        这条不是"顺手放宽"——它断言的是 `/srv` 与 `My Reports` 之前那段一定被遮掉，
+        所以若有人把锚点改坏，这条会红。
+        """
+        from datasentry.redact import safe_detail
+
+        out = safe_detail(ValueError("/srv/My Reports (2024)/orders.csv unreadable"))
+        assert "/srv" not in out
+        assert out.startswith("<path>")
+        out2 = safe_detail(ValueError("cannot open /srv/Smith, John/x.csv"))
+        assert "/srv" not in out2 and "Smith" not in out2
+
+    def test_redaction_stays_linear_on_a_long_message(self) -> None:
+        """复核 #1：逐字符再全文找分隔符 = 二次方，而 200 字截断发生在脱敏**之后**，拦不住它。
+
+        边界放得极宽（旧实现 64 KB 输入实测 11.2 s，新实现 0.7 ms），只用来让"重新引入全文扫描"
+        这件事一定响，不用来报性能数字。
+        """
+        import time
+
+        from datasentry.redact import redact_paths
+
+        text = "/a/b" + " x" * 32000 + " y/z"
+        started = time.perf_counter()
+        out = redact_paths(text)
+        elapsed = time.perf_counter() - started
+        assert "<path>" in out
+        assert elapsed < 1.0, f"redaction went quadratic again: {elapsed:.2f}s on {len(text)} chars"
+
+    def test_no_ui_face_interpolates_a_raw_exception(self) -> None:
+        """A-8 第二半：脱敏函数一直在，十四个面只是从没调用它——而裸 `{exc}` 是第十五种形态。
+
+        AST 而非 grep：`str(exc)` 出现在 f-string、dict 字面量、`HTMLResponse` 实参里形态各异，
+        逐行文本匹配既漏也假阳性。两种形态都要抓：`str/repr(exc)`，以及 f-string 里裸插值的
+        `{exc}`。唯一豁免是按内容分类的比较（`"no repair proposal" in str(exc)`）。
+        """
+        import ast
+        import inspect
+
+        import datasentry.api as mod
+
+        tree = ast.parse(inspect.getsource(mod.create_app))
+        parent: dict[int, ast.AST] = {}
+        for holder in ast.walk(tree):
+            for child in ast.iter_child_nodes(holder):
+                parent[id(child)] = holder
+
+        def is_exc(node: ast.AST | None) -> bool:
+            return isinstance(node, ast.Name) and node.id == "exc"
+
+        def flagged(node: ast.AST) -> bool:
+            bare_in_fstring = is_exc(node) and isinstance(parent.get(id(node)), ast.FormattedValue)
+            wrapped = (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in {"str", "repr"}
+                and bool(node.args)
+                and is_exc(node.args[0])
+            )
+            classified = isinstance(parent.get(id(node)), ast.Compare)
+            return bare_in_fstring or (wrapped and not classified)
+
+        raw = sorted(node.lineno for node in ast.walk(tree) if flagged(node))
+        assert raw == [], (
+            f"api.py lines {raw} interpolate a raw exception into a response; route it through "
+            "`safe_detail(exc)`. Only a content test like `... in str(exc)` may read it raw."
+        )
+
+    def test_ui_batch_rollback_page_does_not_echo_a_spaced_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = create_app(project=tmp_path)
+        secret = "/srv/ds/My Documents/rep_9.before.csv"
+
+        def explode(run_id: str) -> None:
+            raise RuntimeError(f"cannot restore {secret}")
+
+        monkeypatch.setattr(app.state.client, "repair_rollback", explode)
+        resp = TestClient(app).post(
+            "/ui/scans/scan_1/repairs/batch-rollback", data={"repair_run_ids": "rep_9"}
+        )
+        assert resp.status_code == 200
+        assert "cannot restore" in resp.text
+        assert secret not in resp.text
+        assert "My Documents" not in resp.text
+
+    def test_repair_verify_path_error_is_redacted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Row r13's own delta: a 400 whose message carries a server path keeps the reason and
+        loses the path. On HEAD this detail reached the client verbatim."""
+        app = create_app(project=tmp_path)
+        secret = "/var/lib/datasentry/workspace/.datasentry/repairs/rep_7.csv"
+
+        def explode(repair_run_id: str) -> tuple[object, object]:
+            raise FileNotFoundError(2, "No such file or directory", secret)
+
+        monkeypatch.setattr(app.state.client, "repair_verify", explode)
+        resp = TestClient(app).post("/repairs/rep_7/verify")
+        assert resp.status_code == 400
+        assert "No such file or directory" in resp.text
+        assert secret not in resp.text

@@ -50,6 +50,21 @@ class TestJobsApi:
         assert body["next_run_at"]
         assert body["command"]["path"] == str(csv)
 
+    def test_create_job_rejects_non_http_webhook(self, client: TestClient, tmp_path: Path) -> None:
+        """D5-03：file:// 等非 HTTP scheme 的 webhook 在创建时即 422 拒绝。"""
+        csv = _sample_csv(tmp_path)
+        for bad in ("file:///etc/passwd", "gopher://127.0.0.1:70/x", "javascript:alert(1)"):
+            resp = client.post(
+                "/jobs",
+                json={
+                    "name": "bad hook",
+                    "path": str(csv),
+                    "cron": "0 9 * * *",
+                    "webhook_url": bad,
+                },
+            )
+            assert resp.status_code == 422, bad
+
     def test_create_job_export_report_flag(self, client: TestClient, tmp_path: Path) -> None:
         csv = _sample_csv(tmp_path)
         resp = client.post(
@@ -267,7 +282,9 @@ class TestJobsV13:
             assert resp.status_code == 200
             body = resp.json()
             assert body["notified"] is True
-            assert body["status_code"] == 200
+            # D5-03：不再回显远端 status_code / url（盲打 oracle）。
+            assert "status_code" not in body
+            assert "url" not in body
             assert body["elapsed_ms"] >= 0
             assert len(received) == 1
             assert received[0]["event"] == "job.test"
@@ -311,7 +328,7 @@ class TestJobsV13:
             resp = client.post(f"/jobs/{job_id}/test-webhook")
             assert resp.status_code == 200
             assert resp.json()["notified"] is False
-            assert resp.json()["status_code"] == 500
+            assert "status_code" not in resp.json()
         finally:
             server.shutdown()
             server.server_close()

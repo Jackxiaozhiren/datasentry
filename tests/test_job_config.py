@@ -122,7 +122,7 @@ class TestJobConfig:
             ds.close()
 
     def test_trigger_without_config_uses_defaults(self, client: TestClient, tmp_path: Path) -> None:
-        """无 config 任务：scan_run.config 为默认配置（旧行为不变）。"""
+        """无 config 任务：scan_run.config 为默认配置（D1-02：默认 reservoir）。"""
         csv = _sample_csv(tmp_path)
         job_id = client.post(
             "/jobs", json={"name": "plain", "path": str(csv), "cron": "* * * * *"}
@@ -135,7 +135,7 @@ class TestJobConfig:
         try:
             run = ds.get_scan(scan_run_id)
             assert run is not None
-            assert run.config.sampling.method == "random"
+            assert run.config.sampling.method == "reservoir"
         finally:
             ds.close()
 
@@ -160,3 +160,120 @@ class TestJobConfig:
         second_run = store.get_run(second.json()["run_id"])
         assert second_run is not None
         assert second_run.skipped is True
+
+
+def _resolver(mapping: dict[str, str]) -> object:
+    def resolve(host: object, port: int, *_args: object, **_kw: object) -> list[object]:
+        return [(0, 0, 0, "", (mapping.get(str(host), str(host)), port))]
+
+    return resolve
+
+
+class TestWebhookTargetPolicy:
+    """D5-03 (row r4, P26 option B): the address classes a webhook fetch may not reach."""
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://169.254.169.254/latest/meta-data/",
+            "HTTP://169.254.169.254/",
+            "http://[fe80::1]/x",
+            "http://0.0.0.0/cb",
+            "http://100.64.0.1/x",
+            "http://224.0.0.1/x",
+            "http://240.0.0.1/x",
+            # IPv4-mapped IPv6 spelling: an IPv6Address compared against an IPv4Network is silently
+            # False, so the v4 ranges were unenforced behind this notation (review C-1).
+            "http://[::ffff:169.254.169.254]/latest/meta-data/",
+            "http://[::ffff:100.64.0.1]/x",
+            "http://[::ffff:0.0.0.0]/x",
+            "http://[::ffff:224.0.0.1]/x",
+            "http://good.example@169.254.169.254/",
+        ],
+    )
+    def test_non_routable_classes_are_refused(self, url: str) -> None:
+        from datasentry.scheduler.models import webhook_target_refusal
+
+        assert webhook_target_refusal(url), url
+
+    @pytest.mark.parametrize(
+        ("url", "host"),
+        [
+            ("http://metadata-flipped.example/x", "169.254.169.254"),
+            ("http://decimal-metadata.example/x", "169.254.169.254"),
+        ],
+    )
+    def test_a_name_resolving_into_the_metadata_block_is_refused(self, url: str, host: str) -> None:
+        """The point of resolving: a caller can hide the destination behind a name."""
+        from datasentry.scheduler.models import webhook_target_refusal
+
+        refused = webhook_target_refusal(url, _resolver({url.split("//")[1].split("/")[0]: host}))
+        assert refused and host in refused, refused
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://hooks.example.test/notify",
+            "http://127.0.0.1:9999/cb",
+            "http://127.1/cb",
+            "http://2130706433/cb",
+            "http://[::1]:9999/cb",
+            "http://localhost:9999/cb",
+            "http://10.0.8.12:8080/internal",
+            "http://192.168.1.1/admin",
+        ],
+    )
+    def test_the_documented_local_and_lan_cases_stay_allowed(self, url: str) -> None:
+        """P26 B keeps these: local notification is the written use case, not an oversight."""
+        from datasentry.scheduler.models import webhook_target_refusal
+
+        assert webhook_target_refusal(url) is None, url
+
+    def test_a_host_that_does_not_resolve_is_not_a_refusal(self) -> None:
+        """Nothing is reachable, so the request fails on its own; refusing here would only
+        couple the scheduler to live DNS and break `https://hook/x`-style test doubles."""
+        from datasentry.scheduler.models import webhook_target_refusal
+
+        assert webhook_target_refusal("http://does-not-exist.invalid/cb") is None
+
+    def test_notifier_never_touches_a_refused_target(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from datasentry.scheduler.core import WebhookNotifier
+
+        calls: list[str] = []
+
+        def factory() -> object:
+            class _Client:
+                def post(self, url: str, json: object) -> None:
+                    calls.append(url)
+
+                def close(self) -> None:
+                    return None
+
+            return _Client()
+
+        notifier = WebhookNotifier(client_factory=factory)
+        with caplog.at_level("WARNING", logger="datasentry.scheduler.core"):
+            notifier.notify("http://169.254.169.254/latest/meta-data/", {"a": 1})
+            notifier.notify("http://127.0.0.1:9/api", {"a": 1})
+        assert calls == ["http://127.0.0.1:9/api"]
+        assert "not delivered" in caplog.text
+
+    def test_the_rest_delivery_face_refuses_too(self, tmp_path: Path) -> None:
+        """`POST /jobs/{id}/test-webhook` is server-side fetch on a caller-supplied URL."""
+        app = create_app(project=tmp_path)
+        client = TestClient(app)
+        created = client.post(
+            "/jobs",
+            json={
+                "name": "j",
+                "path": str(tmp_path / "orders.csv"),
+                "cron": "5 * * * *",
+                "webhook_url": "http://169.254.169.254/latest/meta-data/",
+            },
+        )
+        assert created.status_code == 201, created.text
+        resp = client.post(f"/jobs/{created.json()['job_id']}/test-webhook")
+        assert resp.status_code == 422
+        assert "non-routable" in resp.json()["detail"]

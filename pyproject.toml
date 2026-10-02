@@ -52,6 +52,22 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/datasentry"]
 
+# D6-04：sdist 只发运行时文件；tests/docs/.growth/.github/examples/
+# demo-data/benchmarks/AUDIT 不进 PyPI（营销草稿与内部审计曾被公开）。
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "tests",
+  "docs",
+  ".growth",
+  ".github",
+  "examples",
+  "demo-data",
+  "benchmarks",
+  "AUDIT",
+  "AI Data Quality Copilot",
+  "PROMPT_audit_fix_optimize.md",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",

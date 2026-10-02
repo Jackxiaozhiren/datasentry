@@ -15,7 +15,10 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from datasentry.pii_vault import PIIVault
 
 from datasentry.repair_ai import AIRepairService
 from datasentry_core.connectors import (
@@ -60,8 +63,17 @@ def _source_type_for_path(path: Path) -> DataSourceType | None:
 class DataSentry:
     """项目工作区门面：持有元数据库与扫描入口（23.1 MVP 子集）。"""
 
-    def __init__(self, project: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        project: str | Path | None = None,
+        *,
+        enforce_scan_containment: bool = False,
+    ) -> None:
         self._workspace = Path(project).expanduser() if project else Path.cwd()
+        # D5-13: a face that takes paths from the network confines them to this workspace.
+        # The CLI and the local scheduler stay on the operator's own trust boundary, so the
+        # flag is opt-in per construction site instead of a rule inside scan_file.
+        self._enforce_scan_containment = enforce_scan_containment
         self._store = MetadataStore.for_workspace(self._workspace)
         self._registry = self._registry_with_plugins()
         self._runner = ScanRunner(self._registry)
@@ -465,6 +477,14 @@ class DataSentry:
         扫描）或指纹计算失败 → 降级全量扫描（绝不误跳过）。默认
         False 行为与旧版完全一致。
         """
+        if self._enforce_scan_containment:
+            from datasentry.scan_paths import resolve_allowed_scan_path
+
+            # Use the validated string. Discarding it meant the gate checked `workspace/x.csv`
+            # while this method went on to open `x.csv` against the process CWD -- the same
+            # wrong-base defect r5/A-1 closed on the REST face (A-10 review #2). Remote URIs come
+            # back unchanged, so the DSN and cloud branches below still match.
+            path = resolve_allowed_scan_path(str(path), workspace=self._workspace)
         if isinstance(path, str) and (
             path.startswith("postgresql://") or path.startswith("postgres://")
         ):
@@ -669,6 +689,26 @@ class DataSentry:
     def list_scan_runs(self) -> list[ScanRun]:
         """ScanRun 列表（按创建时间降序）。"""
         return self._store.list_scan_runs()
+
+    # ---- PII vault 门面（D1-01：三端经 client 取 vault/映射，不碰 _store） ----
+
+    def pii_vault(self) -> PIIVault:
+        """绑定本工作区元数据库的 PII vault（与 CLI/API/MCP 同源）。"""
+        from datasentry.pii_vault import PIIVault
+
+        return PIIVault(self._store)
+
+    def list_pii_mappings(self, limit: int = 100) -> list[dict[str, Any]]:
+        """PII 会话映射列表（只读视图行，不过密文）。"""
+        return self._store.list_pii_mappings(limit=limit)
+
+    def count_pii_mappings(self) -> int:
+        """PII 会话映射计数。"""
+        return self._store.count_pii_mappings()
+
+    def delete_pii_mapping(self, session_id: str) -> bool:
+        """删除 PII 会话映射（只删密文行不解密）；不存在返回 False。"""
+        return self._store.delete_pii_mapping(session_id)
 
     def drift_compare(
         self,

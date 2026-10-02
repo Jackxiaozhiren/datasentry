@@ -2,8 +2,14 @@ services:
   datasentry:
     build: .
     ports:
-      - "8000:8000"
+      # D5-01：宿主侧仅回环可达；容器内仍需 0.0.0.0（见 Dockerfile）。
+      - "127.0.0.1:8000:8000"
     environment:
       DATASENTRY_PROJECT: /app/workspace
+      # 容器内绑 0.0.0.0（端口映射必需），因此进程要求一个凭据；未设置时
+      # compose 直接以这条消息失败，而不是让容器起来后反复重启（D5-01/D5-02）。
+      # 逃生阀：DATASENTRY_ALLOW_INSECURE_BIND=1 表示你确认要面向网卡暴露。
+      # 例：DATASENTRY_API_TOKEN=$(openssl rand -hex 16) docker compose up
+      DATASENTRY_API_TOKEN: ${DATASENTRY_API_TOKEN:?set DATASENTRY_API_TOKEN, see D5-01/D5-02}
     volumes:
       - ./workspace:/app/workspace

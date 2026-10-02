@@ -41,3 +41,9 @@ docs/V*_DEV_PROMPT.md
 DataSentry AI 产品设计与开发 Prompt*.md
 DataSentry AI 产品设计与开发 Prompt*.docx
 DataSentry AI 增长与推广 Prompt.md
+
+# Prompt 与体检报告所在目录（本地保留，不进仓库）
+AI Data Quality Copilot/
+
+# 审计产物（本地保留，不进仓库；阶段 4 指定位置）
+AUDIT/

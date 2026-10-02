@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+from html.parser import HTMLParser
 from pathlib import Path
+from typing import NamedTuple
 
 from fastapi.testclient import TestClient
 
@@ -584,3 +586,525 @@ class TestTrendsPage:
         resp = client.get("/ui/")
         assert resp.status_code == 200
         assert 'href="/ui/trends"' in resp.text
+
+
+SELECT_RE = re.compile(r'<select[^>]+name="source_path"')
+TEXT_INPUT_RE = re.compile(r'<input[^>]+type="text"[^>]+name="source_path"')
+COPY_EN = "never overwrites the original file"
+COPY_ZH = "绝不覆盖原文件"
+
+
+class TestRepairSourcePicker:
+    """UI-04（r6）：两处修复面把 source_path 从自由文本改成已登记数据集下拉，并回显只写副本承诺。
+
+    判据来自 `AUDIT/tools/probe_ui_repair_faces.py --face C`（改前实测
+    `text_input=True / select=False / copy_stated=False`）。
+    """
+
+    def test_detail_page_renders_a_select_not_a_free_text_path(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        page = client.get(f"/ui/scans/{run_id}").text
+        assert SELECT_RE.search(page)
+        assert not TEXT_INPUT_RE.search(page)
+        assert f'<option value="{csv}"' in page
+
+    def test_detail_page_preselects_the_scanned_source(self, tmp_path: Path) -> None:
+        """该次扫描自己的文件必须是默认选中项，否则用户不改就修错数据集。"""
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        page = client.get(f"/ui/scans/{run_id}").text
+        assert f'<option value="{csv}" selected>' in page
+
+    def test_picker_offers_every_registered_source(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        first = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        second = tmp_path / "orders.csv"
+        second.write_text("order_id,amount\n1,3.0\n2,\n", encoding="utf-8")
+        assert client.post("/scans", json={"path": str(second)}).status_code == 201
+        page = client.get(f"/ui/scans/{run_id}").text
+        assert f'<option value="{first}"' in page
+        assert f'<option value="{second}"' in page
+
+    def test_detail_page_states_the_copy_only_promise(self, tmp_path: Path) -> None:
+        """文案必须同时说出「不覆盖原文件」和**真实落盘目录**。
+
+        首稿写的是「在源文件旁」，与 `repair/engine.py:258-259` 的实际产物位置
+        （`<workspace>/.datasentry/repairs/`）不符——安全承诺说错地点比不说更糟。
+        """
+        client = TestClient(create_app(project=tmp_path))
+        run_id = _scan(client, tmp_path)
+        page = client.get(f"/ui/scans/{run_id}").text
+        assert COPY_EN in page
+        assert ".datasentry/repairs/" in page
+
+    def test_detail_page_states_the_promise_in_chinese(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        run_id = _scan(client, tmp_path)
+        page = client.get(f"/ui/scans/{run_id}", params={"lang": "zh"}).text
+        assert COPY_ZH in page
+        assert "ui." not in page
+
+    def test_workbench_page_carries_the_same_picker_and_promise(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        issues = client.get(f"/scans/{run_id}/issues").json()
+        whitespace = next(
+            i for i in issues if "leading_or_trailing_whitespace" in i["detector_ids"]
+        )
+        page = client.get(f"/ui/scans/{run_id}/issues/{whitespace['id']}").text
+        assert SELECT_RE.search(page)
+        assert not TEXT_INPUT_RE.search(page)
+        assert f'<option value="{csv}" selected>' in page
+        assert COPY_EN in page
+
+    def test_picker_survives_a_propose_round_trip(self, tmp_path: Path) -> None:
+        """POST 回来的页面仍是下拉：否则一次提案就把用户退回自由文本框。"""
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        issues = client.get(f"/scans/{run_id}/issues").json()
+        whitespace = next(
+            i for i in issues if "leading_or_trailing_whitespace" in i["detector_ids"]
+        )
+        page = client.post(
+            f"/ui/scans/{run_id}/issues/{whitespace['id']}",
+            data={"source_path": str(csv), "action": "propose"},
+        ).text
+        assert SELECT_RE.search(page)
+        assert not TEXT_INPUT_RE.search(page)
+        assert COPY_EN in page
+
+
+class TestRepairSourcePickerEmptyWorkspace:
+    """空态：没有扫描过任何文件时，页面说人话而不是漏出 i18n 键名。"""
+
+    def test_empty_picker_explains_and_stays_submittable(self) -> None:
+        from datasentry.ui import _source_path_field
+
+        html = _source_path_field([], None, html_id="source_path", label="L", lang="en")
+        assert "<select" in html
+        # `disabled` was the first draft and is wrong: a disabled control is never submitted, so
+        # the POST arrives without the field and FastAPI answers in JSON (review B-6).
+        assert "disabled" not in html
+        assert "No source file has been scanned" in html
+        assert "ui.no_registered_sources" not in html
+
+    def test_empty_picker_explains_in_chinese(self) -> None:
+        from datasentry.ui import _source_path_field
+
+        html = _source_path_field([], None, html_id="source_path", label="L", lang="zh")
+        assert "还没有扫描过任何源文件" in html
+        assert "ui.no_registered_sources" not in html
+
+
+class _Control(NamedTuple):
+    name: str
+    type: str
+    value: str
+    in_form: bool
+    form_attr: str | None
+
+
+class _FormParser(HTMLParser):
+    """Which controls a browser would attach to `form_id`, and the value each would submit.
+
+    A control belongs if it is inside the `<form>` element or carries `form="<form_id>"`. This is
+    the predicate `UI-07` failed: every server-side test posted `issue_ids` explicitly, so a green
+    suite coexisted with a button that could never submit a ticked issue. A `<select>` submits its
+    selected option (the first when none is marked), not a `value` attribute on the tag.
+    """
+
+    def __init__(self, form_id: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self.form_id = form_id
+        self.controls: list[_Control] = []
+        self._depth = 0
+        self._select: tuple[str, list[str], str | None] | None = None
+
+    def _emit(self, tag: str, a: dict[str, str | None]) -> None:
+        self.controls.append(
+            _Control(
+                name=a.get("name") or "",
+                type=(a.get("type") or "text").lower() if tag == "input" else tag,
+                value=a.get("value") or "",
+                in_form=self._depth > 0,
+                form_attr=a.get("form"),
+            )
+        )
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        a = dict(attrs)
+        if tag == "form":
+            if a.get("id") == self.form_id:
+                self._depth += 1
+            return
+        if tag == "select":
+            self._select = (a.get("name") or "", [], None)
+            return
+        if self._select is not None:
+            if tag == "option":
+                self._select[1].append(a.get("value") or "")
+                if a.get("selected") is not None and self._select[2] is None:
+                    self._select = (*self._select[:2], a.get("value") or "")
+            return
+        if tag not in ("input", "textarea"):
+            return
+        if tag == "input" and (a.get("type") or "").lower() in ("submit", "button", "image"):
+            return
+        self._emit(tag, a)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "form" and self._depth > 0:
+            self._depth -= 1
+        elif tag == "select" and self._select is not None:
+            name, options, selected = self._select
+            self.controls.append(
+                _Control(
+                    name=name,
+                    type="select",
+                    value=selected if selected is not None else (options[0] if options else ""),
+                    in_form=self._depth > 0,
+                    form_attr=None,
+                )
+            )
+            self._select = None
+
+    def belonging(self) -> list[_Control]:
+        return [c for c in self.controls if c.in_form or c.form_attr == self.form_id]
+
+
+def _submittable(html: str, form_id: str) -> list[_Control]:
+    p = _FormParser(form_id)
+    p.feed(html)
+    return p.belonging()
+
+
+class TestBatchRepairFormSemantics:
+    """UI-07（r14）：勾选的 issue 必须真的属于批量表单，浏览器提交才带得上。"""
+
+    def test_every_issue_checkbox_belongs_to_the_form(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        run_id = _scan(client, tmp_path)
+        page = client.get(f"/ui/scans/{run_id}").text
+        issues = client.get(f"/scans/{run_id}/issues").json()
+        belonging = _submittable(page, "batch-repair-form")
+        ticks = [c for c in belonging if c.name == "issue_ids"]
+        assert len(ticks) == len(issues), (
+            f"{len(ticks)} of {len(issues)} issue checkboxes belong to the form; the rest cannot "
+            "be submitted no matter what the user ticks"
+        )
+        assert {c.value for c in ticks} == {i["id"] for i in issues}
+
+    def test_a_form_semantics_submit_reaches_the_server(self, tmp_path: Path) -> None:
+        """按浏览器归属规则拼载荷提交，而不是手写 issue_ids。"""
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        page = client.get(f"/ui/scans/{run_id}").text
+        belonging = _submittable(page, "batch-repair-form")
+        ticks = [c for c in belonging if c.name == "issue_ids"]
+        source = next(c for c in belonging if c.name == "source_path")
+        assert ticks and source.value == str(csv)
+        picked = [c.value for c in ticks if "whitespace" in _detectors(client, run_id, c.value)]
+        assert picked, "fixture lost the whitespace issue the batch face is meant to repair"
+        resp = client.post(
+            f"/ui/scans/{run_id}/repairs/batch-propose",
+            data={"source_path": source.value, "issue_ids": picked},
+        )
+        assert resp.status_code == 200
+        assert f"1 / {len(picked)}" in resp.text
+        assert "trim_whitespace" in resp.text
+
+    def test_no_selection_refuses_actionably_and_offers_the_way_back(self, tmp_path: Path) -> None:
+        """兜底文案：说清该做什么，并给回原扫描页的链接（UI-07 fix_sketch 的第二半）。"""
+        client = TestClient(create_app(project=tmp_path))
+        csv = _sample_csv(tmp_path)
+        run_id = _scan(client, tmp_path)
+        for path in (
+            f"/ui/scans/{run_id}/repairs/batch-propose",
+            f"/ui/scans/{run_id}/repairs/batch-apply",
+        ):
+            resp = client.post(path, data={"source_path": str(csv)})
+            assert resp.status_code == 400, path
+            assert "Tick at least one issue" in resp.text, path
+            assert "no issues selected" not in resp.text, path
+            assert f'href="/ui/scans/{run_id}"' in resp.text, path
+
+    def test_the_form_id_and_the_association_share_one_constant(self, tmp_path: Path) -> None:
+        from datasentry.ui import BATCH_REPAIR_FORM_ID
+
+        client = TestClient(create_app(project=tmp_path))
+        run_id = _scan(client, tmp_path)
+        page = client.get(f"/ui/scans/{run_id}").text
+        assert f'id="{BATCH_REPAIR_FORM_ID}"' in page
+        assert f'form="{BATCH_REPAIR_FORM_ID}"' in page
+
+
+def _detectors(client: TestClient, run_id: str, issue_id: str) -> str:
+    return next(
+        ",".join(i["detector_ids"])
+        for i in client.get(f"/scans/{run_id}/issues").json()
+        if i["id"] == issue_id
+    )
+
+
+class TestEmptyPickerCannotDeadEnd:
+    """复核 B-6：空态控件不能把用户送进裸 JSON 422。
+
+    `disabled` 的控制不参与约束校验也不会被提交，于是 `required` 形同虚设，POST 到达服务端时
+    根本没有 `source_path` 字段，FastAPI 回的是 `application/json` 422——正是 UI-06 那类死端。
+    """
+
+    def test_empty_picker_is_not_disabled(self) -> None:
+        from datasentry.ui import _source_path_field
+
+        html = _source_path_field([], None, html_id="source_path", label="L", lang="en")
+        assert "disabled" not in html
+        assert 'name="source_path" required' in html
+        assert "No source file has been scanned" in html
+
+    def test_a_source_path_free_submit_is_refused_in_html_not_json(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        run_id = _scan(client, tmp_path)
+        issues = client.get(f"/scans/{run_id}/issues").json()
+        resp = client.post(
+            f"/ui/scans/{run_id}/issues/{issues[0]['id']}",
+            data={"source_path": "", "action": "propose"},
+        )
+        assert resp.status_code == 422
+        assert resp.headers["content-type"].startswith("text/html")
+
+
+def _page_body(html: str) -> str:
+    """Page markup with the ``<style>`` block removed.
+
+    ``.diff-del`` is declared in the CSS shipped on *every* page, so a plain substring check
+    would "prove" a diff exists on a page that renders none at all.
+    """
+    return re.sub(r"<style>.*?</style>", "", html, flags=re.DOTALL)
+
+
+def _diff_cells(html: str) -> list[str]:
+    return re.findall(
+        r'<td class="diff-(?:del|add)"><code>(.*?)</code></td>',
+        _page_body(html),
+        flags=re.DOTALL,
+    )
+
+
+class TestApplyResponseCarriesEvidence:
+    """P31-A / D2-06 第二症状：单条 issue 的 apply 响应页只有 "Repair applied"，
+    要看行级证据必须再点一次工件页——写入数据后却看不到写了什么。"""
+
+    def _whitespace_issue(self, client: TestClient, run_id: str) -> str:
+        return next(
+            i["id"]
+            for i in client.get(f"/scans/{run_id}/issues").json()
+            if "leading_or_trailing_whitespace" in i["detector_ids"]
+        )
+
+    def _apply(
+        self,
+        client: TestClient,
+        tmp_path: Path,
+        run_id: str,
+        issue_id: str,
+        source: Path | None = None,
+    ):
+        csv = source or _sample_csv(tmp_path)
+        client.post(
+            f"/ui/scans/{run_id}/issues/{issue_id}",
+            data={"source_path": str(csv), "action": "propose"},
+        )
+        return client.post(
+            f"/ui/scans/{run_id}/issues/{issue_id}",
+            data={"source_path": str(csv), "action": "apply"},
+            follow_redirects=True,
+        )
+
+    def test_applied_page_shows_the_changed_cells(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        run_id = _scan(client, tmp_path)
+        page = self._apply(client, tmp_path, run_id, self._whitespace_issue(client, run_id))
+        assert page.status_code == 200
+        assert "Repair applied" in page.text
+        assert "Row-level changes applied" in page.text
+        cells = _diff_cells(page.text)
+        assert cells, "apply response renders no changed cell"
+        assert 'class="diff-row"' in _page_body(page.text)
+
+    def test_changed_blanks_survive_the_render(self, tmp_path: Path) -> None:
+        """行级证据的主角就是那几个空格。
+
+        普通流里 HTML 会折叠首尾空白，裸 `<td>` 会把 ` alice ` 和 `alice` 渲染成一模一样的
+        "alice"——写了数据却看不出写了什么。
+        """
+        client = TestClient(create_app(project=tmp_path))
+        run_id = _scan(client, tmp_path)
+        page = self._apply(client, tmp_path, run_id, self._whitespace_issue(client, run_id))
+        assert _diff_cells(page.text) == [" alice ", "alice"]
+        assert re.search(r"\.diff-del \{[^}]*pre-wrap", page.text), "diff cell CSS drops pre-wrap"
+
+    def test_applied_page_links_the_full_artifact(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        run_id = _scan(client, tmp_path)
+        page = self._apply(client, tmp_path, run_id, self._whitespace_issue(client, run_id))
+        href = re.search(r'href="/ui/repairs/([^"]+)/artifact"', _page_body(page.text))
+        assert href is not None, "apply response does not link its own repair artifact"
+
+    def test_applied_page_and_artifact_page_agree_on_every_cell(self, tmp_path: Path) -> None:
+        """共享 `_diff_table` 的意义是两个面不能把同一份证据渲染成两样。"""
+        client = TestClient(create_app(project=tmp_path))
+        run_id = _scan(client, tmp_path)
+        issue_id = self._whitespace_issue(client, run_id)
+        page = self._apply(client, tmp_path, run_id, issue_id)
+        repair_run_id = re.search(r"/ui/repairs/([^\"]+)/artifact", _page_body(page.text))
+        assert repair_run_id is not None
+        artifact = client.get(f"/ui/repairs/{repair_run_id.group(1)}/artifact")
+        assert artifact.status_code == 200
+        applied_cells = _diff_cells(page.text)
+        assert applied_cells
+        assert applied_cells == _diff_cells(artifact.text)
+
+    def test_unreadable_artifact_says_so_instead_of_going_silent(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        app = client.app
+        run_id = _scan(client, tmp_path)
+        issue_id = self._whitespace_issue(client, run_id)
+        original = app.state.client.repair_diff
+
+        def refuse(_run_id: str):
+            raise FileNotFoundError("repaired copy missing")
+
+        app.state.client.repair_diff = refuse
+        try:
+            page = self._apply(client, tmp_path, run_id, issue_id)
+        finally:
+            app.state.client.repair_diff = original
+        body = _page_body(page.text)
+        assert "Repair applied" in page.text
+        assert "could not be read from this repair" in body
+        assert "/artifact" in body
+        assert not _diff_cells(page.text)
+
+    def test_propose_response_does_not_pretend_to_have_written(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        run_id = _scan(client, tmp_path)
+        csv = _sample_csv(tmp_path)
+        proposed = client.post(
+            f"/ui/scans/{run_id}/issues/{self._whitespace_issue(client, run_id)}",
+            data={"source_path": str(csv), "action": "propose"},
+        )
+        assert "trim_whitespace" in proposed.text
+        assert "Row-level changes applied" not in proposed.text
+        assert not _diff_cells(proposed.text)
+
+    def test_ragged_rows_still_render_every_column(self) -> None:
+        """一侧缺行时，缺的那侧仍要逐列渲染并高亮，不能画成一排没有对照的空行。"""
+        from datasentry.ui import _diff_table
+
+        html = _diff_table(["a", "b"], [[1, 2], [3, 4]], [[1, 2]], [1])
+        assert '<td class="diff-del"><code>3</code></td>' in html
+        assert '<td class="diff-del"><code>4</code></td>' in html
+        assert html.count("∅") == 2, "the missing row must still render every column"
+        assert '<td class="diff-add"><code>∅</code></td>' in html
+
+    def test_a_large_repair_is_capped_and_says_so(self, tmp_path: Path) -> None:
+        """apply 响应在写入路径上：百万行文件的一次修复不能回一整个 diff。"""
+        client = TestClient(create_app(project=tmp_path))
+        csv = tmp_path / "wide.csv"
+        rows = "\n".join(f" n{i} ,{i}" for i in range(60))
+        csv.write_text(f"name,v\n{rows}\n", encoding="utf-8")
+        run_id = client.post("/scans", json={"path": str(csv)}).json()["run"]["id"]
+        issue_id = self._whitespace_issue(client, run_id)
+        page = self._apply(client, tmp_path, run_id, issue_id, source=csv)
+        assert page.status_code == 200
+        shown = _page_body(page.text).count('class="diff-row"')
+        assert shown == 50, f"apply page rendered {shown} diff rows, cap is 50"
+        assert "10 more changed row" in page.text
+        repair_run_id = re.search(r'href="/ui/repairs/([^"]+)/artifact"', _page_body(page.text))
+        assert repair_run_id is not None
+        artifact = client.get(f"/ui/repairs/{repair_run_id.group(1)}/artifact")
+        assert artifact.text.count('class="diff-row"') == 60, (
+            "the cap must be page-level policy, not lost evidence"
+        )
+
+    def test_artefact_failure_does_not_print_server_paths(self, tmp_path: Path) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        app = client.app
+        run_id = _scan(client, tmp_path)
+        issue_id = self._whitespace_issue(client, run_id)
+        original = app.state.client.repair_diff
+        secret = str(tmp_path / ".datasentry" / "repairs" / "rep_deadbeef.before.csv")
+
+        def refuse(_run_id: str):
+            raise FileNotFoundError(f"repaired copy missing: {secret}")
+
+        app.state.client.repair_diff = refuse
+        try:
+            page = self._apply(client, tmp_path, run_id, issue_id)
+        finally:
+            app.state.client.repair_diff = original
+        assert secret not in page.text, "the apply page echoed an absolute server path"
+        assert "repaired copy missing" in page.text
+
+
+class TestApplyPageTellsTheTruthForOtherDialects:
+    """簇判据的跨面一半：`table_diff` 说真话之后，apply 页画出来的也得是真话。
+
+    读侧修好之前，一份 `.tsv` 的 before 全是 `None`，页面把每个格子都涂成"从空值改起"——
+    假证据现在离用户只有一步（P31-A 把它搬到了 apply 页上）。
+    """
+
+    def test_a_tsv_repair_shows_its_real_before_value_not_an_empty_cell(
+        self, tmp_path: Path
+    ) -> None:
+        client = TestClient(create_app(project=tmp_path))
+        csv = tmp_path / "wide.tsv"
+        csv.write_text("id\tname\n1\t  Alice \n2\tBob\n", encoding="utf-8")
+        run_id = client.post("/scans", json={"path": str(csv)}).json()["run"]["id"]
+        issue_id = next(
+            i["id"]
+            for i in client.get(f"/scans/{run_id}/issues").json()
+            if "leading_or_trailing_whitespace" in i["detector_ids"]
+        )
+        client.post(
+            f"/ui/scans/{run_id}/issues/{issue_id}",
+            data={"source_path": str(csv), "action": "propose"},
+        )
+        page = client.post(
+            f"/ui/scans/{run_id}/issues/{issue_id}",
+            data={"source_path": str(csv), "action": "apply"},
+            follow_redirects=True,
+        )
+        cells = _diff_cells(page.text)
+        assert cells == ["  Alice ", "Alice"], f"the page rendered {cells}"
+        assert "\u2205" not in _page_body(page.text), "an empty cell was rendered as evidence"
+
+
+class TestDiffHighlightAgreesWithTheChange:
+    """`_diff_table` 高亮哪些格子，必须和 `table_diff` 判定"这行变了"用同一个谓词。
+
+    两处各写一遍 `!=` 的话，NaN 那一格会在整行被判"有变更"时被涂成红/绿，而它两侧其实是
+    同一个值——审计页面上凭空多出一条没发生的改写。
+    """
+
+    def test_a_nan_cell_is_not_highlighted_when_another_cell_moved(self) -> None:
+        from datasentry.ui import _diff_table
+
+        nan = float("nan")
+        html = _diff_table(
+            ["score", "name"],
+            [[nan, "  Alice "], [nan, "Bob"]],
+            [[nan, "Alice"], [nan, "Bob"]],
+            [0],
+        )
+        assert '<td class="diff-del"><code>  Alice </code></td>' in html
+        assert '<td class="diff-add"><code>Alice</code></td>' in html
+        assert html.count("diff-del") == 1, "the unchanged NaN cell was highlighted too"
+        assert html.count("diff-add") == 1

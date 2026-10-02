@@ -10,8 +10,15 @@ permissions:
   contents: read
 
 jobs:
+  # D6-03: a tag push used to reach PyPI without ever running CI. `needs` is job-scoped, so the gate
+  # has to live in this file -- it calls the same CI definition rather than restating it.
+  ci:
+    name: CI (release prerequisite)
+    uses: ./.github/workflows/ci.yml
+
   publish:
     name: Build + verify + publish wheels to PyPI
+    needs: ci
     runs-on: ubuntu-latest
     environment: pypi
     steps:

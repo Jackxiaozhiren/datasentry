@@ -13,11 +13,24 @@ from datasentry.pii_vault import PIIVault
 
 _MAPPING = {"email": ["alice@example.com", "bob@corp.io"], "cn_phone": ["13800138000"]}
 
+# D5-12: these four tools mutate, so the transport now refuses them without `confirm=true`.
+# Everything below is about what a tool does *after* confirmation, so the acknowledgement is
+# injected in one place here instead of at each of the ~20 call sites.
+PII_MUTATING_TOOLS = ["pii_delete_session", "pii_purge_sessions", "pii_restore", "pii_rotate_key"]
+
+
+def _with_confirmation(params: dict | None) -> dict | None:
+    if not isinstance(params, dict) or params.get("name") not in PII_MUTATING_TOOLS:
+        return params
+    arguments = dict(params.get("arguments") or {})
+    arguments.setdefault("confirm", True)
+    return {**params, "arguments": arguments}
+
 
 def _call(server: McpServer, message_id: int, method: str, params: dict | None = None) -> dict:
     message: dict = {"jsonrpc": "2.0", "id": message_id, "method": method}
     if params is not None:
-        message["params"] = params
+        message["params"] = _with_confirmation(params)
     response = server._handle_message(message)
     assert response is not None
     return response
@@ -46,16 +59,18 @@ class TestPiiToolsShape:
             restore = by_name["pii_restore"]
             assert "Explicit authorization" in restore["description"]
             assert restore["inputSchema"]["type"] == "object"
-            assert set(restore["inputSchema"]["properties"]) == {"session_id", "text"}
-            assert restore["inputSchema"]["required"] == ["session_id", "text"]
+            # D5-12: the description's "explicit authorization" used to be prose only; `confirm`
+            # is now the mechanism, required like every other mutating tool's acknowledgement.
+            assert set(restore["inputSchema"]["properties"]) == {"session_id", "text", "confirm"}
+            assert restore["inputSchema"]["required"] == ["session_id", "text", "confirm"]
             assert by_name["pii_sessions"]["inputSchema"]["required"] == []
             rotate = by_name["pii_rotate_key"]
-            assert set(rotate["inputSchema"]["properties"]) == {"newKey"}
-            assert rotate["inputSchema"]["required"] == []
+            assert set(rotate["inputSchema"]["properties"]) == {"newKey", "confirm"}
+            assert rotate["inputSchema"]["required"] == ["confirm"]
             assert "newKey" in rotate["description"]
             purge = by_name["pii_purge_sessions"]
-            assert set(purge["inputSchema"]["properties"]) == {"olderThanDays"}
-            assert purge["inputSchema"]["required"] == ["olderThanDays"]
+            assert set(purge["inputSchema"]["properties"]) == {"olderThanDays", "confirm"}
+            assert purge["inputSchema"]["required"] == ["olderThanDays", "confirm"]
         finally:
             server.close()
 
@@ -243,5 +258,53 @@ class TestPiiToolsEndToEnd:
             purged = _tool_text(server, 42, "pii_purge_sessions", {"olderThanDays": 30})
             assert purged["ok"] is True
             assert purged["purged"] == 1
+        finally:
+            server.close()
+
+
+class TestPiiConfirmationRefusals:
+    """D5-12 on the PII face: an agent must not be able to rotate, purge or delete in one call."""
+
+    @staticmethod
+    def _raw(server: McpServer, message_id: int, name: str, arguments: dict) -> dict:
+        response = server._handle_message(
+            {
+                "jsonrpc": "2.0",
+                "id": message_id,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": arguments},
+            }
+        )
+        assert response is not None
+        return response
+
+    def test_unconfirmed_pii_writes_are_refused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        server = _server_with_key(tmp_path, monkeypatch)
+        vault = PIIVault(server._client._store)
+        session_id = vault.save_mapping(_MAPPING)
+        try:
+            cases = (
+                ("pii_rotate_key", {}),
+                ("pii_purge_sessions", {"olderThanDays": 30}),
+                ("pii_delete_session", {"session_id": session_id}),
+                ("pii_restore", {"session_id": session_id, "text": "x"}),
+            )
+            for name, args in cases:
+                response = self._raw(server, 60, name, args)
+                assert response["error"]["code"] == -32602, name
+                assert "confirm" in response["error"]["message"], name
+            # Nothing above may have taken effect: the session is still there and restorable.
+            listed = _tool_text(server, 61, "pii_sessions", {})
+            assert [s["sessionId"] for s in listed["sessions"]] == [session_id]
+            restored = _tool_text(
+                server,
+                62,
+                "pii_restore",
+                {"session_id": session_id, "text": "{{REDACTED:email:0}}"},
+            )
+            assert restored["ok"] is True, restored
+            assert restored["restored"] == "alice@example.com"
         finally:
             server.close()
