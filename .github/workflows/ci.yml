@@ -24,13 +24,9 @@ jobs:
       TEST_POSTGRES_DSN: postgresql://testuser:testpass@localhost:5432/testdb
       # Step 56：真实 MySQL 集成用例（test_mysql_integration.py）经此 DSN 连 service
       TEST_MYSQL_DSN: mysql://root:testpass@localhost:3306/testdb
-      # Step 57：真实 MinIO 集成用例（test_remote_file_integration.py）经此端点/凭据连 service
-      TEST_MINIO_ENDPOINT: localhost:9000
-      TEST_MINIO_ACCESS_KEY: minioadmin
-      TEST_MINIO_SECRET_KEY: minioadmin
-      AWS_ENDPOINT_URL_S3: localhost:9000
-      AWS_ACCESS_KEY_ID: minioadmin
-      AWS_SECRET_ACCESS_KEY: minioadmin
+      # Step 57（MinIO 集成）暂摘（D6-07）：匿名拉取 minio/minio 被上游拒绝（CI run
+      # 36964587206 实证），digest 钉死后恢复 service、env 与 2b 建桶步骤；
+      # test_remote_file_integration.py 自带"连不上即 skip"，pytest 步骤不受影响。
     services:
       postgres:
         # D6-07：digest 钉死（2026-09-25 本地 resolve 验证，见审计报告）。
@@ -59,23 +55,10 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
-      minio:
-        # D6-07 缺口（2026-09-25 实测）：docker.io/quay.io 均已关闭 MinIO
-        # 镜像匿名拉取（pull denied/401），无法本地 resolve 可信 digest；
-        # 持 Docker Hub 凭证的维护者请用 digest 替换下面的 latest。
-        # see: AUDIT/FINDINGS.yaml D6-07
-        image: minio/minio:latest
-        command: server /data
-        ports:
-          - 9000:9000
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
+      # D6-07（2026-10-02）：minio service 暂摘——匿名拉取 minio/minio:latest 被上游拒绝
+      # （pull denied；postgres/mysql 不受影响）。持 Docker Hub 凭证的维护者 resolve 出
+      # 可信 digest 后，把 service（image: minio/minio@sha256:…）、上方 TEST_MINIO_*/AWS_* env
+      # 与下方 2b 建桶步骤一并恢复。see: AUDIT/FINDINGS.yaml D6-07
     steps:
       - uses: actions/checkout@v4
 
@@ -95,13 +78,6 @@ jobs:
 
       - name: 2 · ruff format check
         run: uv run ruff format --check .
-
-      - name: 2b · create MinIO bucket (Step 57 integration fixture)
-        # D6-07: minio/mc 同样受上游匿名拉取限制，见 minio service 注释。
-        run: |
-          docker run --rm --network host \
-            -e MC_HOST_minio="http://minioadmin:minioadmin@localhost:9000" \
-            minio/mc:latest mb --ignore-existing minio/test-bucket
 
       - name: 3 · mypy --strict (datasentry_core + datasentry)
         run: uv run mypy packages/core/src/datasentry_core src/datasentry
