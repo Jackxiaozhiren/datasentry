@@ -164,8 +164,21 @@ class McpServer:
         description: str,
         properties: dict[str, dict[str, Any]],
         required: list[str],
+        read_only: bool,
         mutating: bool = False,
+        destructive: bool = False,
+        open_world: bool = False,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Register one MCP tool.
+
+        `read_only` is mandatory rather than derived from `mutating`: the two are different facts.
+        `mutating` gates the confirmation parameter on user-visible state, while `readOnlyHint`
+        answers the MCP question "does this modify its environment at all" -- measured to be false
+        for `scan_file`, `repair_propose_batch` and `repair_verify`, none of which require a
+        confirm. Forcing every call site to state it keeps a newly added tool from silently
+        advertising a hint nobody checked.
+        """
+
         def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
             props = properties
             needs = required
@@ -198,6 +211,14 @@ class McpServer:
                     "type": "object",
                     "properties": props,
                     "required": needs,
+                },
+                # idempotentHint is deliberately absent: for the append-a-row tools it depends on
+                # whether the store upserts or inserts, which is not something this surface can
+                # state truthfully per call. An omitted hint is honest; a guessed one is not.
+                "annotations": {
+                    "readOnlyHint": read_only,
+                    "destructiveHint": destructive,
+                    "openWorldHint": open_world,
                 },
             }
             self._handlers[name] = handler
@@ -253,6 +274,8 @@ class McpServer:
                 "tags": {"type": "object"},
             },
             ["path"],
+            read_only=False,
+            open_world=True,
         )
         def scan_file(
             path: str,
@@ -311,6 +334,7 @@ class McpServer:
                 "scan_run_id": {"type": "string"},
             },
             [],
+            read_only=True,
         )
         def list_issues(
             severity_at_least: str | None = None,
@@ -329,6 +353,7 @@ class McpServer:
                 "scan_run_id": {"type": "string"},
             },
             ["scan_run_id"],
+            read_only=True,
         )
         def quality_score(scan_run_id: str) -> dict[str, Any]:
             score = client.quality_score(scan_run_id)
@@ -348,6 +373,7 @@ class McpServer:
                 "score_threshold": {"type": "number"},
             },
             ["reference_run_id", "current_run_id"],
+            read_only=True,
         )
         def drift_compare(
             reference_run_id: str,
@@ -375,6 +401,7 @@ class McpServer:
                 "score_threshold": {"type": "number"},
             },
             ["dataset_id"],
+            read_only=True,
         )
         def drift_latest(
             dataset_id: str,
@@ -398,6 +425,7 @@ class McpServer:
                 "scan_run_id": {"type": "string"},
             },
             ["scan_run_id"],
+            read_only=True,
         )
         def report_export(scan_run_id: str) -> dict[str, Any]:
             return _json_safe(client.export_report(scan_run_id))
@@ -411,6 +439,7 @@ class McpServer:
                 "dataset_id": {"type": "string"},
             },
             [],
+            read_only=True,
         )
         def trends_list(dataset_id: str | None = None) -> dict[str, Any]:
             from datasentry.trends import build_trends
@@ -442,6 +471,7 @@ class McpServer:
                 "scan_run_id": {"type": "string"},
             },
             ["scan_run_id"],
+            read_only=True,
         )
         def profiles_get(scan_run_id: str) -> dict[str, Any]:
             profile = client.load_profile(scan_run_id)
@@ -460,6 +490,7 @@ class McpServer:
                 "current_run_id": {"type": "string"},
             },
             ["dataset_id", "current_run_id"],
+            read_only=True,
         )
         def comparison_build(dataset_id: str, current_run_id: str) -> dict[str, Any]:
             from datasentry.trends import build_comparison
@@ -473,6 +504,7 @@ class McpServer:
             "capabilities and default thresholds.",
             {},
             [],
+            read_only=True,
         )
         def detectors_list() -> list[dict[str, Any]]:
             from datasentry_core.detectors import DetectorRegistry
@@ -498,6 +530,7 @@ class McpServer:
                 },
             },
             ["scan_run_id", "source_path"],
+            read_only=False,
         )
         def repair_propose_batch(
             scan_run_id: str,
@@ -555,6 +588,8 @@ class McpServer:
                 },
             },
             ["scan_run_id", "source_path", "preview_only"],
+            read_only=False,
+            destructive=True,
             mutating=True,
         )
         def repair_apply_batch(
@@ -615,6 +650,8 @@ class McpServer:
                 },
             },
             ["repair_run_ids"],
+            read_only=False,
+            destructive=True,
             mutating=True,
         )
         def repair_rollback_batch(repair_run_ids: list[str]) -> dict[str, Any]:
@@ -638,6 +675,7 @@ class McpServer:
             "comparison counts.",
             {"repair_run_id": {"type": "string"}},
             ["repair_run_id"],
+            read_only=False,
         )
         def repair_verify(repair_run_id: str) -> dict[str, Any]:
             try:
@@ -652,6 +690,7 @@ class McpServer:
             "contract or validation errors.",
             {"path": {"type": "string"}},
             ["path"],
+            read_only=True,
         )
         def contract_validate(path: str) -> dict[str, Any]:
             import yaml
@@ -674,6 +713,7 @@ class McpServer:
             "(idle/running/dead).",
             {"status": {"type": "string"}},
             [],
+            read_only=True,
         )
         def jobs_list(status: str | None = None) -> list[dict[str, Any]]:
             from datasentry.scheduler.store import SchedulerStore
@@ -700,6 +740,7 @@ class McpServer:
                 "gate_quality_min": {"type": "number"},
             },
             ["name", "path", "cron"],
+            read_only=False,
             mutating=True,
         )
         def job_create(
@@ -750,6 +791,8 @@ class McpServer:
             "id and outcome; mutual exclusion: 409-style error if already running.",
             {"job_id": {"type": "string"}},
             ["job_id"],
+            read_only=False,
+            open_world=True,
             mutating=True,
         )
         def job_trigger(job_id: str) -> dict[str, Any]:
@@ -783,6 +826,8 @@ class McpServer:
                 "gate_quality_min": {"type": "number"},
             },
             ["job_id"],
+            read_only=False,
+            destructive=True,
             mutating=True,
         )
         def job_update(
@@ -829,6 +874,8 @@ class McpServer:
             "Delete a scheduled job (Step 88, ADR-088). Returns removed=true.",
             {"job_id": {"type": "string"}},
             ["job_id"],
+            read_only=False,
+            destructive=True,
             mutating=True,
         )
         def job_remove(job_id: str) -> dict[str, Any]:
@@ -849,6 +896,7 @@ class McpServer:
             "'datasentry llm rotate-key').",
             {},
             [],
+            read_only=True,
         )
         def pii_sessions() -> dict[str, Any]:
 
@@ -889,6 +937,7 @@ class McpServer:
                 },
             },
             ["session_id", "text"],
+            read_only=False,
             mutating=True,
         )
         def pii_restore(session_id: str, text: str) -> dict[str, Any]:
@@ -917,6 +966,8 @@ class McpServer:
             "ok:false when the session does not exist.",
             {"session_id": {"type": "string"}},
             ["session_id"],
+            read_only=False,
+            destructive=True,
             mutating=True,
         )
         def pii_delete_session(session_id: str) -> dict[str, Any]:
@@ -941,6 +992,8 @@ class McpServer:
                 },
             },
             [],
+            read_only=False,
+            destructive=True,
             mutating=True,
         )
         def pii_rotate_key(newKey: str | None = None) -> dict[str, Any]:
@@ -978,6 +1031,8 @@ class McpServer:
                 },
             },
             ["olderThanDays"],
+            read_only=False,
+            destructive=True,
             mutating=True,
         )
         def pii_purge_sessions(olderThanDays: int) -> dict[str, Any]:

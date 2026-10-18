@@ -7,7 +7,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import get_args
+from typing import Any, get_args
 
 import pytest
 
@@ -1409,3 +1409,109 @@ class TestFifthFaceAndRawEcho:
             f"mcp_server.py lines {raw} turn an exception into text verbatim; route it through "
             "`safe_detail(exc)` so a request path cannot ride back out in the message"
         )
+
+
+# Measured, not guessed: `readOnlyHint` is false for exactly the tools that persist. A probe
+# against a live server (one long-lived process, filesystem + SQLite diffed around each call,
+# `ping` as the control) showed scan_file writing a profile sidecar; source reading then showed
+# repair_propose_batch calling save_repair_proposal and repair_verify running a fresh scan_file
+# through client.repair_verify. report_export only *sounds* like a writer -- export_report
+# builds the report in memory and returns it.
+_READ_ONLY_TOOLS = frozenset(
+    {
+        "comparison_build",
+        "contract_validate",
+        "detectors_list",
+        "drift_compare",
+        "drift_latest",
+        "jobs_list",
+        "list_issues",
+        "pii_sessions",
+        "profiles_get",
+        "quality_score",
+        "report_export",
+        "trends_list",
+    }
+)
+
+# destructiveHint: overwrites or deletes state that already existed. Proposals and verification
+# scans append rows, so they are writes without being destructive.
+_DESTRUCTIVE_TOOLS = frozenset(
+    {
+        "job_remove",
+        "job_update",
+        "pii_delete_session",
+        "pii_purge_sessions",
+        "pii_rotate_key",
+        "repair_apply_batch",
+        "repair_rollback_batch",
+    }
+)
+
+# openWorldHint: the call can reach a system outside the workspace. scan_file accepts
+# postgresql:// / mysql:// / s3:// / gs:// / az:// sources, and job_trigger runs a stored job
+# whose source may be one of those.
+_OPEN_WORLD_TOOLS = frozenset({"job_trigger", "scan_file"})
+
+_HINTS = frozenset({"readOnlyHint", "destructiveHint", "openWorldHint"})
+
+
+class TestToolAnnotations:
+    """Every tool ships MCP behaviour annotations (invariants 2-4, expressed in the schema)."""
+
+    @staticmethod
+    def _tools(tmp_path: Path) -> list[dict[str, Any]]:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            result = _call(server, 4, "tools/list")["result"]
+            tools: list[dict[str, Any]] = result["tools"]
+            return tools
+        finally:
+            server.close()
+
+    def test_every_tool_declares_all_three_hints(self, tmp_path: Path) -> None:
+        for tool in self._tools(tmp_path):
+            annotations = tool.get("annotations")
+            assert isinstance(annotations, dict), f"{tool['name']} has no annotations"
+            assert set(annotations) >= _HINTS, f"{tool['name']} misses hints: {annotations}"
+            for hint in _HINTS:
+                assert isinstance(annotations[hint], bool), f"{tool['name']}.{hint} is not a bool"
+
+    def test_read_only_set_matches_the_measured_writes(self, tmp_path: Path) -> None:
+        read_only = {
+            t["name"] for t in self._tools(tmp_path) if t["annotations"]["readOnlyHint"] is True
+        }
+        assert read_only == _READ_ONLY_TOOLS
+
+    def test_destructive_set_matches_the_state_destroying_tools(self, tmp_path: Path) -> None:
+        destructive = {
+            t["name"] for t in self._tools(tmp_path) if t["annotations"]["destructiveHint"] is True
+        }
+        assert destructive == _DESTRUCTIVE_TOOLS
+
+    def test_open_world_set_names_the_tools_that_reach_outside(self, tmp_path: Path) -> None:
+        open_world = {
+            t["name"] for t in self._tools(tmp_path) if t["annotations"]["openWorldHint"] is True
+        }
+        assert open_world == _OPEN_WORLD_TOOLS
+
+    def test_no_destructive_tool_claims_to_be_read_only(self, tmp_path: Path) -> None:
+        for tool in self._tools(tmp_path):
+            annotations = tool["annotations"]
+            if annotations["destructiveHint"]:
+                assert annotations["readOnlyHint"] is False, (
+                    f"{tool['name']} is destructive and read-only at once"
+                )
+
+    def test_confirmation_required_tools_are_never_read_only(self, tmp_path: Path) -> None:
+        """The `confirm` parameter and readOnlyHint are one fact stated twice.
+
+        A tool that refuses to act without an explicit acknowledgement cannot also claim that it
+        changes nothing; this pins the two signals together so a later edit to one fails here.
+        """
+        for tool in self._tools(tmp_path):
+            required = tool["inputSchema"]["required"]
+            if "confirm" in required:
+                assert tool["annotations"]["readOnlyHint"] is False, (
+                    f"{tool['name']} requires confirm but advertises readOnlyHint"
+                )
