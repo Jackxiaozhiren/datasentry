@@ -9,7 +9,7 @@ DataSentry scans any file or database (CSV/Parquet/JSONL/XLSX/DuckDB/SQLite/Post
 - A repair loop where AI only proposes: propose → preview (rules re-run before/after) → apply (fingerprinted copy + rollback artifact) → rollback. You decide.
 - Drift comparison between historical scans, CI quality gates (`scan --fail-on`), reports in JSON/MD/HTML/JUnit/SARIF, cron scheduling with a distributed worker pool, and webhooks.
 
-The thing I think is actually new: an MCP stdio server with 20 tools, so Claude (or any MCP-capable agent) can run quality checks directly — scan, list issues, get evidence, propose repairs — with the same human-approval guarantee. Ask "are there duplicate orders in orders.csv?" and the agent runs the real detectors, not a guess.
+The thing I think is actually new: an MCP stdio server with 24 tools, so Claude (or any MCP-capable agent) can run quality checks directly — scan, list issues, get evidence, propose repairs — with the same human-approval guarantee. Ask "are there duplicate orders in orders.csv?" and the agent runs the real detectors, not a guess.
 
 A taste:
 

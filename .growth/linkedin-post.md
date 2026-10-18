@@ -18,7 +18,7 @@ DataSentry runs 39 statistical detectors and every finding carries an evidence c
 
 **AI should be an accessory, not a dependency.**
 
-The tool works with zero LLM configured — detection, scoring, repair, scheduling all run offline, on a laptop, with DuckDB. If you do want AI, it's for three things it's genuinely good at: turning natural language into rule candidates (verified by a preflight simulation), explaining issues in business terms, and letting agents run checks through an MCP server with 20 tools.
+The tool works with zero LLM configured — detection, scoring, repair, scheduling all run offline, on a laptop, with DuckDB. If you do want AI, it's for three things it's genuinely good at: turning natural language into rule candidates (verified by a preflight simulation), explaining issues in business terms, and letting agents run checks through an MCP server with 24 tools.
 
 And it never sees raw PII. Values go into an encrypted vault before any prompt.
 

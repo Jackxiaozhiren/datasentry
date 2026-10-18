@@ -17,7 +17,7 @@ Add Jackxiaozhiren/datasentry MCP server 🤖🤖🤖
 ## PR 描述
 
 ```markdown
-Adds [DataSentry](https://github.com/Jackxiaozhiren/datasentry) — a local-first data quality copilot with an MCP stdio server (20 tools).
+Adds [DataSentry](https://github.com/Jackxiaozhiren/datasentry) — a local-first data quality copilot with an MCP stdio server (24 tools).
 
 What the MCP server lets agents do:
 - run scans over CSV/Parquet/JSONL/XLSX/DuckDB/SQLite/PostgreSQL/MySQL/s3/gcs/az data sources

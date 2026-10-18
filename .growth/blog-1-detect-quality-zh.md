@@ -92,7 +92,7 @@ $ datasentry repair propose <issue_id> --file orders.csv
 
 1. **自然语言 → 规则候选。** `datasentry rules propose "order_date should always be a valid date" --file orders.csv` 返回规则候选，并在真实数据上做预演模拟——在保存任何东西之前。LLM 起草，预演验证，你批准。
 2. **把问题翻译成业务语言。** 证据链是结构化的，但一句"过去 120 天有 9 行日期无法解析"这样的概括，是真正有价值的翻译层。
-3. **让 agent 直接跑检查。** DataSentry 带一个 MCP server，20 个工具。Claude 或其他支持 MCP 的 agent 可以直接调用 scan、issues、repair——人工审批的门槛一样存在。agent 可以*检查*数据，但想*改*数据必须你点头。
+3. **让 agent 直接跑检查。** DataSentry 带一个 MCP server，24 个工具。Claude 或其他支持 MCP 的 agent 可以直接调用 scan、issues、repair——人工审批的门槛一样存在。agent 可以*检查*数据，但想*改*数据必须你点头。
 
 这里有两个安全属性值得说：第一，**LLM 永远看不到原始 PII**——任何 prompt 之前，值都会被替换进加密保险库（密钥可轮换）；第二，**不配 LLM 也完全能用**——默认 provider 就是 `null`，检测、评分、修复、调度全部正常工作。LLM 是升级选项，不是依赖：
 

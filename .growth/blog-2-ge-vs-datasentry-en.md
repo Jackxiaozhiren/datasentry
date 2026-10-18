@@ -38,7 +38,7 @@ DataSentry goes further down the "what do we do about it" path, and I built it w
 
 ## The AI difference, stated plainly
 
-GE has been adding AI-assisted workflows to its platform. DataSentry went a different route: a deterministic detection core that works with zero LLM configured, plus an optional LLM layer for natural-language rules and repair suggestions, plus an MCP server with 20 tools so Claude (or any MCP-capable agent) can run real checks with real evidence.
+GE has been adding AI-assisted workflows to its platform. DataSentry went a different route: a deterministic detection core that works with zero LLM configured, plus an optional LLM layer for natural-language rules and repair suggestions, plus an MCP server with 24 tools so Claude (or any MCP-capable agent) can run real checks with real evidence.
 
 The philosophical position: detection must not depend on a model that can hallucinate. Statistics detect; the LLM translates and suggests; a human approves. GE's strength is the opposite axis — governance, collaboration, enterprise process around quality.
 
