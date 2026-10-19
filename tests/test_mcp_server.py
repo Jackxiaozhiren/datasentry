@@ -118,6 +118,7 @@ class TestTools:
             names = {t["name"] for t in tools}
             assert {
                 "scan_file",
+                "issues_list",
                 "list_issues",
                 "quality_score",
                 "drift_compare",
@@ -1424,8 +1425,9 @@ _READ_ONLY_TOOLS = frozenset(
         "detectors_list",
         "drift_compare",
         "drift_latest",
+        "issues_list",
         "jobs_list",
-        "list_issues",
+        "list_issues",  # deprecated alias of issues_list; it inherits the same hints
         "pii_sessions",
         "profiles_get",
         "quality_score",
@@ -1514,4 +1516,78 @@ class TestToolAnnotations:
             if "confirm" in required:
                 assert tool["annotations"]["readOnlyHint"] is False, (
                     f"{tool['name']} requires confirm but advertises readOnlyHint"
+                )
+
+
+_DEPRECATED_PREFIX = "DEPRECATED:"
+
+
+class TestToolRenameDeprecation:
+    """`list_issues` is now `issues_list`; the old name survives as a deprecated alias.
+
+    Renaming an MCP tool is a client-visible break, so the window carries both names and the old
+    one says what replaced it. These assert the alias contract, not the rename's spelling.
+    """
+
+    @staticmethod
+    def _by_name(tmp_path: Path) -> dict[str, dict[str, Any]]:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            tools: list[dict[str, Any]] = _call(server, 4, "tools/list")["result"]["tools"]
+            return {t["name"]: t for t in tools}
+        finally:
+            server.close()
+
+    def test_canonical_and_deprecated_names_are_both_advertised(self, tmp_path: Path) -> None:
+        by_name = self._by_name(tmp_path)
+        assert "issues_list" in by_name, "the canonical name is not advertised"
+        assert "list_issues" in by_name, "clients still calling list_issues would break"
+
+    def test_deprecated_alias_names_its_live_replacement(self, tmp_path: Path) -> None:
+        by_name = self._by_name(tmp_path)
+        description = by_name["list_issues"]["description"]
+        assert description.startswith(_DEPRECATED_PREFIX), description[:60]
+        assert "issues_list" in description
+        assert "issues_list" in by_name, "alias points at a name that is not advertised"
+
+    def test_alias_advertises_the_same_schema_and_annotations(self, tmp_path: Path) -> None:
+        by_name = self._by_name(tmp_path)
+        canonical, alias = by_name["issues_list"], by_name["list_issues"]
+        assert alias["inputSchema"] == canonical["inputSchema"]
+        assert alias["annotations"] == canonical["annotations"]
+
+    def test_calling_the_alias_returns_the_canonical_result(
+        self, tmp_path: Path, sample_csv: Path
+    ) -> None:
+        server = McpServer(project=tmp_path / "ws")
+        try:
+            _call(
+                server,
+                6,
+                "tools/call",
+                {"name": "scan_file", "arguments": {"path": str(sample_csv)}},
+            )
+            via_canonical = _call(server, 7, "tools/call", {"name": "issues_list", "arguments": {}})
+            via_alias = _call(server, 8, "tools/call", {"name": "list_issues", "arguments": {}})
+            left = json.loads(via_canonical["result"]["content"][0]["text"])
+            right = json.loads(via_alias["result"]["content"][0]["text"])
+            assert left, "the canonical name returned nothing, so the comparison is vacuous"
+            assert left == right
+        finally:
+            server.close()
+
+    def test_no_live_description_routes_agents_at_a_deprecated_name(self, tmp_path: Path) -> None:
+        by_name = self._by_name(tmp_path)
+        deprecated = {
+            name
+            for name, tool in by_name.items()
+            if str(tool["description"]).startswith(_DEPRECATED_PREFIX)
+        }
+        assert deprecated, "no alias is advertised, so this guard has nothing to police yet"
+        for name, tool in sorted(by_name.items()):
+            if name in deprecated:
+                continue
+            for stale in sorted(deprecated):
+                assert stale not in str(tool["description"]), (
+                    f"{name} tells an agent to use the deprecated {stale}"
                 )

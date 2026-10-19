@@ -7,7 +7,7 @@ SDK（与 CLI/REST 同源）。
 
 工具清单（MCP 面，供 LLM 代理调用）：
     scan_file            扫描数据文件 → 摘要
-    list_issues          查询 Issue（severity/scan 过滤）
+    issues_list          查询 Issue（severity/scan 过滤）
     quality_score        最近质量总分（六维）
     drift_compare        两历史扫描漂移比较
     drift_latest         数据集最近两次扫描漂移
@@ -226,6 +226,21 @@ class McpServer:
 
         return decorator
 
+    def _alias(self, canonical: str, deprecated: str) -> None:
+        """Advertise an old tool name that dispatches to its renamed replacement.
+
+        A rename breaks any client already calling the old name, so the window ships both. The
+        entry is copied from the canonical one rather than re-declared, so schema and behaviour
+        annotations cannot drift apart from the tool they stand in for.
+        """
+        tool = self._tools[canonical]
+        self._tools[deprecated] = {
+            **tool,
+            "name": deprecated,
+            "description": f"DEPRECATED: use {canonical}. {tool['description']}",
+        }
+        self._handlers[deprecated] = self._handlers[canonical]
+
     def _register_tools(self) -> None:
         client = self._client
 
@@ -326,7 +341,7 @@ class McpServer:
             )
 
         @self._tool(
-            "list_issues",
+            "issues_list",
             "List quality issues across scans, optionally filtered by "
             "minimum severity (info/low/medium/high/critical) or a scan id.",
             {
@@ -345,9 +360,11 @@ class McpServer:
             )
             return _json_safe([issue.model_dump() for issue in issues])
 
+        self._alias("issues_list", "list_issues")
+
         @self._tool(
             "quality_score",
-            "Six-dimension quality score of a scan run (use list_issues or "
+            "Six-dimension quality score of a scan run (use issues_list or "
             "scan_file to obtain scan_run_id). Dimensions below 60 indicate risk.",
             {
                 "scan_run_id": {"type": "string"},

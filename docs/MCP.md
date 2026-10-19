@@ -152,7 +152,7 @@ A `.mcpb` Desktop Extension would reduce setup friction and make local installat
 The most useful initial agent workflow is intentionally read-only:
 
 ```text
-scan_file → list_issues → quality_score
+scan_file → issues_list → quality_score
 ```
 
 After you trust the findings, use the normal DataSentry repair loop deliberately:
