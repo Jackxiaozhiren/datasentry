@@ -8,19 +8,19 @@
     "url": "https://github.com/Jackxiaozhiren/datasentry",
     "source": "github"
   },
-  "version": "1.0.4",
+  "version": "1.0.5",
   "packages": [
     {
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "datasentry-ai",
-      "version": "1.0.4",
+      "version": "1.0.5",
       "runtimeHint": "uvx",
       "runtimeArguments": [
         {
           "type": "named",
           "name": "--from",
-          "value": "datasentry-ai==1.0.4"
+          "value": "datasentry-ai==1.0.5"
         }
       ],
       "transport": {
