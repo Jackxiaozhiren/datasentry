@@ -119,7 +119,6 @@ class TestTools:
             assert {
                 "scan_file",
                 "issues_list",
-                "list_issues",
                 "quality_score",
                 "drift_compare",
                 "drift_latest",
@@ -167,7 +166,7 @@ class TestTools:
         finally:
             server.close()
 
-    def test_list_issues_tool(self, tmp_path: Path, sample_csv: Path) -> None:
+    def test_issues_list_tool(self, tmp_path: Path, sample_csv: Path) -> None:
         server = McpServer(project=tmp_path / "ws")
         try:
             _call(
@@ -176,7 +175,7 @@ class TestTools:
                 "tools/call",
                 {"name": "scan_file", "arguments": {"path": str(sample_csv)}},
             )
-            response = _call(server, 7, "tools/call", {"name": "list_issues", "arguments": {}})
+            response = _call(server, 7, "tools/call", {"name": "issues_list", "arguments": {}})
             issues = json.loads(response["result"]["content"][0]["text"])
             assert issues
             assert all("issue_type" in i and "severity" in i for i in issues)
@@ -1101,7 +1100,7 @@ class TestErrorCodes:
                 server,
                 51,
                 "tools/call",
-                {"name": "list_issues", "arguments": {"severityAtLeast": "high"}},
+                {"name": "issues_list", "arguments": {"severityAtLeast": "high"}},
             )
             assert response["error"]["code"] == -32602
             assert "unknown argument" in response["error"]["message"]
@@ -1148,7 +1147,7 @@ class TestErrorCodes:
                 server,
                 54,
                 "tools/call",
-                {"name": "list_issues", "arguments": ["not", "map"]},
+                {"name": "issues_list", "arguments": ["not", "map"]},
             )
             assert response["error"]["code"] == -32602
             assert "arguments must be a JSON object" in response["error"]["message"]
@@ -1427,7 +1426,6 @@ _READ_ONLY_TOOLS = frozenset(
         "drift_latest",
         "issues_list",
         "jobs_list",
-        "list_issues",  # deprecated alias of issues_list; it inherits the same hints
         "pii_sessions",
         "profiles_get",
         "quality_score",
@@ -1519,14 +1517,18 @@ class TestToolAnnotations:
                 )
 
 
-_DEPRECATED_PREFIX = "DEPRECATED:"
+# Names that were once on the MCP surface and have been removed. A rename without an alias is a
+# breaking change, so the retired spelling must not linger anywhere an agent could follow it.
+_RETIRED_TOOL_NAMES = frozenset({"list_issues"})
 
 
-class TestToolRenameDeprecation:
-    """`list_issues` is now `issues_list`; the old name survives as a deprecated alias.
+class TestToolRenameRetirement:
+    """`list_issues` became `issues_list` with no compatibility alias.
 
-    Renaming an MCP tool is a client-visible break, so the window carries both names and the old
-    one says what replaced it. These assert the alias contract, not the rename's spelling.
+    The alias was measured, not assumed away: Glama's TDQS scored 24 tools at 3.4, 25 at 3.3, and
+    26 (with the alias) also at 3.3, while Tool Count fell 4 -> 3 -> 2 and the judge named the
+    "deprecated duplicate" as the overlap in two dimensions. The compatibility window cost more
+    than it returned, so the surface carries one name per capability.
     """
 
     @staticmethod
@@ -1538,27 +1540,24 @@ class TestToolRenameDeprecation:
         finally:
             server.close()
 
-    def test_canonical_and_deprecated_names_are_both_advertised(self, tmp_path: Path) -> None:
-        by_name = self._by_name(tmp_path)
-        assert "issues_list" in by_name, "the canonical name is not advertised"
-        assert "list_issues" in by_name, "clients still calling list_issues would break"
+    def test_canonical_name_is_advertised(self, tmp_path: Path) -> None:
+        assert "issues_list" in self._by_name(tmp_path)
 
-    def test_deprecated_alias_names_its_live_replacement(self, tmp_path: Path) -> None:
-        by_name = self._by_name(tmp_path)
-        description = by_name["list_issues"]["description"]
-        assert description.startswith(_DEPRECATED_PREFIX), description[:60]
-        assert "issues_list" in description
-        assert "issues_list" in by_name, "alias points at a name that is not advertised"
+    def test_retired_names_are_no_longer_advertised(self, tmp_path: Path) -> None:
+        assert _RETIRED_TOOL_NAMES, "an empty retirement list makes the guards below vacuous"
+        advertised = self._by_name(tmp_path)
+        for retired in sorted(_RETIRED_TOOL_NAMES):
+            assert retired not in advertised, f"{retired} is still on the surface"
 
-    def test_alias_advertises_the_same_schema_and_annotations(self, tmp_path: Path) -> None:
-        by_name = self._by_name(tmp_path)
-        canonical, alias = by_name["issues_list"], by_name["list_issues"]
-        assert alias["inputSchema"] == canonical["inputSchema"]
-        assert alias["annotations"] == canonical["annotations"]
+    def test_no_description_routes_agents_at_a_retired_name(self, tmp_path: Path) -> None:
+        for name, tool in sorted(self._by_name(tmp_path).items()):
+            for retired in sorted(_RETIRED_TOOL_NAMES):
+                assert retired not in str(tool["description"]), (
+                    f"{name} tells an agent to use the removed {retired}"
+                )
 
-    def test_calling_the_alias_returns_the_canonical_result(
-        self, tmp_path: Path, sample_csv: Path
-    ) -> None:
+    def test_calling_a_retired_name_is_rejected(self, tmp_path: Path, sample_csv: Path) -> None:
+        """Presence in tools/list is not the only contract; the dispatcher must let it go too."""
         server = McpServer(project=tmp_path / "ws")
         try:
             _call(
@@ -1567,27 +1566,9 @@ class TestToolRenameDeprecation:
                 "tools/call",
                 {"name": "scan_file", "arguments": {"path": str(sample_csv)}},
             )
-            via_canonical = _call(server, 7, "tools/call", {"name": "issues_list", "arguments": {}})
-            via_alias = _call(server, 8, "tools/call", {"name": "list_issues", "arguments": {}})
-            left = json.loads(via_canonical["result"]["content"][0]["text"])
-            right = json.loads(via_alias["result"]["content"][0]["text"])
-            assert left, "the canonical name returned nothing, so the comparison is vacuous"
-            assert left == right
+            response = _call(server, 7, "tools/call", {"name": "list_issues", "arguments": {}})
+            assert response["error"] is not None or response["result"]["isError"], (
+                "the retired name still dispatches, so removing it from tools/list is cosmetic"
+            )
         finally:
             server.close()
-
-    def test_no_live_description_routes_agents_at_a_deprecated_name(self, tmp_path: Path) -> None:
-        by_name = self._by_name(tmp_path)
-        deprecated = {
-            name
-            for name, tool in by_name.items()
-            if str(tool["description"]).startswith(_DEPRECATED_PREFIX)
-        }
-        assert deprecated, "no alias is advertised, so this guard has nothing to police yet"
-        for name, tool in sorted(by_name.items()):
-            if name in deprecated:
-                continue
-            for stale in sorted(deprecated):
-                assert stale not in str(tool["description"]), (
-                    f"{name} tells an agent to use the deprecated {stale}"
-                )

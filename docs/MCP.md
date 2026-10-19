@@ -163,6 +163,17 @@ propose → preview → apply to a copy → verify → rollback if needed
 
 For autonomous agents, prefer read-only analysis by default. Require explicit user approval before invoking repair/application, PII restoration, scheduler mutation, or other state-changing tools.
 
+## Renamed tools
+
+**2.0.0 removed `list_issues`.** It is now `issues_list`, matching the `resource_action` naming the
+rest of the surface uses (`jobs_list`, `profiles_get`, `trends_list`). There is no compatibility
+alias: an alias that advertises the same capability twice was measured against Glama's TDQS scorer
+and cost more than it returned — the tool-count dimension fell from 4/5 to 2/5 and the judge named
+"includes a deprecated duplicate" as the overlap, with no offsetting gain in naming consistency.
+
+If your client config pins `list_issues`, change it to `issues_list`. The tool name, arguments and
+return shape are otherwise identical, so no call-site logic needs to change.
+
 ## Troubleshooting
 
 ### Client says the command is not found

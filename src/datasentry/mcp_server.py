@@ -226,21 +226,6 @@ class McpServer:
 
         return decorator
 
-    def _alias(self, canonical: str, deprecated: str) -> None:
-        """Advertise an old tool name that dispatches to its renamed replacement.
-
-        A rename breaks any client already calling the old name, so the window ships both. The
-        entry is copied from the canonical one rather than re-declared, so schema and behaviour
-        annotations cannot drift apart from the tool they stand in for.
-        """
-        tool = self._tools[canonical]
-        self._tools[deprecated] = {
-            **tool,
-            "name": deprecated,
-            "description": f"DEPRECATED: use {canonical}. {tool['description']}",
-        }
-        self._handlers[deprecated] = self._handlers[canonical]
-
     def _register_tools(self) -> None:
         client = self._client
 
@@ -351,7 +336,7 @@ class McpServer:
             [],
             read_only=True,
         )
-        def list_issues(
+        def issues_list(
             severity_at_least: str | None = None,
             scan_run_id: str | None = None,
         ) -> list[dict[str, Any]]:
@@ -359,8 +344,6 @@ class McpServer:
                 severity_at_least=severity_at_least, scan_run_id=scan_run_id
             )
             return _json_safe([issue.model_dump() for issue in issues])
-
-        self._alias("issues_list", "list_issues")
 
         @self._tool(
             "quality_score",
