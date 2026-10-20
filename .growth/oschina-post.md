@@ -21,7 +21,7 @@ DataSentry 是一个以统计证据为基础、以 AI 为辅助、以人工审�
 - **漂移引擎**：历史扫描对比（schema、行数、评分、问题分布）
 - **CI 质量门禁**：`scan --fail-on` 按严重级/评分阻断；导出 JSON/Markdown/HTML/JUnit/SARIF
 - **调度与分布式**：cron 任务队列、webhook、变更感知跳过；`datasentry worker` 多 worker 池（轮询路由、故障转移、并行派发）
-- **MCP server 集成（24 个工具）**：Claude 等 AI 助手可直接调用扫描/查问题/提议修复，人工审批门槛一致
+- **MCP server 集成**：Claude 等 AI 助手可直接调用扫描/查问题/提议修复，人工审批门槛一致
 - **LLM 安全设计**：自然语言 → 规则候选 + 预演模拟；prompt 前 PII 进加密保险库（密钥轮换）；每次调用审计；可接本地 Ollama，数据不出机器
 - **数据源**：CSV/Parquet/JSONL/XLSX/DuckDB/SQLite/PostgreSQL/MySQL/s3:// gs:// az://
 

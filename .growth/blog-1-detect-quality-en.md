@@ -92,7 +92,7 @@ With the deterministic core as the source of truth, the LLM gets three jobs it's
 
 1. **Natural language → rule candidates.** `datasentry rules propose "order_date should always be a valid date" --file orders.csv` returns candidate rules with a preflight simulation against real data — before anything is saved. The LLM drafts; the preflight verifies; you approve.
 2. **Explaining issues in context.** The evidence chain is structured, but a one-line summary in terms of your domain ("9 rows in the last 120 days have unparseable dates") is a genuinely useful translation layer.
-3. **Running checks from an agent.** DataSentry ships an MCP server with 24 tools. Claude or any MCP-capable agent can call `scan`, `issues`, `repair` directly — and the same human-approval gate applies. The agent can *inspect* data, but it can't *modify* it without your explicit go-ahead.
+3. **Running checks from an agent.** DataSentry ships an MCP server. Claude or any MCP-capable agent can call `scan`, `issues`, `repair` directly — and the same human-approval gate applies. The agent can *inspect* data, but it can't *modify* it without your explicit go-ahead.
 
 Two safety properties matter here. First, **the LLM never sees raw PII**: values are redacted into an encrypted vault before any prompt, with key rotation. Second, **the tool works with no LLM at all** — the default provider is `null`, and detection, scoring, repair and scheduling all run fine. The LLM is an upgrade, not a dependency:
 
