@@ -60,7 +60,7 @@ jobs:
       # 可信 digest 后，把 service（image: minio/minio@sha256:…）、上方 TEST_MINIO_*/AWS_* env
       # 与下方 2b 建桶步骤一并恢复。see: AUDIT/FINDINGS.yaml D6-07
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
