@@ -8,7 +8,7 @@ COPY src ./src
 # D6-02：--locked 使 manifest/lock 不一致时构建失败而非静默通过。
 RUN uv sync --locked --no-dev
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 WORKDIR /app
 ENV PATH=/app/.venv/bin:$PATH
 # D5-01：容器 netns 内须绑 0.0.0.0 才可被宿主端口映射到达；
