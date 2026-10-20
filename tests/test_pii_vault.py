@@ -62,6 +62,17 @@ class TestVaultEncryption:
         with pytest.raises(VaultKeyMissingError):
             other.load_mapping(session_id)
 
+    @pytest.mark.parametrize(
+        "ciphertext",
+        ["Y", "%%%", "☃", "", "AQID"],
+        ids=["bad-padding", "non-base64", "non-ascii", "empty", "too-short"],
+    )
+    def test_corrupted_ciphertext_denied_gracefully(self, vault: PIIVault, ciphertext: str) -> None:
+        # Damaged storage or untrusted ciphertext must not leak decoder errors.
+        with pytest.raises(VaultKeyMissingError, match="cannot decrypt mapping") as caught:
+            vault._decrypt(ciphertext)
+        assert "codec can't encode" not in str(caught.value)
+
     def test_delete_mapping(self, vault: PIIVault, store: MetadataStore) -> None:
         session_id = vault.save_mapping(_MAPPING)
         assert store.delete_pii_mapping(session_id) is True
