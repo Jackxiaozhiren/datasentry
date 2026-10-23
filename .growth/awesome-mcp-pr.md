@@ -3,7 +3,7 @@
 ## README 条目（追加到 Server Implementations 列表末尾，## Frameworks 之前）
 
 ```markdown
-- [Jackxiaozhiren/datasentry](https://github.com/Jackxiaozhiren/datasentry) [![Jackxiaozhiren/datasentry MCP server](https://glama.ai/mcp/servers/Jackxiaozhiren/datasentry/badges/score.svg)](https://glama.ai/mcp/servers/Jackxiaozhiren/datasentry) 🐍 🏠 🍎 🐧 - Local-first AI copilot for data quality: 39 evidence-driven detectors, six-dimension scoring, human-approved LLM-assisted repairs, drift engine, CI quality gates, and distributed workers. 20 MCP tools.
+- [Jackxiaozhiren/datasentry](https://github.com/Jackxiaozhiren/datasentry) [![Jackxiaozhiren/datasentry MCP server](https://glama.ai/mcp/servers/Jackxiaozhiren/datasentry/badges/score.svg)](https://glama.ai/mcp/servers/Jackxiaozhiren/datasentry) 🐍 🏠 🍎 🐧 - Local-first AI copilot for data quality: 39 evidence-driven detectors, six-dimension scoring, human-approved LLM-assisted repairs, drift engine, CI quality gates, distributed workers, and an MCP stdio surface.
 ```
 
 ## PR 标题
@@ -17,7 +17,7 @@ Add Jackxiaozhiren/datasentry MCP server 🤖🤖🤖
 ## PR 描述
 
 ```markdown
-Adds [DataSentry](https://github.com/Jackxiaozhiren/datasentry) — a local-first data quality copilot with an MCP stdio server (24 tools).
+Adds [DataSentry](https://github.com/Jackxiaozhiren/datasentry) — a local-first data quality copilot with an MCP stdio server.
 
 What the MCP server lets agents do:
 - run scans over CSV/Parquet/JSONL/XLSX/DuckDB/SQLite/PostgreSQL/MySQL/s3/gcs/az data sources

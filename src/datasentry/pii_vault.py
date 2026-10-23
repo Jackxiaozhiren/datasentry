@@ -22,6 +22,7 @@ LLM 回复中的 {{REDACTED:kind:n}} 占位符可经 vault.restore_text() 还原
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import json
 import os
@@ -148,13 +149,16 @@ class PIIVault:
 
     def _decrypt(self, ciphertext: str) -> str:
         try:
-            raw = base64.b64decode(ciphertext.encode("ascii"))
+            # Vault writes canonical Base64. Reject unexpected characters instead
+            # of allowing b64decode's permissive default to silently discard them.
+            raw = base64.b64decode(ciphertext.encode("ascii"), validate=True)
             nonce, ct = raw[:_NONCE_BYTES], raw[_NONCE_BYTES:]
             plaintext = AESGCM(self._effective_key()).decrypt(nonce, ct, None)
             return plaintext.decode("utf-8")
-        except (ValueError, InvalidTag, UnicodeDecodeError) as exc:
+        except (ValueError, InvalidTag, UnicodeError, binascii.Error) as exc:
+            # Keep untrusted ciphertext/decoder fragments out of user-facing errors.
             raise VaultKeyMissingError(
-                f"cannot decrypt mapping (missing or wrong key?): {exc} — "
+                "cannot decrypt mapping (missing, wrong, or corrupted key/ciphertext); "
                 f"set {ENV_KEY} or run 'datasentry llm rotate-key'"
             ) from exc
 
