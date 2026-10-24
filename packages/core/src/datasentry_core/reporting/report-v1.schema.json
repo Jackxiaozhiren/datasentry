@@ -1,0 +1,1619 @@
+{
+  "$defs": {
+    "AIExplanation": {
+      "description": "AI 解释输出（13.7），必须经结构化校验；supporting_evidence_ids 须 ⊆ 实际证据集。",
+      "properties": {
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "likely_causes": {
+          "items": {
+            "$ref": "#/$defs/CauseHypothesis"
+          },
+          "title": "Likely Causes",
+          "type": "array"
+        },
+        "recommended_actions": {
+          "items": {
+            "$ref": "#/$defs/RecommendedAction"
+          },
+          "title": "Recommended Actions",
+          "type": "array"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "supporting_evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Supporting Evidence Ids",
+          "type": "array"
+        },
+        "uncertainty": {
+          "default": "",
+          "title": "Uncertainty",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary"
+      ],
+      "title": "AIExplanation",
+      "type": "object"
+    },
+    "BusinessCriticality": {
+      "description": "字段业务关键度（12.4）。权重见 scoring.weights（ADR-003 唯一来源）。",
+      "enum": [
+        "informational",
+        "normal",
+        "important",
+        "critical"
+      ],
+      "title": "BusinessCriticality",
+      "type": "string"
+    },
+    "CauseHypothesis": {
+      "description": "根因候选（13.7）：kind 限定，禁止自由断言。",
+      "properties": {
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "data_entry",
+            "integration",
+            "migration",
+            "measurement",
+            "systematic",
+            "unknown"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "confidence",
+        "kind"
+      ],
+      "title": "CauseHypothesis",
+      "type": "object"
+    },
+    "Condition": {
+      "description": "规则条件（14.1）：operator 白名单限定。",
+      "properties": {
+        "column": {
+          "title": "Column",
+          "type": "string"
+        },
+        "expression": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expression"
+        },
+        "operator": {
+          "enum": [
+            "equals",
+            "not_equals",
+            "gt",
+            "gte",
+            "lt",
+            "lte",
+            "in",
+            "not_in",
+            "not_null",
+            "is_null",
+            "matches",
+            "between",
+            "not_between"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "column",
+        "operator"
+      ],
+      "title": "Condition",
+      "type": "object"
+    },
+    "DatasetFingerprint": {
+      "description": "数据集内容指纹（19 章：full/sampled/metadata_only）。",
+      "properties": {
+        "column_count": {
+          "minimum": 0,
+          "title": "Column Count",
+          "type": "integer"
+        },
+        "column_signature": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Column Signature",
+          "type": "array"
+        },
+        "content_sample_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Sample Hash"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "dataset_id": {
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "file_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File Sha256"
+        },
+        "fingerprint_type": {
+          "enum": [
+            "full",
+            "sampled",
+            "metadata_only"
+          ],
+          "title": "Fingerprint Type",
+          "type": "string"
+        },
+        "row_count": {
+          "minimum": 0,
+          "title": "Row Count",
+          "type": "integer"
+        },
+        "schema_hash": {
+          "title": "Schema Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dataset_id",
+        "fingerprint_type",
+        "schema_hash",
+        "row_count",
+        "column_count",
+        "column_signature"
+      ],
+      "title": "DatasetFingerprint",
+      "type": "object"
+    },
+    "DetectorRun": {
+      "description": "单检测器执行记录（18.2）。",
+      "properties": {
+        "detector_id": {
+          "title": "Detector Id",
+          "type": "string"
+        },
+        "detector_version": {
+          "title": "Detector Version",
+          "type": "string"
+        },
+        "duration_ms": {
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "issues_candidates": {
+          "minimum": 0,
+          "title": "Issues Candidates",
+          "type": "integer"
+        },
+        "rows_scanned": {
+          "minimum": 0,
+          "title": "Rows Scanned",
+          "type": "integer"
+        },
+        "sampling": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SamplingInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "scan_run_id": {
+          "title": "Scan Run Id",
+          "type": "string"
+        },
+        "status": {
+          "default": "completed",
+          "enum": [
+            "completed",
+            "skipped",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "scan_run_id",
+        "detector_id",
+        "detector_version",
+        "rows_scanned",
+        "duration_ms",
+        "issues_candidates"
+      ],
+      "title": "DetectorRun",
+      "type": "object"
+    },
+    "Evidence": {
+      "description": "单条结构化证据（12.1）。",
+      "properties": {
+        "confidence": {
+          "default": 1.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "data": {
+          "additionalProperties": true,
+          "title": "Data",
+          "type": "object"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "detector_id": {
+          "title": "Detector Id",
+          "type": "string"
+        },
+        "detector_version": {
+          "title": "Detector Version",
+          "type": "string"
+        },
+        "evidence_id": {
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "evidence_type": {
+          "$ref": "#/$defs/EvidenceType"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceProvenance"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "evidence_id",
+        "evidence_type",
+        "detector_id",
+        "detector_version",
+        "description"
+      ],
+      "title": "Evidence",
+      "type": "object"
+    },
+    "EvidenceProvenance": {
+      "description": "证据来源链（12.3），保证可追溯。",
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "detector_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detector Run Id"
+        },
+        "rule_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rule Id"
+        },
+        "scan_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scan Run Id"
+        },
+        "source_type": {
+          "default": "detector",
+          "pattern": "^(detector|rule|user|llm)$",
+          "title": "Source Type",
+          "type": "string"
+        }
+      },
+      "title": "EvidenceProvenance",
+      "type": "object"
+    },
+    "EvidenceType": {
+      "description": "证据类型（12.1）。",
+      "enum": [
+        "schema_fact",
+        "statistical_measure",
+        "constraint_violation",
+        "rule_violation",
+        "distribution_shift",
+        "semantic_inference",
+        "pattern_match",
+        "duplicate_match",
+        "reference_lookup",
+        "user_report"
+      ],
+      "title": "EvidenceType",
+      "type": "string"
+    },
+    "Issue": {
+      "description": "融合后的统一质量问题（18.1）。",
+      "properties": {
+        "affected_count": {
+          "minimum": 0,
+          "title": "Affected Count",
+          "type": "integer"
+        },
+        "affected_ratio": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Affected Ratio",
+          "type": "number"
+        },
+        "affected_row_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Affected Row Ids"
+        },
+        "ai_explanation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AIExplanation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "dataset_id": {
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "detector_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Detector Ids",
+          "type": "array"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/Evidence"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "false_positive_risk": {
+          "$ref": "#/$defs/RiskLevel",
+          "default": "medium"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "issue_type": {
+          "title": "Issue Type",
+          "type": "string"
+        },
+        "priority_score": {
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "Priority Score",
+          "type": "number"
+        },
+        "quality_dimensions": {
+          "items": {
+            "$ref": "#/$defs/QualityDimension"
+          },
+          "title": "Quality Dimensions",
+          "type": "array"
+        },
+        "repair_proposals": {
+          "items": {
+            "$ref": "#/$defs/RepairProposal"
+          },
+          "title": "Repair Proposals",
+          "type": "array"
+        },
+        "scan_run_id": {
+          "title": "Scan Run Id",
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity",
+          "default": "medium"
+        },
+        "status": {
+          "$ref": "#/$defs/IssueStatus",
+          "default": "open"
+        },
+        "table_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Table Name"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "scan_run_id",
+        "issue_type",
+        "title",
+        "dataset_id",
+        "columns",
+        "confidence",
+        "priority_score",
+        "affected_count",
+        "affected_ratio"
+      ],
+      "title": "Issue",
+      "type": "object"
+    },
+    "IssueStatus": {
+      "description": "Issue 生命周期状态（18.1）。",
+      "enum": [
+        "open",
+        "confirmed",
+        "false_positive",
+        "accepted_exception",
+        "repair_proposed",
+        "repair_approved",
+        "repaired",
+        "resolved"
+      ],
+      "title": "IssueStatus",
+      "type": "string"
+    },
+    "LLMUsageSummary": {
+      "description": "扫描级 LLM 用量汇总（18.2 引用，13.9 预算口径）。",
+      "properties": {
+        "cache_hits": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Cache Hits",
+          "type": "integer"
+        },
+        "calls": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Calls",
+          "type": "integer"
+        },
+        "degraded": {
+          "default": false,
+          "title": "Degraded",
+          "type": "boolean"
+        },
+        "tokens_in": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Tokens In",
+          "type": "integer"
+        },
+        "tokens_out": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Tokens Out",
+          "type": "integer"
+        }
+      },
+      "title": "LLMUsageSummary",
+      "type": "object"
+    },
+    "MaskConfig": {
+      "description": "脱敏配置（18.2 引用 / 13.4 算法表）：默认值即安全基线（R-PRI-02 三档预设）。",
+      "properties": {
+        "email_keep_first": {
+          "default": 1,
+          "minimum": 0,
+          "title": "Email Keep First",
+          "type": "integer"
+        },
+        "free_text_max_chars": {
+          "default": 200,
+          "maximum": 200,
+          "minimum": 0,
+          "title": "Free Text Max Chars",
+          "type": "integer"
+        },
+        "id_hash_prefix_len": {
+          "default": 12,
+          "minimum": 4,
+          "title": "Id Hash Prefix Len",
+          "type": "integer"
+        },
+        "lat_lon_decimals": {
+          "default": 1,
+          "minimum": 0,
+          "title": "Lat Lon Decimals",
+          "type": "integer"
+        },
+        "max_sample_rows_per_column": {
+          "default": 50,
+          "minimum": 1,
+          "title": "Max Sample Rows Per Column",
+          "type": "integer"
+        },
+        "max_sample_rows_per_table": {
+          "default": 200,
+          "minimum": 1,
+          "title": "Max Sample Rows Per Table",
+          "type": "integer"
+        },
+        "numeric_bucket": {
+          "default": true,
+          "title": "Numeric Bucket",
+          "type": "boolean"
+        },
+        "phone_keep_last_chars": {
+          "default": 4,
+          "minimum": 0,
+          "title": "Phone Keep Last Chars",
+          "type": "integer"
+        },
+        "phone_keep_prefix_chars": {
+          "default": 3,
+          "minimum": 0,
+          "title": "Phone Keep Prefix Chars",
+          "type": "integer"
+        },
+        "policy": {
+          "default": "safe",
+          "enum": [
+            "safe",
+            "balanced",
+            "permissive"
+          ],
+          "title": "Policy",
+          "type": "string"
+        }
+      },
+      "title": "MaskConfig",
+      "type": "object"
+    },
+    "QualityDimension": {
+      "description": "数据质量维度（九章），评分按 ADR-001 归并。",
+      "enum": [
+        "completeness",
+        "validity",
+        "uniqueness",
+        "consistency",
+        "accuracy_proxy",
+        "timeliness",
+        "integrity",
+        "distribution_stability"
+      ],
+      "title": "QualityDimension",
+      "type": "string"
+    },
+    "QualityScore": {
+      "description": "质量总分（27 章）：0-100，维度可解释，权重可配。",
+      "properties": {
+        "calculation_notes": {
+          "default": "",
+          "title": "Calculation Notes",
+          "type": "string"
+        },
+        "dimension_contributions": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dimension Contributions"
+        },
+        "dimensions": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Dimensions",
+          "type": "object"
+        },
+        "overall": {
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "Overall",
+          "type": "number"
+        },
+        "score_version": {
+          "default": "1",
+          "title": "Score Version",
+          "type": "string"
+        },
+        "weights": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Weights",
+          "type": "object"
+        }
+      },
+      "required": [
+        "overall"
+      ],
+      "title": "QualityScore",
+      "type": "object"
+    },
+    "RecommendedAction": {
+      "description": "推荐行动（13.7）：action_type 限定。",
+      "properties": {
+        "action_type": {
+          "enum": [
+            "inspect",
+            "rule",
+            "repair",
+            "ignore",
+            "escalate"
+          ],
+          "title": "Action Type",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "risk": {
+          "$ref": "#/$defs/RiskLevel",
+          "default": "low"
+        }
+      },
+      "required": [
+        "action_type",
+        "description"
+      ],
+      "title": "RecommendedAction",
+      "type": "object"
+    },
+    "RepairOperation": {
+      "description": "修复操作类型（15.1）。",
+      "enum": [
+        "trim_whitespace",
+        "normalize_case",
+        "normalize_unicode",
+        "cast_type",
+        "parse_date",
+        "replace_missing_token",
+        "set_null",
+        "clip_value",
+        "map_category",
+        "standardize_unit",
+        "deduplicate",
+        "impute_value",
+        "regex_replace",
+        "derive_column",
+        "split_column",
+        "merge_columns",
+        "custom_expression"
+      ],
+      "title": "RepairOperation",
+      "type": "string"
+    },
+    "RepairProposal": {
+      "description": "修复提案（15.3）。",
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "estimated_rows_changed": {
+          "minimum": 0,
+          "title": "Estimated Rows Changed",
+          "type": "integer"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "issue_id": {
+          "title": "Issue Id",
+          "type": "string"
+        },
+        "issue_type": {
+          "default": "",
+          "title": "Issue Type",
+          "type": "string"
+        },
+        "operation": {
+          "$ref": "#/$defs/RepairOperation"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "postconditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Postconditions",
+          "type": "array"
+        },
+        "preconditions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Preconditions",
+          "type": "array"
+        },
+        "proposal_id": {
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "reversibility": {
+          "default": "fully_reversible",
+          "enum": [
+            "fully_reversible",
+            "partially_reversible",
+            "irreversible"
+          ],
+          "title": "Reversibility",
+          "type": "string"
+        },
+        "risk_level": {
+          "$ref": "#/$defs/RiskLevel",
+          "default": "medium"
+        },
+        "status": {
+          "$ref": "#/$defs/RepairProposalStatus",
+          "default": "proposed"
+        },
+        "target_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Target Columns",
+          "type": "array"
+        },
+        "target_row_ids": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Row Ids"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "issue_id",
+        "operation",
+        "target_columns",
+        "estimated_rows_changed"
+      ],
+      "title": "RepairProposal",
+      "type": "object"
+    },
+    "RepairProposalStatus": {
+      "description": "修复提案状态机。",
+      "enum": [
+        "proposed",
+        "previewed",
+        "approved",
+        "rejected",
+        "applied",
+        "rolled_back"
+      ],
+      "title": "RepairProposalStatus",
+      "type": "string"
+    },
+    "ReproducibilityInfo": {
+      "description": "可复现性信息（18.2/4.4）。",
+      "properties": {
+        "datasentry_version": {
+          "title": "Datasentry Version",
+          "type": "string"
+        },
+        "detector_versions": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Detector Versions",
+          "type": "object"
+        },
+        "hardware_summary": {
+          "default": "",
+          "title": "Hardware Summary",
+          "type": "string"
+        },
+        "models_used": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Models Used",
+          "type": "array"
+        },
+        "os_platform": {
+          "default": "",
+          "title": "Os Platform",
+          "type": "string"
+        },
+        "prompt_template_versions": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Prompt Template Versions",
+          "type": "object"
+        },
+        "python_version": {
+          "default": "",
+          "title": "Python Version",
+          "type": "string"
+        },
+        "rule_versions": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Rule Versions",
+          "type": "object"
+        },
+        "scanned_at": {
+          "format": "date-time",
+          "title": "Scanned At",
+          "type": "string"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "datasentry_version",
+        "seed"
+      ],
+      "title": "ReproducibilityInfo",
+      "type": "object"
+    },
+    "RiskLevel": {
+      "description": "误报风险 / 修复风险级别（12.5/15.2）。",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "RiskLevel",
+      "type": "string"
+    },
+    "Rule": {
+      "description": "数据质量规则（14.1）：每次修改 version +1。",
+      "properties": {
+        "columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "created_by": {
+          "default": "local-user",
+          "title": "Created By",
+          "type": "string"
+        },
+        "criticality_override": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BusinessCriticality"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "expression": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expression"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity",
+          "default": "medium"
+        },
+        "source": {
+          "default": "user",
+          "enum": [
+            "user",
+            "contract",
+            "llm_candidate",
+            "builtin",
+            "learned"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "then": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Condition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "type": {
+          "$ref": "#/$defs/RuleType"
+        },
+        "version": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Condition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "Rule",
+      "type": "object"
+    },
+    "RuleType": {
+      "description": "规则类型（14.2）。",
+      "enum": [
+        "column_comparison",
+        "conditional_not_null",
+        "conditional_value",
+        "value_range",
+        "allowed_values",
+        "regex",
+        "uniqueness",
+        "not_null",
+        "aggregate"
+      ],
+      "title": "RuleType",
+      "type": "string"
+    },
+    "SamplingConfig": {
+      "description": "扫描抽样配置（18.2 引用，20.3 采样方法）。",
+      "properties": {
+        "generalizable": {
+          "default": true,
+          "title": "Generalizable",
+          "type": "boolean"
+        },
+        "method": {
+          "default": "reservoir",
+          "enum": [
+            "random",
+            "stratified",
+            "reservoir",
+            "time_based",
+            "rare_oversampling",
+            "none"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "ratio": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "maximum": 1.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ratio"
+        },
+        "sample_size": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sample Size"
+        },
+        "seed": {
+          "default": 42,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "stratified_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Stratified Columns",
+          "type": "array"
+        },
+        "time_column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time Column"
+        }
+      },
+      "title": "SamplingConfig",
+      "type": "object"
+    },
+    "SamplingInfo": {
+      "description": "抽样信息（20.3）：报告中必须注明抽样方法与可推广性。",
+      "properties": {
+        "full_size": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Full Size",
+          "type": "integer"
+        },
+        "full_stats_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Full Stats Columns",
+          "type": "array"
+        },
+        "generalizable": {
+          "default": false,
+          "title": "Generalizable",
+          "type": "boolean"
+        },
+        "method": {
+          "enum": [
+            "random",
+            "stratified",
+            "reservoir",
+            "time_based",
+            "rare_oversampling",
+            "none"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "sample_size": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Sample Size",
+          "type": "integer"
+        },
+        "sampled": {
+          "title": "Sampled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sampled",
+        "method"
+      ],
+      "title": "SamplingInfo",
+      "type": "object"
+    },
+    "ScanConfig": {
+      "description": "扫描配置（18.2）：可复现性的核心输入。",
+      "properties": {
+        "custom_rules": {
+          "items": {
+            "$ref": "#/$defs/Rule"
+          },
+          "title": "Custom Rules",
+          "type": "array"
+        },
+        "detector_params": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "title": "Detector Params",
+          "type": "object"
+        },
+        "detectors": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detectors"
+        },
+        "llm_budget_tokens": {
+          "default": 20000,
+          "minimum": 0,
+          "title": "Llm Budget Tokens",
+          "type": "integer"
+        },
+        "llm_enabled": {
+          "default": false,
+          "title": "Llm Enabled",
+          "type": "boolean"
+        },
+        "masks": {
+          "$ref": "#/$defs/MaskConfig"
+        },
+        "sampling": {
+          "$ref": "#/$defs/SamplingConfig"
+        },
+        "scan_tags": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Scan Tags",
+          "type": "object"
+        },
+        "seed": {
+          "default": 42,
+          "title": "Seed",
+          "type": "integer"
+        }
+      },
+      "title": "ScanConfig",
+      "type": "object"
+    },
+    "ScanRun": {
+      "description": "一次完整质量扫描（18.2）。",
+      "properties": {
+        "config": {
+          "$ref": "#/$defs/ScanConfig"
+        },
+        "contract_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contract Id"
+        },
+        "dataset_id": {
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "fingerprint": {
+          "$ref": "#/$defs/DatasetFingerprint"
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finished At"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "issues_count": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/Severity"
+          },
+          "title": "Issues Count",
+          "type": "object"
+        },
+        "llm_usage": {
+          "$ref": "#/$defs/LLMUsageSummary"
+        },
+        "quality_score": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QualityScore"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reproducibility": {
+          "$ref": "#/$defs/ReproducibilityInfo"
+        },
+        "source_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Path"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "status": {
+          "default": "queued",
+          "enum": [
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "cancelled"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "dataset_id",
+        "config",
+        "fingerprint",
+        "reproducibility"
+      ],
+      "title": "ScanRun",
+      "type": "object"
+    },
+    "Severity": {
+      "description": "潜在影响级别，非置信度（12.2）。",
+      "enum": [
+        "info",
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Public envelope returned by reporting.build_report, schema v1.0.",
+  "properties": {
+    "datasentry_version": {
+      "title": "Datasentry Version",
+      "type": "string"
+    },
+    "detector_runs": {
+      "items": {
+        "$ref": "#/$defs/DetectorRun"
+      },
+      "title": "Detector Runs",
+      "type": "array"
+    },
+    "generated_at": {
+      "description": "ISO-8601 timestamp. Caller-supplied naive datetimes may omit the UTC offset.",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "issues": {
+      "items": {
+        "$ref": "#/$defs/Issue"
+      },
+      "title": "Issues",
+      "type": "array"
+    },
+    "llm_used": {
+      "title": "Llm Used",
+      "type": "boolean"
+    },
+    "quality": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/QualityScore"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "report_schema_version": {
+      "const": "1.0",
+      "title": "Report Schema Version",
+      "type": "string"
+    },
+    "reproducible": {
+      "title": "Reproducible",
+      "type": "boolean"
+    },
+    "scan": {
+      "$ref": "#/$defs/ScanRun"
+    },
+    "scan_run_id": {
+      "title": "Scan Run Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "report_schema_version",
+    "datasentry_version",
+    "scan_run_id",
+    "generated_at",
+    "reproducible",
+    "llm_used",
+    "scan",
+    "detector_runs",
+    "issues",
+    "quality"
+  ],
+  "title": "QualityReportV1",
+  "type": "object"
+}
