@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -30,6 +30,6 @@ class QualityReportV1(BaseModel):
     quality: QualityScore | None
 
 
-def report_v1_json_schema() -> dict:
+def report_v1_json_schema() -> dict[str, Any]:
     """Generate the portable contract using existing Pydantic models."""
     return QualityReportV1.model_json_schema(mode="serialization")
