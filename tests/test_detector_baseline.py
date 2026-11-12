@@ -14,6 +14,8 @@ from types import ModuleType
 
 import pytest
 
+from datasentry_core.models.issue import Issue
+
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "demo-data" / "orders.csv"
 
@@ -124,3 +126,31 @@ def test_malformed_baseline_is_a_config_error(
     tampered = _tampered(baseline, tmp_path / "bad-type.json", mutate)
     assert module.main(["check", "--data", str(DATA), "--baseline", str(tampered)]) == 2
     assert "baseline is malformed" in capsys.readouterr().err
+
+
+def test_projection_matches_rescan_when_available(module: ModuleType) -> None:
+    """The gate duplicates rescan's projection on purpose; this pins the two together.
+
+    Skipped on branches where ``rescan`` has not landed yet (the gate must run there too).
+    """
+    rescan = pytest.importorskip("datasentry_core.rescan")
+    issue = Issue(
+        id="iss_probe",
+        scan_run_id="scan_probe",
+        issue_type="uniqueness",
+        title="probe",
+        dataset_id="demo",
+        columns=["b", "a"],
+        confidence=0.9,
+        priority_score=50.0,
+        affected_count=3,
+        affected_ratio=0.1,
+        detector_ids=["z", "a"],
+    )
+    core = rescan.signature(issue)
+    local = module.project(issue)
+    assert local["columns"] == list(core.columns)
+    assert local["detectors"] == list(core.detectors)
+    assert local["severity"] == core.severity
+    assert local["affected_count"] == core.affected_count
+    assert module.key(local) == core.key()

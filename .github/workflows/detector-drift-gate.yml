@@ -80,9 +80,23 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      # The fixtures/rescan CLI is not on `main` yet (it lives in an unmerged working tree).
+      # Probe the installed CLI instead of guessing from file paths: when the commands appear,
+      # the smoke starts running without an edit to this workflow.
+      - name: Detect fixtures/rescan support
+        id: support
+        run: |
+          if uv run datasentry fixtures --help > /dev/null 2>&1; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Smoke skipped::fixtures/rescan CLI is not on this branch yet"
+          fi
+
       # Runs the AC-11b CLI path on a throwaway workspace: capture, delete the source, rescan,
       # then prune the copy and prove the report degrades to `uncovered` instead of "no drift".
       - name: Capture, delete source, rescan, prune
+        if: steps.support.outputs.available == 'true'
         run: |
           set -euo pipefail
           WORK=$(mktemp -d)
@@ -100,7 +114,7 @@ jobs:
           cp "$WORK"/ws/.datasentry/rescan/*.json rescan-artifacts/
 
       - name: Upload rescan archives
-        if: always()
+        if: always() && steps.support.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: rescan-archives
