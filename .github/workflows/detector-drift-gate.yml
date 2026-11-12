@@ -1,0 +1,108 @@
+name: Detector drift gate
+
+# AC-11b in CI form. `rescan` needs a stored scan run, and CI has none: a fresh runner has an
+# empty workspace. This workflow pins the issue *signatures* of demo-data/orders.csv instead,
+# so a detector or scoring change that moves the issue set turns the PR red.
+#
+# A red run is not automatically a bug. It means the author must either fix the change or
+# regenerate the baseline and explain the move in the PR description. Regenerating is a
+# deliberate act: `python scripts/detector_baseline.py write --data demo-data/orders.csv
+# --baseline tests/fixtures/detector_baseline.json`.
+on:
+  pull_request:
+    paths:
+      - "packages/core/src/datasentry_core/detectors/**"
+      - "packages/core/src/datasentry_core/scoring/**"
+      - "packages/core/src/datasentry_core/rescan.py"
+      - "scripts/detector_baseline.py"
+      - "tests/fixtures/detector_baseline.json"
+      - "demo-data/orders.csv"
+      - ".github/workflows/detector-drift-gate.yml"
+  workflow_dispatch:
+
+# Read-only: this gate inspects code and prints a diff. It never comments, labels, or pushes.
+permissions:
+  contents: read
+
+concurrency:
+  group: detector-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  baseline:
+    name: Issue signatures vs committed baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Compare issue signatures
+        run: |
+          set -o pipefail
+          uv run python scripts/detector_baseline.py check \
+            --data demo-data/orders.csv \
+            --baseline tests/fixtures/detector_baseline.json | tee baseline-diff.txt
+
+      - name: Upload diff
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: detector-baseline-diff
+          path: baseline-diff.txt
+          if-no-files-found: ignore
+
+  tool-smoke:
+    name: Rescan survives source removal, prune returns uncovered
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # Runs the AC-11b CLI path on a throwaway workspace: capture, delete the source, rescan,
+      # then prune the copy and prove the report degrades to `uncovered` instead of "no drift".
+      - name: Capture, delete source, rescan, prune
+        run: |
+          set -euo pipefail
+          WORK=$(mktemp -d)
+          cp demo-data/orders.csv "$WORK/orders.csv"
+          uv run datasentry --project "$WORK/ws" scan "$WORK/orders.csv" > /dev/null
+          uv run datasentry --project "$WORK/ws" fixtures capture --limit 5
+          rm "$WORK/orders.csv"
+          uv run datasentry --project "$WORK/ws" --format json rescan --limit 5 --fail-on-drift \
+            > "$WORK/rescan.json"
+          uv run python -c "import json;d=json.load(open('$WORK/rescan.json'))['data'];assert d['comparable']==1 and d['from_fixture']==1 and d['drifted']==0,d;print('rescan ok: compared from retained copy, 0 drift')"
+          uv run datasentry --project "$WORK/ws" fixtures prune --keep 0
+          uv run datasentry --project "$WORK/ws" --format json rescan --limit 5 > "$WORK/rescan2.json"
+          uv run python -c "import json;d=json.load(open('$WORK/rescan2.json'))['data'];assert d['comparable']==0 and d['uncovered']==1,d;print('prune ok: copy removed -> uncovered')"
+          mkdir -p rescan-artifacts
+          cp "$WORK"/ws/.datasentry/rescan/*.json rescan-artifacts/
+
+      - name: Upload rescan archives
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rescan-archives
+          path: rescan-artifacts/*.json
+          if-no-files-found: ignore

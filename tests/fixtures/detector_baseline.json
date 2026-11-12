@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "data": "demo-data/orders.csv",
+  "data_sha256": "90ba77cbb85e338290e3323d63bb78a54ff32dc34860a4912ad32bb114b0e3af",
+  "issue_count": 11,
+  "issues": [
+    {
+      "issue_type": "categorical_anomaly",
+      "table_name": null,
+      "columns": [
+        "amount"
+      ],
+      "detectors": [
+        "category_explosion"
+      ],
+      "severity": "low",
+      "affected_count": 194
+    },
+    {
+      "issue_type": "categorical_anomaly",
+      "table_name": null,
+      "columns": [
+        "customer"
+      ],
+      "detectors": [
+        "inconsistent_case"
+      ],
+      "severity": "low",
+      "affected_count": 46
+    },
+    {
+      "issue_type": "datetime_anomaly",
+      "table_name": null,
+      "columns": [
+        "order_date"
+      ],
+      "detectors": [
+        "impossible_date",
+        "invalid_date"
+      ],
+      "severity": "high",
+      "affected_count": 9
+    },
+    {
+      "issue_type": "distribution_anomaly",
+      "table_name": null,
+      "columns": [
+        "order_id"
+      ],
+      "detectors": [
+        "model_outlier"
+      ],
+      "severity": "low",
+      "affected_count": 4
+    },
+    {
+      "issue_type": "missingness",
+      "table_name": null,
+      "columns": [
+        "amount"
+      ],
+      "detectors": [
+        "suspicious_missing_token"
+      ],
+      "severity": "low",
+      "affected_count": 7
+    },
+    {
+      "issue_type": "missingness",
+      "table_name": null,
+      "columns": [
+        "order_date"
+      ],
+      "detectors": [
+        "suspicious_missing_token"
+      ],
+      "severity": "low",
+      "affected_count": 9
+    },
+    {
+      "issue_type": "numeric_outlier",
+      "table_name": null,
+      "columns": [
+        "order_id"
+      ],
+      "detectors": [
+        "percentile_outlier"
+      ],
+      "severity": "medium",
+      "affected_count": 2
+    },
+    {
+      "issue_type": "string_format",
+      "table_name": null,
+      "columns": [
+        "amount"
+      ],
+      "detectors": [
+        "invalid_numeric"
+      ],
+      "severity": "medium",
+      "affected_count": 7
+    },
+    {
+      "issue_type": "string_format",
+      "table_name": null,
+      "columns": [
+        "customer"
+      ],
+      "detectors": [
+        "leading_or_trailing_whitespace",
+        "spelling_variant"
+      ],
+      "severity": "low",
+      "affected_count": 103
+    },
+    {
+      "issue_type": "uniqueness",
+      "table_name": null,
+      "columns": [
+        "amount"
+      ],
+      "detectors": [
+        "uniqueness_violation"
+      ],
+      "severity": "medium",
+      "affected_count": 6
+    },
+    {
+      "issue_type": "uniqueness",
+      "table_name": null,
+      "columns": [
+        "order_id"
+      ],
+      "detectors": [
+        "uniqueness_violation"
+      ],
+      "severity": "medium",
+      "affected_count": 13
+    }
+  ]
+}
