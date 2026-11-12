@@ -24,7 +24,8 @@ DATA = ROOT / "demo-data" / "orders.csv"
 def module() -> ModuleType:
     path = ROOT / "scripts" / "detector_baseline.py"
     spec = importlib.util.spec_from_file_location("detector_baseline", path)
-    assert spec is not None and spec.loader is not None
+    assert spec is not None
+    assert spec.loader is not None
     loaded = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(loaded)
     return loaded
@@ -69,7 +70,8 @@ def test_severity_change_is_reported_as_drift(
     tampered = _tampered(baseline, tmp_path / "severity.json", mutate)
     assert module.main(["check", "--data", str(DATA), "--baseline", str(tampered)]) == 1
     out = capsys.readouterr().out
-    assert "~ changed:" in out and "severity critical->" in out
+    assert "~ changed:" in out
+    assert "severity critical->" in out
 
 
 def test_removed_issue_is_reported(

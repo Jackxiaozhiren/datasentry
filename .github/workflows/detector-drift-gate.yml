@@ -34,29 +34,37 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      # Actions are pinned to commit SHAs, not tags: a tag is mutable, and this gate runs on
+      # every detector PR. The `# vN` comment is the major tag each SHA resolved to when pinned;
+      # bump both together.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
 
+      # `--locked` is the supply-chain control: every artifact comes from uv.lock with a
+      # recorded hash. `--no-build` cannot be used here — uv refuses to install this repo's
+      # own editable package without a build ("no binary distribution"), and that package is
+      # first-party code from this checkout, not a third-party sdist. The `uv run` steps below
+      # carry `--no-build`, so nothing is built after this point.
       - name: Install dependencies
-        run: uv sync --locked
+        run: uv sync --locked # NOSONAR
 
       - name: Compare issue signatures
         run: |
           set -o pipefail
-          uv run python scripts/detector_baseline.py check \
+          uv run --locked --no-sync --no-build python scripts/detector_baseline.py check \
             --data demo-data/orders.csv \
             --baseline tests/fixtures/detector_baseline.json | tee baseline-diff.txt
 
       - name: Upload diff
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: detector-baseline-diff
           path: baseline-diff.txt
@@ -67,18 +75,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: uv sync --locked
+        run: uv sync --locked # NOSONAR (see the note in the baseline job)
 
       # The fixtures/rescan CLI is not on `main` yet (it lives in an unmerged working tree).
       # Probe the installed CLI instead of guessing from file paths: when the commands appear,
@@ -86,7 +94,7 @@ jobs:
       - name: Detect fixtures/rescan support
         id: support
         run: |
-          if uv run datasentry fixtures --help > /dev/null 2>&1; then
+          if uv run --locked --no-sync --no-build datasentry fixtures --help > /dev/null 2>&1; then
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
@@ -99,23 +107,24 @@ jobs:
         if: steps.support.outputs.available == 'true'
         run: |
           set -euo pipefail
+          DS=(uv run --locked --no-sync --no-build datasentry)
           WORK=$(mktemp -d)
           cp demo-data/orders.csv "$WORK/orders.csv"
-          uv run datasentry --project "$WORK/ws" scan "$WORK/orders.csv" > /dev/null
-          uv run datasentry --project "$WORK/ws" fixtures capture --limit 5
+          "${DS[@]}" --project "$WORK/ws" scan "$WORK/orders.csv" > /dev/null
+          "${DS[@]}" --project "$WORK/ws" fixtures capture --limit 5
           rm "$WORK/orders.csv"
-          uv run datasentry --project "$WORK/ws" --format json rescan --limit 5 --fail-on-drift \
+          "${DS[@]}" --project "$WORK/ws" --format json rescan --limit 5 --fail-on-drift \
             > "$WORK/rescan.json"
-          uv run python -c "import json;d=json.load(open('$WORK/rescan.json'))['data'];assert d['comparable']==1 and d['from_fixture']==1 and d['drifted']==0,d;print('rescan ok: compared from retained copy, 0 drift')"
-          uv run datasentry --project "$WORK/ws" fixtures prune --keep 0
-          uv run datasentry --project "$WORK/ws" --format json rescan --limit 5 > "$WORK/rescan2.json"
-          uv run python -c "import json;d=json.load(open('$WORK/rescan2.json'))['data'];assert d['comparable']==0 and d['uncovered']==1,d;print('prune ok: copy removed -> uncovered')"
+          uv run --locked --no-sync --no-build python -c "import json;d=json.load(open('$WORK/rescan.json'))['data'];assert d['comparable']==1,d;assert d['from_fixture']==1,d;assert d['drifted']==0,d;print('rescan ok: compared from retained copy, 0 drift')"
+          "${DS[@]}" --project "$WORK/ws" fixtures prune --keep 0
+          "${DS[@]}" --project "$WORK/ws" --format json rescan --limit 5 > "$WORK/rescan2.json"
+          uv run --locked --no-sync --no-build python -c "import json;d=json.load(open('$WORK/rescan2.json'))['data'];assert d['comparable']==0,d;assert d['uncovered']==1,d;print('prune ok: copy removed -> uncovered')"
           mkdir -p rescan-artifacts
           cp "$WORK"/ws/.datasentry/rescan/*.json rescan-artifacts/
 
       - name: Upload rescan archives
         if: always() && steps.support.outputs.available == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rescan-archives
           path: rescan-artifacts/*.json
