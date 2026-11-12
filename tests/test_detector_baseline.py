@@ -48,7 +48,8 @@ def test_write_then_check_is_clean(
     module: ModuleType, baseline: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert module.main(["check", "--data", str(DATA), "--baseline", str(baseline)]) == 0
-    assert "ok: 11 issue signature(s)" in capsys.readouterr().out
+    expected = json.loads(baseline.read_text(encoding="utf-8"))["issue_count"]
+    assert f"ok: {expected} issue signature(s)" in capsys.readouterr().out
 
 
 def test_write_is_byte_identical(module: ModuleType, baseline: Path, tmp_path: Path) -> None:

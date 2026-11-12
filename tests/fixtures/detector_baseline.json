@@ -2,7 +2,7 @@
   "schema_version": 1,
   "data": "demo-data/orders.csv",
   "data_sha256": "90ba77cbb85e338290e3323d63bb78a54ff32dc34860a4912ad32bb114b0e3af",
-  "issue_count": 11,
+  "issue_count": 13,
   "issues": [
     {
       "issue_type": "categorical_anomaly",
@@ -125,6 +125,31 @@
       ],
       "severity": "medium",
       "affected_count": 6
+    },
+    {
+      "issue_type": "uniqueness",
+      "table_name": null,
+      "columns": [
+        "customer"
+      ],
+      "detectors": [
+        "fuzzy_duplicate",
+        "uniqueness_violation"
+      ],
+      "severity": "medium",
+      "affected_count": 193
+    },
+    {
+      "issue_type": "uniqueness",
+      "table_name": null,
+      "columns": [
+        "order_date"
+      ],
+      "detectors": [
+        "uniqueness_violation"
+      ],
+      "severity": "medium",
+      "affected_count": 60
     },
     {
       "issue_type": "uniqueness",
