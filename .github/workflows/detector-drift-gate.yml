@@ -8,7 +8,19 @@ name: Detector drift gate
 # regenerate the baseline and explain the move in the PR description. Regenerating is a
 # deliberate act: `python scripts/detector_baseline.py write --data demo-data/orders.csv
 # --baseline tests/fixtures/detector_baseline.json`.
+#
+# Two triggers, two jobs: `pull_request` catches a detector change before it lands, `push`
+# re-checks `main` after it lands. The `tool-smoke` job is the one that cares about `main`:
+# it runs the AC-11b CLI path end to end, so a merge that breaks the installed CLI turns the
+# merge commit red instead of being discovered at release time.
 on:
+  # Every merge to `main`, deliberately *not* path-filtered. `main` is the branch the CLI is
+  # installed from, and a merged batch that touches `cli.py` or `client.py` can break the
+  # smoke without touching any detector file. A path list here would have to be kept in step
+  # with `pull_request` below, and a missed entry fails silently — a much worse trade than
+  # the ~25s of wall time a redundant run costs.
+  push:
+    branches: [main]
   pull_request:
     paths:
       - "packages/core/src/datasentry_core/detectors/**"
@@ -88,9 +100,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked # NOSONAR (see the note in the baseline job)
 
-      # The fixtures/rescan CLI is not on `main` yet (it lives in an unmerged working tree).
-      # Probe the installed CLI instead of guessing from file paths: when the commands appear,
-      # the smoke starts running without an edit to this workflow.
+      # Probe the installed CLI instead of guessing from file paths. The `fixtures` and
+      # `rescan` subcommands landed on `main` with #48, but forks and older branches can still
+      # lack them, so the smoke stays conditional rather than failing on an unknown command.
       - name: Detect fixtures/rescan support
         id: support
         run: |
