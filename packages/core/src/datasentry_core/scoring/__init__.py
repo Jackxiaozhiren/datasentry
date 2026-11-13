@@ -8,6 +8,14 @@ from datasentry_core.scoring.engine import (
 )
 from datasentry_core.scoring.gate import GateResult, QualityGateEvaluator
 from datasentry_core.scoring.quality import DIMENSION_WEIGHTS, SCORE_VERSION, QualityScoreEngine
+from datasentry_core.scoring.replay import (
+    DEFAULT_TOLERANCE,
+    ReplayReport,
+    ReplaySource,
+    ScoreDrift,
+    replay_runs,
+    replay_score,
+)
 from datasentry_core.scoring.weights import (
     CRITICALITY_WEIGHTS,
     SEVERITY_WEIGHTS,
@@ -16,6 +24,7 @@ from datasentry_core.scoring.weights import (
 
 __all__ = [
     "CRITICALITY_WEIGHTS",
+    "DEFAULT_TOLERANCE",
     "DIMENSION_WEIGHTS",
     "SCORE_VERSION",
     "SEVERITY_WEIGHTS",
@@ -23,8 +32,13 @@ __all__ = [
     "GateResult",
     "QualityGateEvaluator",
     "QualityScoreEngine",
+    "ReplayReport",
+    "ReplaySource",
     "ScoreBreakdown",
+    "ScoreDrift",
     "ScoreResult",
     "ScoringEngine",
     "criticality_norm",
+    "replay_runs",
+    "replay_score",
 ]
