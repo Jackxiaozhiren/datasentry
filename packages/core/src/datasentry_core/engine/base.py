@@ -59,3 +59,15 @@ class SetupExecutor(Protocol):
     ) -> Iterator[pa.RecordBatch]: ...
 
     def close(self) -> None: ...
+
+
+def finite_only(quoted: str) -> str:
+    """The expression naming only the finite values of a numeric column.
+
+    NaN and ±Inf are values -- they still count and they are not NULL -- but they are not numbers.
+    Unguarded, DuckDB's `stddev` aborts the whole aggregate (`OutOfRangeException`), `max([1.0,
+    nan, 3.0])` answers `nan`, a median orders NaN as a value, and a detector that splices a NaN
+    bound into a predicate fails with `Referenced column "nan" not found`. One rule for the
+    profiler and for every detector, so the same column cannot be summarised two ways (G-2).
+    """
+    return f"CASE WHEN isfinite({quoted}) THEN {quoted} END"

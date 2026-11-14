@@ -1,9 +1,18 @@
 name: CI
 
+# D6-03: `workflow_call` lets publish.yml gate a release on this exact definition. Reused rather
+# than copied so there is no second CI definition to drift away from the first.
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+
+# Explicit least privilege: as a called workflow this file inherits the caller's permissions, and the
+# publish workflow needs `id-token: write` for PyPI. Declaring it here keeps the release-prerequisite
+# jobs from carrying a token they have no use for.
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -15,16 +24,13 @@ jobs:
       TEST_POSTGRES_DSN: postgresql://testuser:testpass@localhost:5432/testdb
       # Step 56：真实 MySQL 集成用例（test_mysql_integration.py）经此 DSN 连 service
       TEST_MYSQL_DSN: mysql://root:testpass@localhost:3306/testdb
-      # Step 57：真实 MinIO 集成用例（test_remote_file_integration.py）经此端点/凭据连 service
-      TEST_MINIO_ENDPOINT: localhost:9000
-      TEST_MINIO_ACCESS_KEY: minioadmin
-      TEST_MINIO_SECRET_KEY: minioadmin
-      AWS_ENDPOINT_URL_S3: localhost:9000
-      AWS_ACCESS_KEY_ID: minioadmin
-      AWS_SECRET_ACCESS_KEY: minioadmin
+      # Step 57（MinIO 集成）暂摘（D6-07）：匿名拉取 minio/minio 被上游拒绝（CI run
+      # 36964587206 实证），digest 钉死后恢复 service、env 与 2b 建桶步骤；
+      # test_remote_file_integration.py 自带"连不上即 skip"，pytest 步骤不受影响。
     services:
       postgres:
-        image: postgres:16-alpine
+        # D6-07：digest 钉死（2026-09-25 本地 resolve 验证，见审计报告）。
+        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_USER: testuser
           POSTGRES_PASSWORD: testpass
@@ -37,7 +43,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       mysql:
-        image: mysql:8
+        # D6-07：digest 钉死（2026-09-25 本地 resolve 验证，见审计报告）。
+        image: mysql:8@sha256:0744ee5ef89ce6ccfa13de3e579fe6b9e27f93dd70da9c06d2c908b1b193fb8d
         env:
           MYSQL_ROOT_PASSWORD: testpass
           MYSQL_DATABASE: testdb
@@ -48,68 +55,70 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
-      minio:
-        image: minio/minio:latest
-        command: server /data
-        ports:
-          - 9000:9000
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
+      # D6-07（2026-10-02）：minio service 暂摘——匿名拉取 minio/minio:latest 被上游拒绝
+      # （pull denied；postgres/mysql 不受影响）。持 Docker Hub 凭证的维护者 resolve 出
+      # 可信 digest 后，把 service（image: minio/minio@sha256:…）、上方 TEST_MINIO_*/AWS_* env
+      # 与下方 2b 建桶步骤一并恢复。see: AUDIT/FINDINGS.yaml D6-07
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      # `--locked` is the supply-chain control: every artifact comes from uv.lock with a
+      # recorded hash. `--no-build` cannot be used here — uv refuses to install this repo's
+      # own editable package without a build ("no binary distribution"), and that package is
+      # first-party code from this checkout, not a third-party sdist. Every `uv run` below
+      # carries `--locked --no-sync --no-build`, so nothing is built after this point.
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync --locked # NOSONAR
 
       - name: 1 · ruff lint
-        run: uv run ruff check .
+        run: uv run --locked --no-sync --no-build ruff check .
 
       - name: 2 · ruff format check
-        run: uv run ruff format --check .
-
-      - name: 2b · create MinIO bucket (Step 57 integration fixture)
-        run: |
-          docker run --rm --network host \
-            -e MC_HOST_minio="http://minioadmin:minioadmin@localhost:9000" \
-            minio/mc:latest mb --ignore-existing minio/test-bucket
+        run: uv run --locked --no-sync --no-build ruff format --check .
 
       - name: 3 · mypy --strict (datasentry_core + datasentry)
-        run: uv run mypy packages/core/src/datasentry_core src/datasentry
+        run: uv run --locked --no-sync --no-build mypy packages/core/src/datasentry_core src/datasentry
 
       - name: 4 · pytest + coverage gate (>=85%)
-        run: uv run pytest --cov=datasentry_core --cov-fail-under=85 --cov-report=term --cov-report=xml
+        run: >-
+          uv run --locked --no-sync --no-build pytest --cov=datasentry_core
+          --cov-fail-under=85 --cov-report=term --cov-report=xml
+
+      - name: 4b · pip-audit (D5-07 supply-chain gate)
+        run: |
+          set -e
+          uv export --locked --no-dev --no-emit-project --format requirements.txt -o /tmp/ci-req.txt
+          # `-E` rather than BRE `\|`: the alternation is a GNU extension, and on a BSD
+          # grep the whole filter silently becomes a no-op, so the audit runs on the
+          # unfiltered file (reproduced locally on macOS).
+          grep -Ev "^-e |file:///" /tmp/ci-req.txt > /tmp/ci-req-audit.txt
+          uv run --locked --no-sync --no-build --with pip-audit pip-audit -r /tmp/ci-req-audit.txt
 
       - name: 5 · upload coverage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-xml
           path: coverage.xml
 
       - name: 6 · M9 demo smoke (budget 180s)
-        run: uv run python examples/demo/demo.py --rows 2000
+        run: uv run --locked --no-sync --no-build python examples/demo/demo.py --rows 2000
 
       - name: 7 · benchmark (1e6 rows, <=60s gate)
-        run: uv run python benchmarks/bench_scan.py 1000000
+        run: uv run --locked --no-sync --no-build python benchmarks/bench_scan.py 1000000
 
       - name: 8 · CLI smoke (scan + report + exit code)
         run: |
           set -e
           TMP=$(mktemp -d)
-          uv run python - <<'EOF'
+          uv run --locked --no-sync --no-build python - <<'EOF'
           from pathlib import Path
           from datasentry import DataSentry
           import tempfile
@@ -130,7 +139,7 @@ jobs:
           bash docs/demo/record-demo.sh --csv
           git diff --exit-code -- demo-data/orders.csv >/dev/null || {
             echo "demo-data/orders.csv drifted from the committed deterministic sample"; exit 1; }
-          uv run python - <<'EOF'
+          uv run --locked --no-sync --no-build python - <<'EOF'
           from datasentry import DataSentry
           from pathlib import Path
           c = DataSentry(project=Path("demo-data") / "ws-ci")
@@ -147,7 +156,7 @@ jobs:
       - name: 9 · API + UI smoke (container-free)
         run: |
           set -e
-          uv run python - <<'EOF'
+          uv run --locked --no-sync --no-build python - <<'EOF'
           from fastapi.testclient import TestClient
           from datasentry.api import create_app
           c = TestClient(create_app())
@@ -160,7 +169,7 @@ jobs:
         run: |
           set -e
           TMP=$(mktemp -d)
-          uv run python examples/demo/demo.py --rows 500 --out "$TMP" >/dev/null
+          uv run --locked --no-sync --no-build python examples/demo/demo.py --rows 500 --out "$TMP" >/dev/null
           test -f "$TMP/report.json"
           test -f "$TMP/report.html"
           test -f "$TMP/customers.csv"
@@ -179,3 +188,31 @@ jobs:
           printf 'name,price\n" alice ",10\nbob,n/a\n' > "$TMP/d.csv"
           "$SMOKE/venv/bin/datasentry" --project "$TMP/ws" scan "$TMP/d.csv" >/dev/null
           "$SMOKE/venv/bin/datasentry" --version
+
+      - name: 12 · MCP Docker stdio introspection smoke
+        run: |
+          set -euo pipefail
+          docker build -f Dockerfile.mcp -t datasentry-mcp:ci .
+          RESPONSE=$(
+            {
+              printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"datasentry-ci","version":"1.0"}}}'
+              printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
+              printf '%s\n' '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+            } | timeout 30s docker run --rm -i datasentry-mcp:ci
+          )
+          MCP_RESPONSE="$RESPONSE" python - <<'PY'
+          import json
+          import os
+
+          messages = [
+              json.loads(line)
+              for line in os.environ["MCP_RESPONSE"].splitlines()
+              if line.strip()
+          ]
+          initialized = next(message for message in messages if message.get("id") == 1)
+          tools = next(message for message in messages if message.get("id") == 2)
+          assert initialized["result"]["protocolVersion"] == "2024-11-05"
+          tool_count = len(tools["result"]["tools"])
+          assert tool_count >= 20, f"expected at least 20 MCP tools, got {tool_count}"
+          print(f"MCP Docker introspection ok: {tool_count} tools")
+          PY

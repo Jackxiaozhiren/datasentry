@@ -35,6 +35,7 @@ from datasentry.scheduler.models import (
     ScheduledJob,
     iso,
     utcnow,
+    webhook_target_refusal,
 )
 from datasentry.scheduler.store import RETRY_BACKOFF, SchedulerStore
 
@@ -224,6 +225,10 @@ class LocalScanExecutor:
         else:
             from datasentry import DataSentry
 
+            # The executor runs on the operator's own machine, the same trust boundary as the
+            # CLI (see datasentry/scan_paths.py), so it does not re-check paths here. What is
+            # checked is the *registration*: `POST /jobs` validates both the path and the
+            # project against the server workspace before a row can ever exist (D5-13).
             client = DataSentry(project=command.project)
         try:
             scan_run, _runs, issues = client.scan_file(
@@ -292,6 +297,12 @@ class WebhookNotifier:
         self._client_factory = client_factory
 
     def notify(self, url: str, payload: dict[str, object]) -> None:
+        refusal = webhook_target_refusal(url)
+        if refusal:
+            # Best-effort delivery, so this logs rather than raising -- but a refused target must
+            # not be reached by the fallback path either, hence the check before any client.
+            logger.warning("webhook %s not delivered: %s", url, refusal)
+            return
         try:
             if self._client_factory is not None:
                 client = self._client_factory()

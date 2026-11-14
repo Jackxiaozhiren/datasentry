@@ -1,0 +1,31 @@
+# Dedicated DataSentry MCP stdio image.
+# Build: docker build -f Dockerfile.mcp -t datasentry-mcp .
+# Run:   docker run --rm -i -v "$PWD:/workspace" datasentry-mcp
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
+WORKDIR /app
+COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY packages ./packages
+COPY src ./src
+# D6-02：--locked 使 manifest/lock 不一致时构建失败而非静默通过。
+# `--no-build` is not usable on this line: uv refuses to install this repo's own editable
+# package without a build (measured: `error: Distribution datasentry-ai==2.0.0 @ editable+.
+# can't be installed because it is marked as --no-build but has no binary distribution`).
+# Every third-party dependency here is a wheel pinned by hash in uv.lock; the only thing
+# built is first-party code copied from this checkout.
+RUN uv sync --locked --no-dev # NOSONAR
+
+FROM python:3.12-slim
+WORKDIR /workspace
+ENV PATH=/app/.venv/bin:$PATH
+ENV PYTHONUNBUFFERED=1
+COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/src /app/src
+COPY --from=builder /app/packages /app/packages
+# `datasentry mcp` creates its metadata store under WORKDIR at startup, so the non-root
+# runtime user needs a writable workspace -- otherwise startup dies with EACCES before the
+# stdio loop answers (measured: CI run 36965155721, container exit 3).
+RUN mkdir -p /workspace && chown 10001:10001 /workspace
+USER 10001
+
+# MCP uses stdin/stdout JSON-RPC. Keep stdin open and do not allocate a TTY.
+CMD ["datasentry", "mcp", "--project", "/workspace"]

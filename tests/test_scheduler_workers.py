@@ -127,14 +127,19 @@ class TestWorkerPoolE2E:
         try:
             with pytest.MonkeyPatch.context() as mp:
                 mp.setenv("DATASENTRY_WORKERS", env_value)
+                # D5-13 (row r15): `project` is no longer a free string a caller can name. The
+                # job runs in the scheduler's own workspace here, so nothing needs allowlisting;
+                # a deployment that fans jobs out to separate worker workspaces declares them in
+                # DATASENTRY_ALLOWED_ROOTS. The scanned file stays the scheduler's copy, which is
+                # what the two-issue assertion below was always about.
                 with TestClient(create_app(project=scheduler_dir)) as client:
                     created = client.post(
                         "/jobs",
                         json={
                             "name": "e2e",
                             "cron": "0 0 1 1 *",
-                            "path": "orders.csv",
-                            "project": "p",
+                            "path": str(scheduler_dir / "orders.csv"),
+                            "project": str(scheduler_dir),
                         },
                     )
                     assert created.status_code == 201, created.text

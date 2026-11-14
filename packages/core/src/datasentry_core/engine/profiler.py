@@ -6,6 +6,8 @@
 约定：
 - 数值列（INTEGER/FLOAT/DOUBLE/DECIMAL…）计算 min/max/mean/std/q25/median/q75；
   字符串列仅统计 distinct/min/max；其余类型取 min/max
+- 数值列的统计量只在**有限值**上计算：NaN/±Inf 仍算一个"值"（进 count 与 distinct、
+  不算 NULL），但不进 min/max/mean/std/分位（G-2：不守卫则 stddev 直接抛，整次扫描失败）
 - 空字符串在 duckdb 视图路径已被折叠为 NULL（见 CSV 语义约定），null 统计包含空串
 - examples 字段刻意留空：脱敏设施在 Step 15（LLM Provider 抽象）之后提供，
   在此之前避免把原始样本写入画像输出
@@ -19,6 +21,7 @@ from typing import Any
 import pyarrow as pa
 
 from datasentry_core.connectors.base import DataHandle
+from datasentry_core.engine.base import finite_only
 from datasentry_core.models.profile import ColumnProfile, DatasetProfile
 
 _NUMERIC_TYPES = frozenset(
@@ -46,16 +49,28 @@ def _column_exprs(column: str, quoted: str, numeric: bool) -> list[str]:
     exprs = [
         f"count({quoted}) AS {alias}",
         f"count(DISTINCT {quoted}) AS {_quote_ident(f'{column}__distinct')}",
-        f"min({quoted}) AS {_quote_ident(f'{column}__min')}",
-        f"max({quoted}) AS {_quote_ident(f'{column}__max')}",
     ]
     if numeric:
+        # NaN and ±Inf are values (they still count) but they are not numbers. Left unguarded,
+        # `stddev` aborts the whole aggregate -- `OutOfRangeException: STDDEV_SAMP is out of
+        # range!` -- so `scan_file` fails on an ordinary CSV whose numeric column carries the token
+        # `nan`, which is what pandas-style exports produce; and the aggregates that do not abort
+        # answer wrongly (`max([1.0, nan, 3.0])` is `nan`, the median becomes `3.0`). Statistics are
+        # therefore taken over the finite values only (G-2).
+        stat = finite_only(quoted)
         exprs += [
-            f"avg({quoted}) AS {_quote_ident(f'{column}__mean')}",
-            f"stddev({quoted}) AS {_quote_ident(f'{column}__std')}",
-            f"quantile_cont({quoted}, 0.25) AS {_quote_ident(f'{column}__q25')}",
-            f"quantile_cont({quoted}, 0.5) AS {_quote_ident(f'{column}__median')}",
-            f"quantile_cont({quoted}, 0.75) AS {_quote_ident(f'{column}__q75')}",
+            f"min({stat}) AS {_quote_ident(f'{column}__min')}",
+            f"max({stat}) AS {_quote_ident(f'{column}__max')}",
+            f"avg({stat}) AS {_quote_ident(f'{column}__mean')}",
+            f"stddev({stat}) AS {_quote_ident(f'{column}__std')}",
+            f"quantile_cont({stat}, 0.25) AS {_quote_ident(f'{column}__q25')}",
+            f"quantile_cont({stat}, 0.5) AS {_quote_ident(f'{column}__median')}",
+            f"quantile_cont({stat}, 0.75) AS {_quote_ident(f'{column}__q75')}",
+        ]
+    else:
+        exprs += [
+            f"min({quoted}) AS {_quote_ident(f'{column}__min')}",
+            f"max({quoted}) AS {_quote_ident(f'{column}__max')}",
         ]
     return exprs
 

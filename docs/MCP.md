@@ -13,6 +13,40 @@ datasentry mcp --project /path/to/project
 >
 > Detection and scoring remain deterministic. Some MCP tools are read-only, while repair/application and scheduler-management tools can create state. Keep client-side tool confirmation enabled for state-changing tools. DataSentry repairs write to repaired copies with rollback artifacts; they do not overwrite the original source file.
 
+## Official MCP Registry metadata
+
+DataSentry's canonical MCP Registry name is:
+
+```text
+io.github.Jackxiaozhiren/datasentry
+```
+
+The GitHub owner segment is intentionally case-preserving. The official Registry's GitHub OIDC authorization compares this namespace case-sensitively, so it must match the canonical GitHub login `Jackxiaozhiren` exactly.
+
+The repository keeps the install metadata in [`server.json`](../server.json). It describes the PyPI package, stdio transport, and the equivalent `uvx` launch path for MCP clients. Release metadata tests require the Registry version to stay aligned with the `datasentry-ai` package version and require the PyPI ownership marker in the project README.
+
+The release workflow publishes the MCP metadata only **after** the matching PyPI wheels have been published successfully, using GitHub OIDC for Registry authentication. This ordering keeps Registry discovery tied to an installable, ownership-verifiable package instead of advertising an unreleased version.
+
+## Docker / directory-validator image
+
+The normal [`Dockerfile`](../Dockerfile) starts DataSentry's REST API and Web UI. MCP is a stdio transport, so it has a separate [`Dockerfile.mcp`](../Dockerfile.mcp) that starts only the MCP server and does not expose a network port.
+
+Build it from the repository root:
+
+```bash
+docker build -f Dockerfile.mcp -t datasentry-mcp .
+```
+
+Run it against the current directory as the DataSentry project workspace:
+
+```bash
+docker run --rm -i -v "$PWD:/workspace" datasentry-mcp
+```
+
+Keep stdin open with `-i`; do not allocate a TTY with `-t` because stdin/stdout are the MCP JSON-RPC transport. An idle-looking process is expected until an MCP client sends a request.
+
+For MCP directories or validators that ask for a Dockerfile, `Dockerfile.mcp` is the container definition to use. The default `/workspace` can be empty for startup/introspection checks; mount a real workspace only when the server needs to inspect project data.
+
 ## Before configuring a client
 
 Confirm that the executable is available:
@@ -118,7 +152,7 @@ A `.mcpb` Desktop Extension would reduce setup friction and make local installat
 The most useful initial agent workflow is intentionally read-only:
 
 ```text
-scan_file → list_issues → quality_score
+scan_file → issues_list → quality_score
 ```
 
 After you trust the findings, use the normal DataSentry repair loop deliberately:
@@ -128,6 +162,17 @@ propose → preview → apply to a copy → verify → rollback if needed
 ```
 
 For autonomous agents, prefer read-only analysis by default. Require explicit user approval before invoking repair/application, PII restoration, scheduler mutation, or other state-changing tools.
+
+## Renamed tools
+
+**2.0.0 removed `list_issues`.** It is now `issues_list`, matching the `resource_action` naming the
+rest of the surface uses (`jobs_list`, `profiles_get`, `trends_list`). There is no compatibility
+alias: an alias that advertises the same capability twice was measured against Glama's TDQS scorer
+and cost more than it returned — the tool-count dimension fell from 4/5 to 2/5 and the judge named
+"includes a deprecated duplicate" as the overlap, with no offsetting gain in naming consistency.
+
+If your client config pins `list_issues`, change it to `issues_list`. The tool name, arguments and
+return shape are otherwise identical, so no call-site logic needs to change.
 
 ## Troubleshooting
 

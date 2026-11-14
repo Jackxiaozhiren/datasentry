@@ -9,17 +9,21 @@ This roadmap is directional rather than a promise of dates. Priorities are chose
 ### Adoption and first-run experience
 
 - [ ] Evaluate Python 3.11 compatibility without weakening current test/type guarantees.
-- [ ] Add a first-class GitHub Action for pull-request data-quality gates.
+- [x] Add a first-class GitHub Action for pull-request data-quality gates.
+ （已交付：`.github/workflows/datasentry-quality-gate.yml` reusable workflow
+  + `examples/integrations/github-actions`。）
 - [ ] Publish benchmark results with hardware and methodology metadata.
 - [ ] Add copy-paste examples for CSV, PostgreSQL, CI, and MCP workflows.
+ （部分交付：CSV/MCP/CI 示例已在 `examples/`；待补：独立 PostgreSQL 用户示例。）
 - [ ] Improve the Web UI onboarding path from first scan → issue → evidence → repair → verify.
 
 ### Integrations
 
-- [ ] dbt example project.
-- [ ] Airflow example DAG.
-- [ ] GitHub Actions example and status output.
-- [ ] MCP setup recipes for common MCP-capable clients.
+- [x] dbt example project.（已交付：`examples/integrations/dbt`。）
+- [x] Airflow example DAG.（已交付：`examples/integrations/airflow`。）
+- [x] GitHub Actions example and status output.
+ （已交付：`examples/integrations/github-actions`。）
+- [x] MCP setup recipes for common MCP-capable clients.（已交付：MCP 客户端配置指南。）
 - [ ] Evaluate additional warehouse/database connectors based on user demand.
 
 ### Community extensibility

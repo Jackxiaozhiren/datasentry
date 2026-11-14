@@ -1,7 +1,8 @@
 """DataSentry CLI（22 章 MVP 子集）。
 
 命令：init / scan（--fail-on 门禁）/ issues list|show / report export（--as）/
-score / contract validate
+score / replay（评分重放门禁）/ rescan（检测器重扫门禁）/
+fixtures capture|list|prune（重扫留存）/ contract validate
 全局选项：--project / --format text|json / --seed / --lang en|zh / --version
 JSON 统一 envelope（22.1）：{"ok", "command", "data", "warnings", "llm_usage"}
 退出码：0 成功；1 质量门禁失败；2 配置错误；3 执行错误；4 数据源不可用
@@ -17,6 +18,7 @@ import re
 import sys
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -28,8 +30,10 @@ from datasentry_core.models.contract import Contract, QualityGate
 from datasentry_core.models.enums import RepairRunStatus, Severity
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.scan import SamplingConfig, ScanConfig
+from datasentry_core.repair.engine import changed_cells
 from datasentry_core.reporting.i18n import t
 from datasentry_core.scoring.gate import GateResult
+from datasentry_core.storage.fixtures import DEFAULT_MAX_BYTES, FixtureEntry
 
 if TYPE_CHECKING:
     from datasentry.scheduler.store import SchedulerStore
@@ -239,6 +243,22 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         _emit(_envelope("scan", {"error": str(exc)}), args.format)
         return EXIT_SOURCE_UNAVAILABLE
     _cli_scan_done()
+    if scan_run.status == "failed":
+        failed_detectors = [r.detector_id for r in runs if r.status == "failed"]
+        summary = {
+            "scan_run_id": scan_run.id,
+            "dataset_id": scan_run.dataset_id,
+            "status": scan_run.status,
+            "row_count": scan_run.fingerprint.row_count,
+            "issues_count": {k.value: v for k, v in scan_run.issues_count.items()},
+            "total_issues": len(issues),
+            "detector_runs": len(runs),
+            "failed_detectors": failed_detectors,
+            "error": scan_run.error,
+            "quality_score": scan_run.quality_score.overall if scan_run.quality_score else None,
+        }
+        _emit(_envelope("scan", summary), args.format)
+        return EXIT_ERROR
     summary = {
         "scan_run_id": scan_run.id,
         "dataset_id": scan_run.dataset_id,
@@ -313,6 +333,8 @@ def _scan_many(
             continue
         sys.stderr.write("\r" + " " * 80 + "\r")
         sys.stderr.flush()
+        if scan_run.status == "failed":
+            errors.append({"path": path, "error": scan_run.error or "scan failed"})
         item: dict[str, Any] = {
             "scan_run_id": scan_run.id,
             "dataset_id": scan_run.dataset_id,
@@ -386,7 +408,8 @@ def _evaluate_gate(
 ) -> GateResult:
     """22 章场景 C：契约 gate（--contract）或显式 --fail-on 求值。
 
-    优先级：显式 --fail-on/--max-failure-ratio 覆盖契约 gate 对应项；
+    优先级：显式 --fail-on/--max-failure-ratio 覆盖契约 gate 对应项；「显式」指参数出现在
+    命令行上，包括取值恰好等于内置默认值的 `--max-failure-ratio 0.01`。
     require_repair_validation 的修复证据由 client 查询注入（Step 35）。
     """
     gate = QualityGate()
@@ -394,7 +417,7 @@ def _evaluate_gate(
         gate = contract.quality_gate
     if args.fail_on is not None:
         gate.fail_on = [Severity(args.fail_on)]
-    if args.max_failure_ratio != 0.01 or gate.maximum_failed_rows_ratio == 0.01:
+    if args.max_failure_ratio is not None:
         gate.maximum_failed_rows_ratio = args.max_failure_ratio
     return client.evaluate_gate(issues, gate)
 
@@ -403,7 +426,7 @@ def _resolve_scan_run_id(client: DataSentry, run_id: str) -> str | None:
     """V50：`latest` → 最新扫描 run id；无扫描时返回 None。"""
     if run_id != "latest":
         return run_id
-    runs = client._store.list_scan_runs()
+    runs = client.list_scan_runs()
     return runs[0].id if runs else None
 
 
@@ -427,14 +450,7 @@ def _cmd_issues_list(args: argparse.Namespace) -> int:
 def _cmd_issues_show(args: argparse.Namespace) -> int:
     """22.1 issues show：完整 Issue 详情（含证据）。"""
     client = DataSentry(args.project)
-    issue = None
-    for scan in client._store.list_scan_runs():
-        for i in client._store.get_issues(scan.id):
-            if i.id == args.issue_id:
-                issue = i
-                break
-        if issue:
-            break
+    issue = next((i for i in client.list_issues() if i.id == args.issue_id), None)
     if issue is None:
         _emit(_envelope("issues show", {"error": f"issue not found: {args.issue_id}"}), args.format)
         return EXIT_CONFIG
@@ -531,6 +547,196 @@ def _cmd_score(args: argparse.Namespace) -> int:
         print(t(args.lang, "cli.score_notes").format(notes=quality.calculation_notes))
         return EXIT_OK
     _emit(_envelope("score", data), args.format)
+    return EXIT_OK
+
+
+def _cmd_replay(args: argparse.Namespace) -> int:
+    """AC-11a：用当前评分代码重放历史 run 的分数, 输出差异表并归档。
+
+    只重放评分, 不重放检测——store 存的是 issue 快照, 不是源数据行。``--fail-on-drift``
+    把它变成发布门禁：任何 run 的分数被当前代码改到容差之外即退出 1。
+    """
+    if args.limit is not None and args.limit < 1:
+        _emit(_envelope("replay", {"error": "--limit must be >= 1"}), args.format)
+        return EXIT_CONFIG
+    client = DataSentry(args.project)
+    report = client.replay_scores(run_ids=args.run_ids, limit=args.limit)
+    if report.checked == 0:
+        _emit(_envelope("replay", {"error": "no scan runs yet"}), args.format)
+        return EXIT_CONFIG
+    now = datetime.now(UTC)
+    payload: dict[str, object] = {
+        "generated_at": now.isoformat(),
+        **report.to_dict(),
+    }
+    archive = (
+        Path(args.output).expanduser()
+        if args.output
+        else client.replay_dir / f"{now.strftime('%Y%m%dT%H%M%SZ')}.json"
+    )
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    archive.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    if args.format == "json":
+        _emit(_envelope("replay", {**payload, "archive": str(archive)}), args.format)
+    else:
+        print(report.to_markdown())
+        print(
+            t(args.lang, "cli.replay_summary").format(
+                checked=report.checked,
+                replayable=report.replayable,
+                drifted=report.drifted,
+                skipped=len(report.skipped),
+            )
+        )
+        print(t(args.lang, "cli.replay_archive").format(path=archive))
+    if args.fail_on_drift and report.drifted:
+        return EXIT_GATE_FAILED
+    return EXIT_OK
+
+
+def _cmd_rescan(args: argparse.Namespace) -> int:
+    """AC-11b：重扫历史 run 的本地 fixture, 比对 issue 集并归档差异表。
+
+    与 ``replay`` 分工明确：那个重算分数, 这个复核检测器变更。不可比的 run 计入
+    ``uncovered``, 不会因为"没扫到"而变成"没有差异"。
+    """
+    if args.limit is not None and args.limit < 1:
+        _emit(_envelope("rescan", {"error": "--limit must be >= 1"}), args.format)
+        return EXIT_CONFIG
+    client = DataSentry(args.project)
+    report = client.rescan_runs(run_ids=args.run_ids, limit=args.limit)
+    if report.checked == 0:
+        _emit(_envelope("rescan", {"error": "no scan runs yet"}), args.format)
+        return EXIT_CONFIG
+    now = datetime.now(UTC)
+    payload: dict[str, object] = {
+        "generated_at": now.isoformat(),
+        **report.to_dict(),
+    }
+    archive = (
+        Path(args.output).expanduser()
+        if args.output
+        else client.rescan_dir / f"{now.strftime('%Y%m%dT%H%M%SZ')}.json"
+    )
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    archive.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    if args.format == "json":
+        _emit(_envelope("rescan", {**payload, "archive": str(archive)}), args.format)
+    else:
+        print(report.to_markdown())
+        print(
+            t(args.lang, "cli.rescan_summary").format(
+                checked=report.checked,
+                comparable=report.comparable,
+                drifted=report.drifted,
+                uncovered=report.uncovered,
+            )
+        )
+        print(t(args.lang, "cli.rescan_archive").format(path=archive))
+    if args.fail_on_drift and report.drifted:
+        return EXIT_GATE_FAILED
+    return EXIT_OK
+
+
+def _fixture_table(entries: list[FixtureEntry]) -> str:
+    """留存清单的人读表；空清单也返回表头，证明命令真的执行了。"""
+    lines = [
+        "| run_id | captured_at | bytes | source |",
+        "| --- | --- | ---: | --- |",
+    ]
+    lines.extend(
+        f"| {entry.run_id} | {entry.captured_at} | {entry.size_bytes} | {entry.source_path} |"
+        for entry in entries
+    )
+    return "\n".join(lines)
+
+
+def _cmd_fixtures_capture(args: argparse.Namespace) -> int:
+    """AC-11b：把历史 run 的源数据副本留存进工作区, 供日后脱离原文件重扫。
+
+    复制前按 run 的指纹档位复核，源已改写即跳过——留存"另一次数据"会让后续检测器漂移的
+    结论混入数据变更，比不留存更糟。
+    """
+    if args.limit is not None and args.limit < 1:
+        _emit(_envelope("fixtures capture", {"error": "--limit must be >= 1"}), args.format)
+        return EXIT_CONFIG
+    client = DataSentry(args.project)
+    report = client.capture_fixtures(
+        run_ids=args.run_ids,
+        limit=args.limit,
+        max_bytes=None if args.max_bytes == 0 else args.max_bytes,
+        overwrite=args.overwrite,
+    )
+    if not report.rows:
+        _emit(_envelope("fixtures capture", {"error": "no scan runs yet"}), args.format)
+        return EXIT_CONFIG
+    data: dict[str, object] = {**report.to_dict(), "fixtures_dir": str(client.fixtures_dir)}
+    if args.format == "json":
+        _emit(_envelope("fixtures capture", data), args.format)
+    else:
+        print(report.to_markdown())
+        print(
+            t(args.lang, "cli.fixtures_summary").format(
+                checked=len(report.rows),
+                captured=report.captured,
+                already=report.already,
+                skipped=report.skipped,
+            )
+        )
+        print(t(args.lang, "cli.fixtures_dir").format(path=client.fixtures_dir))
+    return EXIT_OK
+
+
+def _cmd_fixtures_list(args: argparse.Namespace) -> int:
+    """列出已留存副本。孤儿目录单独提示——它们不是 fixture, 但也不该无声无息。"""
+    client = DataSentry(args.project)
+    entries = client.fixture_entries()
+    orphans = client.fixture_orphans()
+    data: dict[str, object] = {
+        "fixtures": [entry.to_dict() for entry in entries],
+        "count": len(entries),
+        "bytes": sum(entry.size_bytes for entry in entries),
+        "orphans": orphans,
+    }
+    if args.format == "json":
+        _emit(_envelope("fixtures list", data), args.format)
+        return EXIT_OK
+    if not entries:
+        print(t(args.lang, "cli.fixtures_empty"))
+    else:
+        print(_fixture_table(entries))
+        print(
+            t(args.lang, "cli.fixtures_total").format(
+                n=len(entries), size=sum(entry.size_bytes for entry in entries)
+            )
+        )
+    if orphans:
+        print(t(args.lang, "cli.fixtures_orphans").format(names=", ".join(orphans)))
+    return EXIT_OK
+
+
+def _cmd_fixtures_prune(args: argparse.Namespace) -> int:
+    """按保留策略删除副本。没有任何策略时拒绝执行——删数据不能靠默认值猜。"""
+    if args.keep is None and args.max_bytes is None:
+        _emit(
+            _envelope("fixtures prune", {"error": "pass --keep and/or --max-bytes"}),
+            args.format,
+        )
+        return EXIT_CONFIG
+    client = DataSentry(args.project)
+    removed = client.prune_fixtures(keep=args.keep, max_bytes=args.max_bytes, dry_run=args.dry_run)
+    size = sum(entry.size_bytes for entry in removed)
+    data: dict[str, object] = {
+        "removed": [entry.to_dict() for entry in removed],
+        "count": len(removed),
+        "bytes": size,
+        "dry_run": args.dry_run,
+    }
+    if args.format == "json":
+        _emit(_envelope("fixtures prune", data), args.format)
+        return EXIT_OK
+    key = "cli.fixtures_prune_dry" if args.dry_run else "cli.fixtures_pruned"
+    print(t(args.lang, key).format(n=len(removed), size=size))
     return EXIT_OK
 
 
@@ -716,7 +922,7 @@ def _cmd_repair_diff(args: argparse.Namespace) -> int:
         return EXIT_ERROR
     if args.format != "json":
         if not changed:
-            print("no row-level changes (repaired copy matches snapshot)")
+            print("no row-level changes: every cell is textually identical to the snapshot")
             return EXIT_OK
         print(f"run {run.id} ({run.status.value}) — {len(changed)} changed row(s)")
         for i in changed:
@@ -724,10 +930,13 @@ def _cmd_repair_diff(args: argparse.Namespace) -> int:
             after = after_rows[i] if i < len(after_rows) else []
             line_no = i + 2
             print(f"  line {line_no}")
+            # `changed_cells`, not `!=`: this face and the UI must not disagree about which cells
+            # moved, which is the whole point of D2-10 putting the NaN rule in one predicate (F9).
+            differs = changed_cells(before, after)
             for j, col in enumerate(columns):
-                b = before[j] if j < len(before) else None
-                a = after[j] if j < len(after) else None
-                if b != a:
+                if j in differs:
+                    b = before[j] if j < len(before) else None
+                    a = after[j] if j < len(after) else None
                     print(f"    {col}: {b!r} -> {a!r}")
         return EXIT_OK
     rows = []
@@ -1202,7 +1411,13 @@ def _cmd_job_remove(args: argparse.Namespace) -> int:
 
 def _cmd_worker(args: argparse.Namespace) -> int:
     """启动远端执行节点（V14，ADR-091）：复用 api 服务，/rpc/execute
-    需 token 启用（参数或 DATASENTRY_WORKER_TOKEN 环境变量）。"""
+    需 token 启用（参数或 DATASENTRY_WORKER_TOKEN 环境变量）。
+
+    绑定姿态与 `datasentry-server` 同源（独立复核 A-6）：worker 跑的是**整个应用**，
+    `--token` 只护住 `/rpc/execute`，其余写端点在未设 `DATASENTRY_API_TOKEN` 时
+    对任何能路由到该端口的人开放——"无 Origin 头即视为同源"意味着 curl/脚本直接可写。
+    所以非回环绑定同样要求 API token 或显式 `DATASENTRY_ALLOW_INSECURE_BIND=1`。
+    """
     import uvicorn
 
     from datasentry.api import create_app
@@ -1219,6 +1434,21 @@ def _cmd_worker(args: argparse.Namespace) -> int:
             ),
             args.format,
         )
+    from datasentry.api import INSECURE_BIND_OPT_IN, InsecureBindRefused, resolve_bind
+
+    try:
+        warning = resolve_bind(
+            args.host,
+            token=os.environ.get("DATASENTRY_API_TOKEN"),
+            opted_in=os.environ.get(INSECURE_BIND_OPT_IN, "") == "1",
+        )
+    except InsecureBindRefused as exc:
+        _emit(_envelope("worker", {"error": str(exc)}), args.format)
+        return EXIT_CONFIG
+    if warning:
+        # Same channel as the no-token notice above: this command reports its own posture, and a
+        # logger line would be invisible to `--format json` callers driving a worker headlessly.
+        _emit(_envelope("worker", {"notice": warning}), args.format)
     uvicorn.run(create_app(args.project, worker_token=token), host=args.host, port=args.port)
     return EXIT_OK
 
@@ -1256,14 +1486,13 @@ def _cmd_ping(args: argparse.Namespace) -> int:
 def _cmd_llm_status(args: argparse.Namespace) -> int:
     """LLM 提供方状态与配置来源（13.11 审计查询入口）+ PII 加密保险库状态。"""
     from datasentry.llm_providers import load_llm_config
-    from datasentry.pii_vault import PIIVault
 
     config = load_llm_config()
     client = DataSentry(args.project)
     try:
         invocations = client.list_llm_invocations(limit=20)
-        vault = PIIVault(client._store)
-        mappings = client._store.count_pii_mappings()
+        vault = client.pii_vault()
+        mappings = client.count_pii_mappings()
     finally:
         client.close()
     summary = {
@@ -1320,11 +1549,11 @@ def _cmd_llm_restore(args: argparse.Namespace) -> int:
     显式授权语义：CLI 是本地用户命令，`restore <session>` 即授权
     查看明文；报告与 UI 默认打码不受影响。
     """
-    from datasentry.pii_vault import PIIVault, VaultKeyMissingError, format_mapping_summary
+    from datasentry.pii_vault import VaultKeyMissingError, format_mapping_summary
 
     client = DataSentry(args.project)
     try:
-        vault = PIIVault(client._store)
+        vault = client.pii_vault()
         warnings: list[str] = []
         if vault.key_source == "dev":
             warnings.append(
@@ -1351,7 +1580,7 @@ def _cmd_llm_restore(args: argparse.Namespace) -> int:
             _emit(_envelope("llm restore", {"purged": purged}, warnings), args.format)
             return EXIT_OK
         if args.session_id is None:
-            sessions = client._store.list_pii_mappings(limit=args.limit)
+            sessions = client.list_pii_mappings(limit=args.limit)
             data = {
                 "sessions": [
                     {
@@ -1366,7 +1595,7 @@ def _cmd_llm_restore(args: argparse.Namespace) -> int:
             return EXIT_OK
         session_id = args.session_id
         if args.delete:
-            deleted = client._store.delete_pii_mapping(session_id)
+            deleted = client.delete_pii_mapping(session_id)
             _emit(
                 _envelope("llm restore", {"deleted": deleted, "session_id": session_id}, warnings),
                 args.format,
@@ -1403,11 +1632,11 @@ def _cmd_llm_restore(args: argparse.Namespace) -> int:
 
 def _cmd_llm_rotate_key(args: argparse.Namespace) -> int:
     """轮换 PII 加密密钥：新密钥重加密全部映射 + 写入本地 key 文件。"""
-    from datasentry.pii_vault import PIIVault, VaultKeyMissingError
+    from datasentry.pii_vault import VaultKeyMissingError
 
     client = DataSentry(args.project)
     try:
-        vault = PIIVault(client._store)
+        vault = client.pii_vault()
         result = vault.rotate_key(new_key=args.new_key)
         data = {
             "new_key": result["new_key"],
@@ -1710,7 +1939,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--sampling-method",
         type=str,
         default="reservoir",
-        choices=["random", "reservoir", "none"],
+        choices=["random", "stratified", "reservoir", "time_based", "rare_oversampling", "none"],
         help="sampling method (default reservoir; Step 71/ADR-071)",
     )
     p_scan.add_argument(
@@ -1730,8 +1959,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan.add_argument(
         "--max-failure-ratio",
         type=float,
-        default=0.01,
-        help="quality gate: max affected row ratio (default: 0.01)",
+        default=None,
+        help="quality gate: max affected row ratio (default: 0.01, or the "
+        "contract's value when --contract supplies one)",
     )
     p_scan.set_defaults(func=_cmd_scan)
 
@@ -1779,6 +2009,116 @@ def build_parser() -> argparse.ArgumentParser:
         help="scan run id, or `latest` for the most recent scan (default: latest)",
     )
     p_score.set_defaults(func=_cmd_score)
+
+    p_replay = sub.add_parser(
+        "replay",
+        help="replay archived quality scores with the current scoring code (AC-11a)",
+    )
+    p_replay.add_argument(
+        "--run-id",
+        action="append",
+        dest="run_ids",
+        default=None,
+        metavar="RUN_ID",
+        help="specific scan run to replay (repeatable; overrides --limit)",
+    )
+    p_replay.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="how many most recent runs to replay (default: 20; ignored with --run-id)",
+    )
+    p_replay.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="archive path (default: .datasentry/replay/<UTC timestamp>.json)",
+    )
+    p_replay.add_argument(
+        "--fail-on-drift",
+        action="store_true",
+        help="exit 1 when any replayed score drifts beyond tolerance (release gate)",
+    )
+    p_replay.set_defaults(func=_cmd_replay)
+
+    p_rescan = sub.add_parser(
+        "rescan",
+        help="re-scan archived fixtures and diff issue sets against the current detectors (AC-11b)",
+    )
+    p_rescan.add_argument(
+        "--run-id",
+        action="append",
+        dest="run_ids",
+        default=None,
+        metavar="RUN_ID",
+        help="specific scan run to re-scan (repeatable; overrides --limit)",
+    )
+    p_rescan.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="how many most recent runs to re-scan (default: 20; ignored with --run-id)",
+    )
+    p_rescan.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="archive path (default: .datasentry/rescan/<UTC timestamp>.json)",
+    )
+    p_rescan.add_argument(
+        "--fail-on-drift",
+        action="store_true",
+        help="exit 1 when any re-scanned issue set differs (release gate)",
+    )
+    p_rescan.set_defaults(func=_cmd_rescan)
+
+    p_fixtures = sub.add_parser(
+        "fixtures",
+        help="retain source-data copies so `rescan` survives file moves or edits (AC-11b)",
+    )
+    fixtures_sub = p_fixtures.add_subparsers(dest="fixtures_cmd", required=True)
+    p_fx_capture = fixtures_sub.add_parser(
+        "capture", help="copy run sources into .datasentry/fixtures"
+    )
+    p_fx_capture.add_argument(
+        "--run-id",
+        action="append",
+        dest="run_ids",
+        default=None,
+        metavar="RUN_ID",
+        help="specific scan run to retain (repeatable; overrides --limit)",
+    )
+    p_fx_capture.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="how many most recent runs to retain (default: 20)",
+    )
+    p_fx_capture.add_argument(
+        "--max-bytes",
+        type=int,
+        default=DEFAULT_MAX_BYTES,
+        help="per-file size budget in bytes (default: 64 MiB; 0 = no cap)",
+    )
+    p_fx_capture.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace an existing copy whose content differs",
+    )
+    p_fx_capture.set_defaults(func=_cmd_fixtures_capture)
+
+    p_fx_list = fixtures_sub.add_parser("list", help="list retained copies")
+    p_fx_list.set_defaults(func=_cmd_fixtures_list)
+
+    p_fx_prune = fixtures_sub.add_parser("prune", help="drop copies beyond a retention policy")
+    p_fx_prune.add_argument("--keep", type=int, default=None, help="keep the newest N copies")
+    p_fx_prune.add_argument(
+        "--max-bytes", type=int, default=None, help="keep total retained bytes under this cap"
+    )
+    p_fx_prune.add_argument(
+        "--dry-run", action="store_true", help="report what would be removed, delete nothing"
+    )
+    p_fx_prune.set_defaults(func=_cmd_fixtures_prune)
 
     p_trend = sub.add_parser("trend", help="cross-scan quality trends (V7, ADR-065)")
     trend_sub = p_trend.add_subparsers(dest="trend_cmd", required=True)

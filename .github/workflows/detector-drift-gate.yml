@@ -1,0 +1,139 @@
+name: Detector drift gate
+
+# AC-11b in CI form. `rescan` needs a stored scan run, and CI has none: a fresh runner has an
+# empty workspace. This workflow pins the issue *signatures* of demo-data/orders.csv instead,
+# so a detector or scoring change that moves the issue set turns the PR red.
+#
+# A red run is not automatically a bug. It means the author must either fix the change or
+# regenerate the baseline and explain the move in the PR description. Regenerating is a
+# deliberate act: `python scripts/detector_baseline.py write --data demo-data/orders.csv
+# --baseline tests/fixtures/detector_baseline.json`.
+#
+# Two triggers, two jobs: `pull_request` catches a detector change before it lands, `push`
+# re-checks `main` after it lands. The `tool-smoke` job is the one that cares about `main`:
+# it runs the AC-11b CLI path end to end, so a merge that breaks the installed CLI turns the
+# merge commit red instead of being discovered at release time.
+on:
+  # Every merge to `main`, deliberately *not* path-filtered. `main` is the branch the CLI is
+  # installed from, and a merged batch that touches `cli.py` or `client.py` can break the
+  # smoke without touching any detector file. A path list would have to be kept in step with
+  # every detector module, and a missed entry fails silently — a much worse trade than the
+  # ~25s of wall time a redundant run costs.
+  push:
+    branches: [main]
+  # Unfiltered too, for a second reason on top of the one above: a path-filtered workflow never
+  # reports on PRs outside its list, so GitHub waits for a status that will never arrive and the
+  # merge stays blocked. That rules the job out as a required check. Measured cost of the extra
+  # runs: the whole workflow takes ~25s, both jobs in parallel.
+  pull_request:
+  workflow_dispatch:
+
+# Read-only: this gate inspects code and prints a diff. It never comments, labels, or pushes.
+permissions:
+  contents: read
+
+concurrency:
+  group: detector-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  baseline:
+    name: Issue signatures vs committed baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Actions are pinned to commit SHAs, not tags: a tag is mutable, and this gate runs on
+      # every detector PR. The `# vN` comment is the major tag each SHA resolved to when pinned;
+      # bump both together.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      # `--locked` is the supply-chain control: every artifact comes from uv.lock with a
+      # recorded hash. `--no-build` cannot be used here — uv refuses to install this repo's
+      # own editable package without a build ("no binary distribution"), and that package is
+      # first-party code from this checkout, not a third-party sdist. The `uv run` steps below
+      # carry `--no-build`, so nothing is built after this point.
+      - name: Install dependencies
+        run: uv sync --locked # NOSONAR
+
+      - name: Compare issue signatures
+        run: |
+          set -o pipefail
+          uv run --locked --no-sync --no-build python scripts/detector_baseline.py check \
+            --data demo-data/orders.csv \
+            --baseline tests/fixtures/detector_baseline.json | tee baseline-diff.txt
+
+      - name: Upload diff
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: detector-baseline-diff
+          path: baseline-diff.txt
+          if-no-files-found: ignore
+
+  tool-smoke:
+    name: Rescan survives source removal, prune returns uncovered
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --locked # NOSONAR (see the note in the baseline job)
+
+      # Probe the installed CLI instead of guessing from file paths. The `fixtures` and
+      # `rescan` subcommands landed on `main` with #48, but forks and older branches can still
+      # lack them, so the smoke stays conditional rather than failing on an unknown command.
+      - name: Detect fixtures/rescan support
+        id: support
+        run: |
+          if uv run --locked --no-sync --no-build datasentry fixtures --help > /dev/null 2>&1; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Smoke skipped::fixtures/rescan CLI is not on this branch yet"
+          fi
+
+      # Runs the AC-11b CLI path on a throwaway workspace: capture, delete the source, rescan,
+      # then prune the copy and prove the report degrades to `uncovered` instead of "no drift".
+      - name: Capture, delete source, rescan, prune
+        if: steps.support.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          DS=(uv run --locked --no-sync --no-build datasentry)
+          WORK=$(mktemp -d)
+          cp demo-data/orders.csv "$WORK/orders.csv"
+          "${DS[@]}" --project "$WORK/ws" scan "$WORK/orders.csv" > /dev/null
+          "${DS[@]}" --project "$WORK/ws" fixtures capture --limit 5
+          rm "$WORK/orders.csv"
+          "${DS[@]}" --project "$WORK/ws" --format json rescan --limit 5 --fail-on-drift \
+            > "$WORK/rescan.json"
+          uv run --locked --no-sync --no-build python -c "import json;d=json.load(open('$WORK/rescan.json'))['data'];assert d['comparable']==1,d;assert d['from_fixture']==1,d;assert d['drifted']==0,d;print('rescan ok: compared from retained copy, 0 drift')"
+          "${DS[@]}" --project "$WORK/ws" fixtures prune --keep 0
+          "${DS[@]}" --project "$WORK/ws" --format json rescan --limit 5 > "$WORK/rescan2.json"
+          uv run --locked --no-sync --no-build python -c "import json;d=json.load(open('$WORK/rescan2.json'))['data'];assert d['comparable']==0,d;assert d['uncovered']==1,d;print('prune ok: copy removed -> uncovered')"
+          mkdir -p rescan-artifacts
+          cp "$WORK"/ws/.datasentry/rescan/*.json rescan-artifacts/
+
+      - name: Upload rescan archives
+        if: always() && steps.support.outputs.available == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rescan-archives
+          path: rescan-artifacts/*.json
+          if-no-files-found: ignore

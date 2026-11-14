@@ -61,8 +61,10 @@ def _column_nulls(context: DetectionContext, column: str) -> tuple[int, int]:
     table = context.handle.sql_aggregate(
         f"SELECT count(*) AS n, sum({q} IS NULL) AS nulls FROM data"
     ).table
-    total = int(table.column("n").to_pylist()[0])
-    nulls = int(table.column("nulls").to_pylist()[0])
+    raw_total = table.column("n").to_pylist()[0]
+    raw_nulls = table.column("nulls").to_pylist()[0]
+    total = int(raw_total) if raw_total is not None else 0
+    nulls = int(raw_nulls) if raw_nulls is not None else 0
     return total, nulls
 
 

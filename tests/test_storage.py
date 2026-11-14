@@ -118,9 +118,32 @@ class TestLayout:
 
 class TestSchema:
     def test_migrate_idempotent(self, tmp_path: Path) -> None:
-        store = MetadataStore(tmp_path / "m.db")
-        store.close()
-        MetadataStore(tmp_path / "m.db").close()  # 二次打开不报错
+        """D3-08：二次迁移不断言仅“不抛异常”——user_version 与表集合须一致。"""
+        db = tmp_path / "m.db"
+        first = MetadataStore(db)
+        with first._conn:
+            version_first = first._conn.execute("PRAGMA user_version").fetchone()[0]
+            tables_first = {
+                r[0]
+                for r in first._conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+        first.close()
+        second = MetadataStore(db)
+        try:
+            with second._conn:
+                version_second = second._conn.execute("PRAGMA user_version").fetchone()[0]
+                tables_second = {
+                    r[0]
+                    for r in second._conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    ).fetchall()
+                }
+        finally:
+            second.close()
+        assert version_second == SCHEMA_VERSION == version_first
+        assert tables_second == tables_first
 
     def test_schema_version(self, tmp_path: Path) -> None:
         conn = sqlite3.connect(tmp_path / "v.db")
