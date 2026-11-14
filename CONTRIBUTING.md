@@ -56,6 +56,45 @@ make build      # build distributions
 
 If you cannot run part of the test suite, say so in the pull request and explain why.
 
+## Merging into `main`
+
+`main` is a protected branch. A pull request can be merged only when all four required status
+checks report a passing result on its head commit:
+
+| Required check | Source |
+| --- | --- |
+| `test` | `.github/workflows/ci.yml` |
+| `SonarCloud Code Analysis` | SonarQube Cloud GitHub App |
+| `Issue signatures vs committed baseline` | `.github/workflows/detector-drift-gate.yml` |
+| `Rescan survives source removal, prune returns uncovered` | the same workflow |
+
+These are exact context names, not job labels copied loosely from YAML. Renaming a job without
+updating the protection settings leaves a PR waiting for a status that never arrives.
+
+Two consequences are worth knowing before changing any workflow:
+
+- **A required workflow must not use `pull_request.paths` filtering.** A filtered workflow
+  creates no status at all on a PR outside its list, so GitHub waits forever rather than
+  merging. The detector drift gate therefore runs on every PR; its two jobs take roughly 25s
+  in parallel. The `push` side is unfiltered for the same reason: a missed path entry fails
+  silently, which costs more than a redundant 25s run.
+- **Branches need not be up to date with `main`** (`strict: false`). The `push` trigger
+  re-checks the merge commit, so forcing every PR to rebase adds friction without adding
+  coverage. Admins may bypass protection, so a broken CI job cannot lock the owner out.
+
+A PR opened before this policy was enabled can show "Waiting for status to be reported":
+its head commit predates the required checks. Updating the branch produces a new head commit
+and re-runs every PR workflow. Replace `<number>` with the PR number:
+
+```bash
+sha=$(gh api repos/Jackxiaozhiren/datasentry/pulls/<number> --jq '.head.sha')
+gh api -X PUT repos/Jackxiaozhiren/datasentry/pulls/<number>/update-branch \
+  -f "expected_head_sha=$sha"
+```
+
+The endpoint is `PUT`, not `POST`. Passing `expected_head_sha` makes the call fail with 422
+instead of racing against a concurrent push to the branch.
+
 ## Project invariants
 
 Contributions should preserve these core design constraints unless an explicit architecture decision changes them:
