@@ -16,20 +16,16 @@ name: Detector drift gate
 on:
   # Every merge to `main`, deliberately *not* path-filtered. `main` is the branch the CLI is
   # installed from, and a merged batch that touches `cli.py` or `client.py` can break the
-  # smoke without touching any detector file. A path list here would have to be kept in step
-  # with `pull_request` below, and a missed entry fails silently — a much worse trade than
-  # the ~25s of wall time a redundant run costs.
+  # smoke without touching any detector file. A path list would have to be kept in step with
+  # every detector module, and a missed entry fails silently — a much worse trade than the
+  # ~25s of wall time a redundant run costs.
   push:
     branches: [main]
+  # Unfiltered too, for a second reason on top of the one above: a path-filtered workflow never
+  # reports on PRs outside its list, so GitHub waits for a status that will never arrive and the
+  # merge stays blocked. That rules the job out as a required check. Measured cost of the extra
+  # runs: the whole workflow takes ~25s, both jobs in parallel.
   pull_request:
-    paths:
-      - "packages/core/src/datasentry_core/detectors/**"
-      - "packages/core/src/datasentry_core/scoring/**"
-      - "packages/core/src/datasentry_core/rescan.py"
-      - "scripts/detector_baseline.py"
-      - "tests/fixtures/detector_baseline.json"
-      - "demo-data/orders.csv"
-      - ".github/workflows/detector-drift-gate.yml"
   workflow_dispatch:
 
 # Read-only: this gate inspects code and prints a diff. It never comments, labels, or pushes.
