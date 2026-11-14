@@ -15,7 +15,11 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from datasentry.pii_vault import PIIVault
+    from datasentry_core.scoring.replay import ReplayReport
 
 from datasentry.repair_ai import AIRepairService
 from datasentry_core.connectors import (
@@ -32,6 +36,7 @@ from datasentry_core.llm.provider import LLMError
 from datasentry_core.models.contract import QualityGate, TableReference
 from datasentry_core.models.drift import DriftReport
 from datasentry_core.models.enums import Severity
+from datasentry_core.models.fingerprint import DatasetFingerprint
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.llm import LLMInvocation
 from datasentry_core.models.profile import ColumnProfile
@@ -46,8 +51,16 @@ from datasentry_core.models.rules import Rule
 from datasentry_core.models.scan import DetectorRun, ScanConfig, ScanRun
 from datasentry_core.repair import RepairEngine
 from datasentry_core.reporting import build_report
+from datasentry_core.rescan import RescanReport, RescanStatus, SourceKind, diff_issue_sets
 from datasentry_core.scoring.gate import GateResult, QualityGateEvaluator
 from datasentry_core.storage import MetadataStore
+from datasentry_core.storage.fixtures import (
+    DEFAULT_MAX_BYTES,
+    CaptureReport,
+    CaptureRow,
+    FixtureEntry,
+    FixtureStore,
+)
 
 _SEVERITY_ORDER = [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO]
 
@@ -57,11 +70,52 @@ def _source_type_for_path(path: Path) -> DataSourceType | None:
     return _EXT_TO_SOURCE_TYPE.get(path.suffix.lower())
 
 
+#: 重扫会打到活系统或远端凭据的源前缀。AC-11b 只重扫本地 fixture，这些必须显式拒绝，
+#: 否则"重扫"会变成对生产库的又一次查询。
+_REMOTE_SOURCE_PREFIXES = ("postgresql://", "postgres://", "mysql://", "s3://", "gs://", "az://")
+
+#: 按表扫描、但 `ScanRun` 不持久化 `table_name` 的源类型：重扫无法定位到具体表。
+_TABLE_SCOPED_SOURCES = frozenset({DataSourceType.SQLITE, DataSourceType.DUCKDB})
+
+
+def _fingerprint_change(run: ScanRun, fresh: DatasetFingerprint) -> str:
+    """存档指纹 vs 重算指纹：相同返回空串，不同返回可读原因。
+
+    只有指纹相同，issue 集差异才能归因到检测器代码；否则差异同时含"数据变了"这一项，
+    本工具不得给出结论。
+    """
+    stored = run.fingerprint
+    if stored.fingerprint_type != fresh.fingerprint_type:
+        return f"指纹档位不同 ({stored.fingerprint_type} vs {fresh.fingerprint_type})"
+    if stored.schema_hash != fresh.schema_hash:
+        return "列结构已变, issue 集差异无法归因到检测器"
+    if stored.row_count != fresh.row_count:
+        return f"行数已变 ({stored.row_count} -> {fresh.row_count})"
+    if stored.file_sha256 and fresh.file_sha256 and stored.file_sha256 != fresh.file_sha256:
+        return "文件 SHA-256 已变, issue 集差异无法归因到检测器"
+    if (
+        stored.content_sample_hash
+        and fresh.content_sample_hash
+        and stored.content_sample_hash != fresh.content_sample_hash
+    ):
+        return "抽样内容指纹已变, issue 集差异无法归因到检测器"
+    return ""
+
+
 class DataSentry:
     """项目工作区门面：持有元数据库与扫描入口（23.1 MVP 子集）。"""
 
-    def __init__(self, project: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        project: str | Path | None = None,
+        *,
+        enforce_scan_containment: bool = False,
+    ) -> None:
         self._workspace = Path(project).expanduser() if project else Path.cwd()
+        # D5-13: a face that takes paths from the network confines them to this workspace.
+        # The CLI and the local scheduler stay on the operator's own trust boundary, so the
+        # flag is opt-in per construction site instead of a rule inside scan_file.
+        self._enforce_scan_containment = enforce_scan_containment
         self._store = MetadataStore.for_workspace(self._workspace)
         self._registry = self._registry_with_plugins()
         self._runner = ScanRunner(self._registry)
@@ -143,6 +197,27 @@ class DataSentry:
         from datasentry_core.storage.paths import project_profiles_dir
 
         return project_profiles_dir(self._workspace)
+
+    @property
+    def replay_dir(self) -> Path:
+        """评分重放差异表目录：<workspace>/.datasentry/replay（AC-11a）。"""
+        from datasentry_core.storage.paths import project_replay_dir
+
+        return project_replay_dir(self._workspace)
+
+    @property
+    def rescan_dir(self) -> Path:
+        """重扫差异表目录：<workspace>/.datasentry/rescan（AC-11b）。"""
+        from datasentry_core.storage.paths import project_rescan_dir
+
+        return project_rescan_dir(self._workspace)
+
+    @property
+    def fixtures_dir(self) -> Path:
+        """重扫留存目录：<workspace>/.datasentry/fixtures（AC-11b 的源数据副本）。"""
+        from datasentry_core.storage.paths import project_fixtures_dir
+
+        return project_fixtures_dir(self._workspace)
 
     def load_profile(self, scan_run_id: str) -> dict[str, Any] | None:
         """按 run_id 读扫描期画像 sidecar（ADR-061）；缺失/损坏返回 None。
@@ -465,6 +540,14 @@ class DataSentry:
         扫描）或指纹计算失败 → 降级全量扫描（绝不误跳过）。默认
         False 行为与旧版完全一致。
         """
+        if self._enforce_scan_containment:
+            from datasentry.scan_paths import resolve_allowed_scan_path
+
+            # Use the validated string. Discarding it meant the gate checked `workspace/x.csv`
+            # while this method went on to open `x.csv` against the process CWD -- the same
+            # wrong-base defect r5/A-1 closed on the REST face (A-10 review #2). Remote URIs come
+            # back unchanged, so the DSN and cloud branches below still match.
+            path = resolve_allowed_scan_path(str(path), workspace=self._workspace)
         if isinstance(path, str) and (
             path.startswith("postgresql://") or path.startswith("postgres://")
         ):
@@ -670,6 +753,26 @@ class DataSentry:
         """ScanRun 列表（按创建时间降序）。"""
         return self._store.list_scan_runs()
 
+    # ---- PII vault 门面（D1-01：三端经 client 取 vault/映射，不碰 _store） ----
+
+    def pii_vault(self) -> PIIVault:
+        """绑定本工作区元数据库的 PII vault（与 CLI/API/MCP 同源）。"""
+        from datasentry.pii_vault import PIIVault
+
+        return PIIVault(self._store)
+
+    def list_pii_mappings(self, limit: int = 100) -> list[dict[str, Any]]:
+        """PII 会话映射列表（只读视图行，不过密文）。"""
+        return self._store.list_pii_mappings(limit=limit)
+
+    def count_pii_mappings(self) -> int:
+        """PII 会话映射计数。"""
+        return self._store.count_pii_mappings()
+
+    def delete_pii_mapping(self, session_id: str) -> bool:
+        """删除 PII 会话映射（只删密文行不解密）；不存在返回 False。"""
+        return self._store.delete_pii_mapping(session_id)
+
     def drift_compare(
         self,
         reference_run_id: str,
@@ -721,6 +824,261 @@ class DataSentry:
         if scan is None:
             raise KeyError(f"scan run not found: {scan_run_id}")
         return scan.quality_score
+
+    def replay_scores(
+        self, *, run_ids: list[str] | None = None, limit: int | None = None
+    ) -> ReplayReport:
+        """AC-11a：用当前评分代码重放历史 run 的 issue 快照, 返回差异表。
+
+        只重放评分, 不重放检测（store 存的是 issue 快照, 不是源数据行）。未评分 run
+        进 ``skipped`` 并带原因; 历史分数只读, 不会被改写。
+        """
+        from datasentry_core.scoring.replay import replay_runs
+
+        return replay_runs(self._store, run_ids=run_ids, limit=limit)
+
+    def rescan_runs(
+        self, *, run_ids: list[str] | None = None, limit: int | None = None
+    ) -> RescanReport:
+        """AC-11b：重扫历史 run 的本地 fixture, 返回 issue 集差异表。
+
+        与 ``replay_scores`` 互补：那个只能重算分数, 这个能复核检测器变更。重扫在内存中完成
+        （``run_scan`` 的返回值不落库）, 历史 run 只读。源优先取 ``fixtures capture`` 留存的
+        副本, 其次 run 记录的原始路径；两者都不可用才记 ``uncovered``, 不会变成"无差异"。
+        """
+        runs = self._select_runs(run_ids=run_ids, limit=limit)
+        rows = []
+        for run in runs:
+            status, note, rescanned, source_kind = self._rescan_one(run)
+            stored = self._store.get_issues(run.id) if status == "compared" else []
+            rows.append(
+                diff_issue_sets(
+                    run.id, stored, rescanned, status=status, note=note, source_kind=source_kind
+                )
+            )
+        return RescanReport(rows=tuple(rows))
+
+    def capture_fixtures(
+        self,
+        *,
+        run_ids: list[str] | None = None,
+        limit: int | None = None,
+        max_bytes: int | None = DEFAULT_MAX_BYTES,
+        overwrite: bool = False,
+    ) -> CaptureReport:
+        """AC-11b 的前提：把历史 run 的源数据副本留存进工作区。
+
+        复制前先按 run 的指纹档位重算并比对——源已被改写时拒绝留存，否则存下的副本会让后续
+        "检测器漂移"的结论混入"数据变了"。签名与 ``rescan_runs`` 一致，便于同一批 run 先
+        capture 再 rescan。
+        """
+        runs = self._select_runs(run_ids=run_ids, limit=limit)
+        store = self._fixture_store()
+        rows: list[CaptureRow] = []
+        for run in runs:
+            existing = store.get(run.id)
+            if existing is not None and not overwrite:
+                rows.append(
+                    CaptureRow(
+                        run_id=run.id,
+                        status="already",
+                        reason=f"已留存副本 {existing.sha256[:12]} ({existing.captured_at})",
+                        size_bytes=existing.size_bytes,
+                        sha256=existing.sha256,
+                    )
+                )
+                continue
+            tampered = existing is not None and not store.verify(existing)
+            status, note, path, _kind = self._resolve_source(run, prefer_fixture=False)
+            if path is None:
+                rows.append(CaptureRow(run_id=run.id, status="skipped", reason=note or status))
+                continue
+            verified, verify_note, handle = self._open_verified(run, path)
+            if handle is None:
+                reason = f"{verified}: {verify_note}" if verify_note else verified
+                rows.append(CaptureRow(run_id=run.id, status="skipped", reason=reason))
+                continue
+            handle.close()
+            try:
+                entry, created = store.capture(
+                    run_id=run.id,
+                    source=path,
+                    source_path=run.source_path or str(path),
+                    fingerprint_type=run.fingerprint.fingerprint_type,
+                    max_bytes=max_bytes,
+                    overwrite=overwrite,
+                )
+            except (OSError, ValueError) as exc:
+                rows.append(
+                    CaptureRow(
+                        run_id=run.id, status="failed", reason=f"{type(exc).__name__}: {exc}"
+                    )
+                )
+                continue
+            # "captured" 指这次真的产生了新副本：新建目录、换掉不同字节，或重建被改坏的副本。
+            replaced = existing is not None and existing.sha256 != entry.sha256
+            if created or replaced or tampered:
+                rows.append(
+                    CaptureRow(
+                        run_id=run.id,
+                        status="captured",
+                        reason="副本已损坏, 已按原始文件重建" if tampered else "",
+                        size_bytes=entry.size_bytes,
+                        sha256=entry.sha256,
+                    )
+                )
+                continue
+            rows.append(
+                CaptureRow(
+                    run_id=run.id,
+                    status="already",
+                    reason="副本内容与既有留存一致",
+                    size_bytes=entry.size_bytes,
+                    sha256=entry.sha256,
+                )
+            )
+        return CaptureReport(rows=tuple(rows))
+
+    def fixture_entries(self) -> list[FixtureEntry]:
+        """已留存的副本清单，按留存时间升序（``fixtures list`` 用）。"""
+        return self._fixture_store().entries()
+
+    def fixture_orphans(self) -> list[str]:
+        """认不出的 fixture 目录：有目录无清单（崩溃残留），或名字不合白名单。"""
+        return self._fixture_store().orphan_dirs()
+
+    def prune_fixtures(
+        self, *, keep: int | None = None, max_bytes: int | None = None, dry_run: bool = False
+    ) -> list[FixtureEntry]:
+        """删除超出保留策略的副本，返回被删清单项（``dry_run`` 只算不删）。"""
+        return self._fixture_store().prune(keep=keep, max_bytes=max_bytes, dry_run=dry_run)
+
+    def _fixture_store(self) -> FixtureStore:
+        from datasentry_core.storage.paths import project_fixtures_dir
+
+        return FixtureStore(project_fixtures_dir(self._workspace))
+
+    def _select_runs(self, *, run_ids: list[str] | None, limit: int | None) -> list[ScanRun]:
+        """选中要复核的 run：显式 id 优先，否则取最近的 ``limit`` 条。"""
+        if limit is not None and limit < 1:
+            raise ValueError(f"limit must be >= 1, got {limit}")
+        if run_ids is not None:
+            runs: list[ScanRun] = []
+            for run_id in run_ids:
+                run = self._store.get_scan_run(run_id)
+                if run is None:
+                    raise KeyError(f"scan run not found: {run_id}")
+                runs.append(run)
+            return runs
+        runs = self._store.list_scan_runs()
+        return runs[:limit] if limit is not None else runs
+
+    def _resolve_source(
+        self, run: ScanRun, *, prefer_fixture: bool = True
+    ) -> tuple[RescanStatus, str, Path | None, SourceKind]:
+        """定位可重扫的源：默认留存副本优先，其次原始路径。返回 (状态, 原因, 路径, 来源)。
+
+        副本优先的理由是稳定性：原始路径可能已被移动或改写，而副本的内容由清单的 sha256
+        固定。两者都没有时返回 ``None`` 路径，由调用方计入 uncovered。``prefer_fixture=False``
+        只给 ``capture`` 用——修复一份被改坏的副本必须从原始路径取样。
+        """
+        if run.status != "completed":
+            return (
+                "run_incomplete",
+                f"历史 run 状态为 {run.status}, 其 issue 集不是完整基线",
+                None,
+                "none",
+            )
+        source = run.source_path
+        if not source:
+            return ("source_unsupported", "run 未记录源路径, 无法定位 fixture", None, "none")
+        if source.startswith(_REMOTE_SOURCE_PREFIXES):
+            return (
+                "source_unsupported",
+                "远程源重扫会打到活库或对象存储, 不在本工具范围",
+                None,
+                "none",
+            )
+        if prefer_fixture:
+            store = self._fixture_store()
+            try:
+                entry = store.get(run.id)
+                retained = store.path_for(entry) if entry is not None else None
+            except ValueError as exc:
+                # 清单损坏不该让整批崩掉，但也不能当成"没有副本"：记 scan_failed 并入 uncovered。
+                return ("scan_failed", f"留存清单不可用: {exc}", None, "none")
+            if retained is not None and retained.is_file():
+                return ("compared", "", retained, "fixture")
+        path = Path(source).expanduser()
+        if not path.is_file():
+            return ("source_missing", f"原始文件与留存副本都不可用: {path}", None, "none")
+        return ("compared", "", path, "origin")
+
+    def _open_verified(
+        self, run: ScanRun, path: Path
+    ) -> tuple[RescanStatus, str, DataHandle | None]:
+        """打开 ``path`` 并按 run 的指纹档位重算；句柄非空表示指纹与存档一致。
+
+        桩函数风格的返回便于两个调用方共用：``rescan`` 需要句柄继续跑检测器，``capture``
+        只需要这个判断然后立刻关掉句柄。
+        """
+        source_type = _source_type_for_path(path)
+        if source_type is None:
+            return "source_unsupported", f"未知数据源格式: {path.suffix or '(none)'}", None
+        if source_type in _TABLE_SCOPED_SOURCES:
+            return (
+                "source_unsupported",
+                f"{source_type.value} 源按表扫描, store 未持久化 table_name, 无法定位",
+                None,
+            )
+        spec = DataSourceSpec(
+            source_type=source_type,
+            path=path,
+            table_name=None,
+            options={"dataset_id": run.dataset_id},
+        )
+        try:
+            handle = default_registry().open(spec)
+        except (OSError, ValueError, KeyError) as exc:
+            return "source_unsupported", f"无法打开数据源: {type(exc).__name__}: {exc}", None
+        try:
+            fresh = handle.fingerprint(mode=run.fingerprint.fingerprint_type)
+            changed = _fingerprint_change(run, fresh)
+        except (OSError, ValueError, KeyError) as exc:
+            handle.close()
+            return "scan_failed", f"读取指纹失败: {type(exc).__name__}: {exc}", None
+        if changed:
+            handle.close()
+            return "source_changed", changed, None
+        return "compared", "", handle
+
+    def _rescan_one(self, run: ScanRun) -> tuple[RescanStatus, str, list[Issue], SourceKind]:
+        """重扫单条 run 并返回 (状态, 原因, 新 issue 集, 源类型)。
+
+        只有"源可用 + 指纹未变 + 重扫成功"三者同时成立才返回 ``compared``; 其余一律给出具体
+        原因, 由调用方计入 uncovered。
+        """
+        status, note, path, source_kind = self._resolve_source(run)
+        if path is None:
+            return status, note, [], source_kind
+        verified, verify_note, handle = self._open_verified(run, path)
+        if handle is None:
+            return verified, verify_note, [], source_kind
+        try:
+            try:
+                context = DetectionContext(
+                    dataset_id=run.dataset_id,
+                    table_name=None,
+                    columns=handle.schema().column_names,
+                    handle=handle,
+                    config=run.config,
+                )
+                _scan, _runs, issues = self._runner.run_scan(context, run.config)
+            except (OSError, ValueError, KeyError) as exc:
+                return "scan_failed", f"重扫失败: {type(exc).__name__}: {exc}", [], source_kind
+            return "compared", "", issues, source_kind
+        finally:
+            handle.close()
 
     def export_report(self, scan_run_id: str) -> dict[str, object]:
         """26.2 规范 JSON 报告：报告头 + scan + detector_runs + issues + quality。"""

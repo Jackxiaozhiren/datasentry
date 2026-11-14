@@ -62,6 +62,12 @@ class TestGateEvaluator:
         above = [_issue("i1", Severity.CRITICAL, affected_ratio=0.02)]
         assert evaluator.evaluate(above, QualityGate()).passed is False
 
+    def test_max_failed_rows_ratio_exact_boundary(self) -> None:
+        """D3-04：恰好 0.01 按当前 `>` 语义钉死为通过（防 > 与 >= 静默互换）。"""
+        evaluator = QualityGateEvaluator()
+        exact = [_issue("i1", Severity.CRITICAL, affected_ratio=0.01)]
+        assert evaluator.evaluate(exact, QualityGate()).passed is True
+
     def test_maximum_issues_limit(self) -> None:
         issues = [_issue("i1", Severity.HIGH, affected_ratio=0.001)]
         gate = QualityGate(

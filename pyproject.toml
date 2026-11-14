@@ -1,6 +1,6 @@
 [project]
 name = "datasentry-ai"
-version = "1.0.4"
+version = "2.0.0"
 description = "Find, explain, and safely fix bad data with local-first detection, evidence-backed issues, and reversible repairs."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -20,7 +20,7 @@ classifiers = [
     "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = [
-    "datasentry-core>=0.8.3,<0.9.0",
+    "datasentry-core>=0.8.6,<0.9.0",
     "cryptography>=42.0",
     "fastapi>=0.115",
     "fastapi-cli>=0.0.5",
@@ -51,6 +51,22 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/datasentry"]
+
+# D6-04：sdist 只发运行时文件；tests/docs/.growth/.github/examples/
+# demo-data/benchmarks/AUDIT 不进 PyPI（营销草稿与内部审计曾被公开）。
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "tests",
+  "docs",
+  ".growth",
+  ".github",
+  "examples",
+  "demo-data",
+  "benchmarks",
+  "AUDIT",
+  "AI Data Quality Copilot",
+  "PROMPT_audit_fix_optimize.md",
+]
 
 [dependency-groups]
 dev = [

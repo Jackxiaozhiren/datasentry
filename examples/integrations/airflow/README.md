@@ -39,7 +39,10 @@ produce_orders
 datasentry_quality_gate
 ```
 
-`produce_orders` writes a synthetic CSV under `/tmp/datasentry-airflow/`.
+`produce_orders` creates a per-run working directory with `mktemp -d` (mode `0700`,
+unpredictable name) and writes a synthetic `orders.csv` into it. A fixed path under `/tmp`
+is deliberately avoided: a globally writable name can be pre-created by another local user,
+and concurrent DAG runs would overwrite each other's artifacts.
 
 One row intentionally contains the impossible date:
 
@@ -47,16 +50,17 @@ One row intentionally contains the impossible date:
 2026-02-30
 ```
 
-`datasentry_quality_gate` then runs:
+The directory path is pushed to XCom (last line of the task's stdout);
+`datasentry_quality_gate` pulls it and runs:
 
 ```bash
-datasentry scan /tmp/datasentry-airflow/orders.csv --fail-on high
+datasentry scan "$data_dir/orders.csv" --fail-on high
 ```
 
-and stores the raw stdout result at:
+and stores the raw stdout result in the same directory as:
 
 ```text
-/tmp/datasentry-airflow/datasentry-result.json
+$data_dir/datasentry-result.json
 ```
 
 The task exits with DataSentry's native exit code. A quality-gate failure therefore marks the Airflow task as failed and prevents normal downstream tasks from running.
