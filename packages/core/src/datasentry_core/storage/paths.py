@@ -54,3 +54,23 @@ def project_profiles_dir(workspace: Path) -> Path:
     Profiles 节消费；app 私有 sidecar，不进入 26 章 JSON 报告契约。
     """
     return project_data_dir(workspace) / "profiles"
+
+
+def project_replay_dir(workspace: Path) -> Path:
+    """评分重放差异表目录：<workspace>/.datasentry/replay（AC-11a 归档落点）。"""
+    return project_data_dir(workspace) / "replay"
+
+
+def project_rescan_dir(workspace: Path) -> Path:
+    """重扫差异表目录：<workspace>/.datasentry/rescan（AC-11b 归档落点）。"""
+    return project_data_dir(workspace) / "rescan"
+
+
+def project_fixtures_dir(workspace: Path) -> Path:
+    """重扫留存目录：<workspace>/.datasentry/fixtures（每条 run 一个子目录）。
+
+    存放 ``fixtures capture`` 复制的源数据副本与 ``manifest.json``。副本是源数据的第二份
+    拷贝，可能含 PII——不随扫描自动写入，只有显式命令会创建；``.datasentry/`` 已被
+    ``.gitignore`` 排除，但磁盘上的副本仍应视为敏感数据。
+    """
+    return project_data_dir(workspace) / "fixtures"
