@@ -333,13 +333,26 @@ def resolve_bind(host: str, *, token: str | None, opted_in: bool) -> str | None:
     )
 
 
+_LOG_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _log_safe(value: object) -> str:
+    """Flatten control characters so one request cannot forge a second log line (CWE-117).
+
+    `%s` formatting already stops a value from becoming a format string; what it does not
+    stop is an embedded newline, which would render as a separate audit record once the log
+    is line-oriented. Request-derived values go through here; code-fixed literals do not.
+    """
+    return _LOG_CONTROL_CHARS.sub("?", str(value))
+
+
 def _audit_restore(*, session_id: str, via: str, ok: bool, reason: str = "") -> None:
     """One line per plaintext-restore request (D5-02). Never the text and never the value:
     invariant 5 keeps secrets and PII out of logs, so only the opaque id, the surface, the
     outcome and a fixed reason code are recorded."""
     logger.info(
         "pii-restore session=%s via=%s ok=%s%s",
-        session_id,
+        _log_safe(session_id),
         via,
         ok,
         f" reason={reason}" if reason else "",
@@ -1119,7 +1132,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
                 status_code=404,
             )
         except Exception:
-            logger.exception("ui rollback failed for %s", repair_run_id)
+            logger.exception("ui rollback failed for %s", _log_safe(repair_run_id))
             return HTMLResponse(
                 ui.render_error(
                     _t("en", "ui.rollback_failed"), "rollback failed (see server logs)"
@@ -1420,7 +1433,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
                 status_code=404,
             )
         except Exception:
-            logger.exception("ui rollback failed for %s", repair_run_id)
+            logger.exception("ui rollback failed for %s", _log_safe(repair_run_id))
             return HTMLResponse(
                 ui.render_error(
                     _t("en", "ui.rollback_failed"), "rollback failed (see server logs)"
