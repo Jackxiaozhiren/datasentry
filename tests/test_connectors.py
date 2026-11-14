@@ -361,8 +361,10 @@ class TestFormulaInjectionWarnings:
         spec = DataSourceSpec(source_type=DataSourceType.CSV, path=formula_csv)
         handle = CsvConnector().open(spec)
         try:
-            assert handle.warnings() is not handle.warnings()
-            assert handle.warnings() == handle.warnings()
+            first = handle.warnings()
+            second = handle.warnings()
+            assert first is not second
+            assert first == second
         finally:
             handle.close()
 

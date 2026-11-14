@@ -165,7 +165,7 @@ jobs:
 
 See [`docs/GITHUB_ACTIONS.md`](docs/GITHUB_ACTIONS.md) for inputs, artifacts, security boundaries, and version-pinning guidance.
 
-Reports can be exported as JSON, Markdown, HTML, JUnit, and SARIF. The GitHub Actions example fails the workflow on severe findings while still uploading an HTML report for review.
+Reports can be exported as JSON, Markdown, HTML, JUnit, and SARIF. The versioned, machine-readable [JSON report Schema](docs/REPORT_JSON_SCHEMA.md) is included for downstream validation. The GitHub Actions example fails the workflow on severe findings while still uploading an HTML report for review.
 
 ## Give AI agents deterministic data-quality tools
 

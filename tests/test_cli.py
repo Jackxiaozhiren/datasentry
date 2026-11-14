@@ -777,6 +777,81 @@ class TestCli:
         payload = json.loads(capsys.readouterr().out)
         assert payload["data"]["gate"]["passed"] is True
 
+    def test_scan_contract_ratio_holds_when_the_flag_is_absent(
+        self,
+        sample_csv: Path,
+        workspace: Path,
+        capsys,
+    ) -> None:
+        """没在命令行上给 --max-failure-ratio 时，契约的宽松阈值必须生效。"""
+        contract = workspace / "c.yaml"
+        contract.write_text(
+            "version: '1.0'\n"
+            "dataset:\n"
+            "  name: orders\n"
+            "quality_gate:\n"
+            "  fail_on: [medium]\n"
+            "  maximum_failed_rows_ratio: 0.9\n",
+            encoding="utf-8",
+        )
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "scan",
+                str(sample_csv),
+                "--contract",
+                str(contract),
+            ]
+        )
+        assert code == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["data"]["gate"]["passed"] is True
+
+    def test_scan_explicit_default_ratio_overrides_the_contract(
+        self,
+        sample_csv: Path,
+        workspace: Path,
+        capsys,
+    ) -> None:
+        """显式 `--max-failure-ratio 0.01` 与内置默认值同值，但仍须覆盖契约的 0.9。
+
+        改前这是一个静默失效：0.01 被当作"用户没传"的哨兵，与契约值不可区分，
+        于是显式收紧要塞被丢掉、门禁按 0.9 放行。
+        """
+        contract = workspace / "c.yaml"
+        contract.write_text(
+            "version: '1.0'\n"
+            "dataset:\n"
+            "  name: orders\n"
+            "quality_gate:\n"
+            "  fail_on: [medium]\n"
+            "  maximum_failed_rows_ratio: 0.9\n",
+            encoding="utf-8",
+        )
+        code = main(
+            [
+                "--project",
+                str(workspace),
+                "--format",
+                "json",
+                "scan",
+                str(sample_csv),
+                "--contract",
+                str(contract),
+                "--max-failure-ratio",
+                "0.01",
+            ]
+        )
+        assert code == 1
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["data"]["gate"]["passed"] is False
+        assert any(
+            "maximum_failed_rows_ratio=0.01" in r for r in payload["data"]["gate"]["reasons"]
+        )
+
     def test_scan_contract_rules_apply(self, workspace: Path, capsys) -> None:
         data = workspace / "payments.csv"
         data.write_text("id,amount\n1,-50\n2,30\n3,2000\n", encoding="utf-8")

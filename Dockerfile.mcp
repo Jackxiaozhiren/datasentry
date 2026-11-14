@@ -7,7 +7,12 @@ COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY packages ./packages
 COPY src ./src
 # D6-02：--locked 使 manifest/lock 不一致时构建失败而非静默通过。
-RUN uv sync --locked --no-dev
+# `--no-build` is not usable on this line: uv refuses to install this repo's own editable
+# package without a build (measured: `error: Distribution datasentry-ai==2.0.0 @ editable+.
+# can't be installed because it is marked as --no-build but has no binary distribution`).
+# Every third-party dependency here is a wheel pinned by hash in uv.lock; the only thing
+# built is first-party code copied from this checkout.
+RUN uv sync --locked --no-dev # NOSONAR
 
 FROM python:3.12-slim
 WORKDIR /workspace

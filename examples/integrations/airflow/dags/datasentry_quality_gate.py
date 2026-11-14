@@ -1,13 +1,14 @@
-from __future__ import annotations
+"""Airflow 集成示例：生成一份含缺陷的 CSV，再用 DataSentry 做质量闸门。
+
+工作目录由 `produce_orders` 在运行期用 `mktemp -d` 创建（0700、路径不可预测），
+而不是写死 `/tmp/datasentry-airflow`：固定名字的全局可写路径可能被同机其他用户
+预先占位（S5443），并发 DAG run 也会互相覆盖产物。目录路径通过 XCom 传给下游。
+"""
 
 from datetime import datetime
 
 from airflow.providers.standard.operators.bash import BashOperator
 from airflow.sdk import DAG
-
-DATA_DIR = "/tmp/datasentry-airflow"
-DATA_PATH = f"{DATA_DIR}/orders.csv"
-RESULT_PATH = f"{DATA_DIR}/datasentry-result.json"
 
 with DAG(
     dag_id="datasentry_quality_gate_demo",
@@ -19,10 +20,13 @@ with DAG(
 ) as dag:
     produce_orders = BashOperator(
         task_id="produce_orders",
-        bash_command=f"""
+        # 末行输出即 XCom 值（BashOperator 取 stdout 最后一行），供下游拼路径。
+        bash_command="""
         set -euo pipefail
-        mkdir -p {DATA_DIR}
-        cat > {DATA_PATH} <<'CSV'
+        tmp_root="${TMPDIR:-/tmp}"
+        tmp_root="${tmp_root%/}"
+        data_dir="$(mktemp -d "$tmp_root/datasentry-airflow-XXXXXX")"
+        cat > "$data_dir/orders.csv" <<'CSV'
 order_id,customer_id,amount,event_date,status
 1001,C001,42.50,2026-08-01,paid
 1002,C002,18.99,2026-08-02,paid
@@ -31,20 +35,22 @@ order_id,customer_id,amount,event_date,status
 1005,C005,31.10,2026-08-05,shipped
 1006,C006,88.40,2026-08-06,paid
 CSV
-        echo "wrote {DATA_PATH}"
+        echo "wrote $data_dir/orders.csv"
+        echo "$data_dir"
         """,
     )
 
     quality_gate = BashOperator(
         task_id="datasentry_quality_gate",
-        bash_command=f"""
+        bash_command="""
         set +e
-        datasentry scan {DATA_PATH} --fail-on high > {RESULT_PATH}
+        data_dir="{{ ti.xcom_pull(task_ids='produce_orders') }}"
+        datasentry scan "$data_dir/orders.csv" --fail-on high > "$data_dir/datasentry-result.json"
         code=$?
         set -e
 
         echo "DataSentry result:"
-        cat {RESULT_PATH} || true
+        cat "$data_dir/datasentry-result.json" || true
         echo
         echo "DataSentry exit code: $code"
         exit "$code"

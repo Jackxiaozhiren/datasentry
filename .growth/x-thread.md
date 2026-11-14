@@ -10,7 +10,7 @@ GIF 直链（供引用）：https://raw.githubusercontent.com/Jackxiaozhiren/dat
 >
 > I built DataSentry: 39 statistical detectors (duplicates, outliers, bad dates…), every finding with samples + ratio + confidence. No expectations to write first — just `pip install datasentry-ai && datasentry scan orders.csv`. [GIF]
 >
-> Local-first. LLM optional (works offline). MCP server with 24 tools, so Claude runs real checks, not guesses. Human approves every fix.
+> Local-first. LLM optional (works offline). MCP server so Claude runs real checks, not guesses. Human approves every fix.
 >
 > Apache-2.0 → github.com/Jackxiaozhiren/datasentry
 
