@@ -19,7 +19,7 @@ jobs:
     name: Validate official MCP Registry metadata
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Check JSON syntax
         run: python -m json.tool server.json >/dev/null
@@ -30,7 +30,7 @@ jobs:
           MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
         run: |
           archive=/tmp/mcp-publisher.tar.gz
-          curl -fsSL \
+          curl --proto '=https' --tlsv1.2 -fsSL \
             "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" \
             -o "$archive"
           echo "${MCP_PUBLISHER_SHA256}  ${archive}" | sha256sum -c -
