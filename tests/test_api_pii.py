@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from datasentry.api import create_app
+from datasentry.api import _log_safe, create_app
 from datasentry.pii_vault import PIIVault
 from datasentry_core.storage.store import MetadataStore
 
@@ -323,3 +323,25 @@ class TestRestoreAuditRecord:
         lines = self._lines(caplog)
         assert any("via=ui" in x and "ok=True" in x for x in lines), lines
         assert all("alice@example.com" not in x for x in lines)
+
+    def test_control_chars_in_session_id_cannot_forge_a_log_line(
+        self, tmp_path: Path, key_env: None, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """CWE-117：路径参数里的换行若原样落盘，会伪造出第二条审计记录。"""
+        client, _ = _client(tmp_path)
+        with caplog.at_level(logging.INFO, logger="datasentry.api"):
+            resp = client.post("/pii/sessions/pii_x%0Aforged-line/restore", json={"text": "x"})
+        assert resp.status_code == 404
+        lines = self._lines(caplog)
+        assert len(lines) == 1, lines
+        assert "\n" not in lines[0]
+        assert "\r" not in lines[0]
+        assert "pii_x?forged-line" in lines[0]
+
+
+def test_log_safe_flattens_control_chars() -> None:
+    """`_log_safe` 是唯一出口：rollback 路径复用同一 helper，这里直接钉住其行为。"""
+    assert _log_safe("a\nb") == "a?b"
+    assert _log_safe("a\rb\tc") == "a?b?c"
+    assert _log_safe("a\x00b") == "a?b"
+    assert _log_safe(7) == "7"
