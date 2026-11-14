@@ -13,7 +13,7 @@ COPY src ./src
 # built is first-party code copied from this checkout.
 RUN uv sync --locked --no-dev # NOSONAR
 
-FROM python:3.12-slim
+FROM python:3.15-slim
 WORKDIR /app
 ENV PATH=/app/.venv/bin:$PATH
 # D5-01：容器 netns 内须绑 0.0.0.0 才可被宿主端口映射到达；
