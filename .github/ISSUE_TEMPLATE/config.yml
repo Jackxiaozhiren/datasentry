@@ -3,3 +3,6 @@ contact_links:
   - name: Detector ideas & roadmap chat
     url: https://github.com/Jackxiaozhiren/datasentry/discussions
     about: Ideas, questions and roadmap discussion live in GitHub Discussions.
+  - name: Security vulnerabilities
+    url: https://github.com/Jackxiaozhiren/datasentry/security/policy
+    about: Do not open public issues for vulnerabilities or sensitive security reports; follow the security policy instead.

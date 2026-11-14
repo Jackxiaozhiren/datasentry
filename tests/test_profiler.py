@@ -147,3 +147,58 @@ def test_property_profile_counts_match_source(rows: list[tuple[int, str]]) -> No
     assert id_col.max == max(a for a, _ in rows)
     label_col = profile.column_profiles["label"]
     assert label_col.distinct_count == len({b for _, b in rows})
+
+
+class TestNonFiniteNumbersAreProfiledNotFatal:
+    """G-2：数值列里有一个 NaN 就让整个画像崩，四个面都把一次合法扫描读成 500。
+
+    本机实测触发点比预想的宽：一份普通 CSV 里写 `nan` 字样就够了——列被推断成 DOUBLE，
+    `stddev` 直接抛 `OutOfRangeException: STDDEV_SAMP is out of range!`，而 pandas 导出的
+    缺省形态正是这样。崩之前 `min`/`max`/`avg` 也不报错，只是把 NaN 当数字参与运算：
+    `[1.0, nan, 3.0]` 的 `max` 报 `nan`、`median` 报 `3.0`（真值 2.0）——不崩的那些数同样是假的。
+    画像的语义因此定为：**统计量只在有限值上算**，NaN 既不是数也不是空值，
+    它作为"值"仍计入 `count`/`distinct`，作为"数"不进 min/max/mean/std/分位。
+    """
+
+    def test_a_nan_token_in_a_numeric_column_is_profiled_instead_of_crashing(
+        self, tmp_path: Path
+    ) -> None:
+        p = tmp_path / "nan.csv"
+        p.write_text("id,v\n1,1.0\n2,nan\n3,3.0\n", encoding="utf-8")
+        profile = _profile(p)
+        assert profile.row_count == 3
+        assert profile.column_profiles["v"].std is not None
+
+    def test_nan_is_not_counted_as_a_number_in_the_summary(self, tmp_path: Path) -> None:
+        p = tmp_path / "nan.csv"
+        p.write_text("id,v\n1,1.0\n2,nan\n3,3.0\n", encoding="utf-8")
+        col = _profile(p).column_profiles["v"]
+        assert col.min == pytest.approx(1.0), col.min
+        assert col.max == pytest.approx(3.0), f"max returned NaN as the largest number: {col.max}"
+        assert col.mean == pytest.approx(2.0), col.mean
+        assert col.median == pytest.approx(2.0), f"median ordered NaN as a value: {col.median}"
+        assert col.std == pytest.approx(1.4142135623730951), col.std
+        # NaN 仍然是一个"值"，不是 NULL：缺失率必须保持 0
+        assert col.null_ratio == pytest.approx(0.0), col.null_ratio
+
+    def test_an_all_nan_column_yields_null_statistics_not_a_crash(self, tmp_path: Path) -> None:
+        p = tmp_path / "allnan.csv"
+        p.write_text("id,v\n1,nan\n2,nan\n", encoding="utf-8")
+        col = _profile(p).column_profiles["v"]
+        assert col.mean is None
+        assert col.std is None
+        assert col.min is None and col.max is None
+
+    def test_integer_and_decimal_columns_are_unaffected_by_the_finite_guard(
+        self, tmp_path: Path
+    ) -> None:
+        """守卫必须对不可含 NaN 的类型也成立（`isfinite` 在 DuckDB 对整数/小数返回 True）。"""
+        p = tmp_path / "plain.csv"
+        p.write_text("id,amount\n1,10.5\n2,7.5\n3,12.0\n", encoding="utf-8")
+        col = _profile(p).column_profiles["amount"]
+        assert col.min == pytest.approx(7.5)
+        assert col.max == pytest.approx(12.0)
+        assert col.mean == pytest.approx(30.0 / 3.0)
+        assert col.std is not None
+        ids = _profile(p).column_profiles["id"]
+        assert ids.min == 1 and ids.max == 3 and ids.mean == pytest.approx(2.0)
