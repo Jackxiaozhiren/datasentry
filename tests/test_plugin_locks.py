@@ -57,8 +57,10 @@ def plugins_root(tmp_path: Path) -> Path:
 def test_compute_sha256_deterministic(tmp_path: Path) -> None:
     p = tmp_path / "a.txt"
     p.write_text("hello", encoding="utf-8")
-    assert compute_sha256(p) == compute_sha256(p)
-    assert len(compute_sha256(p)) == 64
+    first = compute_sha256(p)
+    second = compute_sha256(p)
+    assert first == second
+    assert len(first) == 64
 
 
 def test_compute_sha256_changes_with_content(tmp_path: Path) -> None:
