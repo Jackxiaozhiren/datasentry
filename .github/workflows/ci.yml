@@ -60,55 +60,65 @@ jobs:
       # 可信 digest 后，把 service（image: minio/minio@sha256:…）、上方 TEST_MINIO_*/AWS_* env
       # 与下方 2b 建桶步骤一并恢复。see: AUDIT/FINDINGS.yaml D6-07
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      # `--locked` is the supply-chain control: every artifact comes from uv.lock with a
+      # recorded hash. `--no-build` cannot be used here — uv refuses to install this repo's
+      # own editable package without a build ("no binary distribution"), and that package is
+      # first-party code from this checkout, not a third-party sdist. Every `uv run` below
+      # carries `--locked --no-sync --no-build`, so nothing is built after this point.
       - name: Install dependencies
-        run: uv sync --locked
+        run: uv sync --locked # NOSONAR
 
       - name: 1 · ruff lint
-        run: uv run ruff check .
+        run: uv run --locked --no-sync --no-build ruff check .
 
       - name: 2 · ruff format check
-        run: uv run ruff format --check .
+        run: uv run --locked --no-sync --no-build ruff format --check .
 
       - name: 3 · mypy --strict (datasentry_core + datasentry)
-        run: uv run mypy packages/core/src/datasentry_core src/datasentry
+        run: uv run --locked --no-sync --no-build mypy packages/core/src/datasentry_core src/datasentry
 
       - name: 4 · pytest + coverage gate (>=85%)
-        run: uv run pytest --cov=datasentry_core --cov-fail-under=85 --cov-report=term --cov-report=xml
+        run: >-
+          uv run --locked --no-sync --no-build pytest --cov=datasentry_core
+          --cov-fail-under=85 --cov-report=term --cov-report=xml
 
       - name: 4b · pip-audit (D5-07 supply-chain gate)
         run: |
           set -e
           uv export --locked --no-dev --no-emit-project --format requirements.txt -o /tmp/ci-req.txt
-          grep -v "^-e \|file:///" /tmp/ci-req.txt > /tmp/ci-req-audit.txt
-          uv run --with pip-audit pip-audit -r /tmp/ci-req-audit.txt
+          # `-E` rather than BRE `\|`: the alternation is a GNU extension, and on a BSD
+          # grep the whole filter silently becomes a no-op, so the audit runs on the
+          # unfiltered file (reproduced locally on macOS).
+          grep -Ev "^-e |file:///" /tmp/ci-req.txt > /tmp/ci-req-audit.txt
+          uv run --locked --no-sync --no-build --with pip-audit pip-audit -r /tmp/ci-req-audit.txt
 
       - name: 5 · upload coverage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-xml
           path: coverage.xml
 
       - name: 6 · M9 demo smoke (budget 180s)
-        run: uv run python examples/demo/demo.py --rows 2000
+        run: uv run --locked --no-sync --no-build python examples/demo/demo.py --rows 2000
 
       - name: 7 · benchmark (1e6 rows, <=60s gate)
-        run: uv run python benchmarks/bench_scan.py 1000000
+        run: uv run --locked --no-sync --no-build python benchmarks/bench_scan.py 1000000
 
       - name: 8 · CLI smoke (scan + report + exit code)
         run: |
           set -e
           TMP=$(mktemp -d)
-          uv run python - <<'EOF'
+          uv run --locked --no-sync --no-build python - <<'EOF'
           from pathlib import Path
           from datasentry import DataSentry
           import tempfile
@@ -129,7 +139,7 @@ jobs:
           bash docs/demo/record-demo.sh --csv
           git diff --exit-code -- demo-data/orders.csv >/dev/null || {
             echo "demo-data/orders.csv drifted from the committed deterministic sample"; exit 1; }
-          uv run python - <<'EOF'
+          uv run --locked --no-sync --no-build python - <<'EOF'
           from datasentry import DataSentry
           from pathlib import Path
           c = DataSentry(project=Path("demo-data") / "ws-ci")
@@ -146,7 +156,7 @@ jobs:
       - name: 9 · API + UI smoke (container-free)
         run: |
           set -e
-          uv run python - <<'EOF'
+          uv run --locked --no-sync --no-build python - <<'EOF'
           from fastapi.testclient import TestClient
           from datasentry.api import create_app
           c = TestClient(create_app())
@@ -159,7 +169,7 @@ jobs:
         run: |
           set -e
           TMP=$(mktemp -d)
-          uv run python examples/demo/demo.py --rows 500 --out "$TMP" >/dev/null
+          uv run --locked --no-sync --no-build python examples/demo/demo.py --rows 500 --out "$TMP" >/dev/null
           test -f "$TMP/report.json"
           test -f "$TMP/report.html"
           test -f "$TMP/customers.csv"
