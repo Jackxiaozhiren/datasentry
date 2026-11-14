@@ -1,0 +1,11 @@
+{
+  "_comment": "R-21 声明层：示例在干净检出上应当打印的计数。tests/test_examples_runnable.py 会重跑每个示例并按此比对，漂了即红。若变更是有意的（检测器族改动等），重跑示例、读回真实数字后更新本文件。",
+  "examples/demo/demo.py": {
+    "rows": 500,
+    "issues": 16
+  },
+  "examples/ecommerce/run_showcase.py": {
+    "rows": 300,
+    "issues": 11
+  }
+}
