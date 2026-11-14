@@ -408,7 +408,8 @@ def _evaluate_gate(
 ) -> GateResult:
     """22 章场景 C：契约 gate（--contract）或显式 --fail-on 求值。
 
-    优先级：显式 --fail-on/--max-failure-ratio 覆盖契约 gate 对应项；
+    优先级：显式 --fail-on/--max-failure-ratio 覆盖契约 gate 对应项；「显式」指参数出现在
+    命令行上，包括取值恰好等于内置默认值的 `--max-failure-ratio 0.01`。
     require_repair_validation 的修复证据由 client 查询注入（Step 35）。
     """
     gate = QualityGate()
@@ -416,7 +417,7 @@ def _evaluate_gate(
         gate = contract.quality_gate
     if args.fail_on is not None:
         gate.fail_on = [Severity(args.fail_on)]
-    if args.max_failure_ratio != 0.01 or gate.maximum_failed_rows_ratio == 0.01:
+    if args.max_failure_ratio is not None:
         gate.maximum_failed_rows_ratio = args.max_failure_ratio
     return client.evaluate_gate(issues, gate)
 
@@ -1958,8 +1959,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_scan.add_argument(
         "--max-failure-ratio",
         type=float,
-        default=0.01,
-        help="quality gate: max affected row ratio (default: 0.01)",
+        default=None,
+        help="quality gate: max affected row ratio (default: 0.01, or the "
+        "contract's value when --contract supplies one)",
     )
     p_scan.set_defaults(func=_cmd_scan)
 
