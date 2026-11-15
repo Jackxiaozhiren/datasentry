@@ -125,6 +125,16 @@
 
 ### 修复
 
+- **列画像的五个统计字段不再把文本极值原文写进报告（`B3-e`）**。`DatasetProfile` 会为 VARCHAR 列
+  记录文本极值，`min`/`max` 完全可能是一条 DSN、一个邮箱或手机号；而 `column_profiles._fmt()`
+  只对数值走 `float()` 格式化，非数值直接 `str(v)`，原文于是进入已落盘报告的 `profiles-data`
+  内嵌 JSON。同一视图行的 `top_categories` 早已调用 `mask_text_pii`，这是该视图唯一漏掉的展示
+  字段（AGENTS.md 不变量 5）。现在非数值分支与 `top_categories` 同走 `mask_text_pii`：DSN 显示为
+  `postgresql://user:[REDACTED]/prod`，邮箱整体显示为 `[REDACTED]`，普通文本（如 `Zebra`）原样
+  保留。**行为变更**：含 PII 的文本极值在报告里显示掩码后的值，不再显示原文。纯数字文本
+  （如手机号 `13800138000`）仍先走 `float()` 输出 `1.38e+10`，不带明文——这是改动前就有的
+  行为，本次未改，也不声称已覆盖。
+
 - **显式 `--max-failure-ratio 0.01` 不再被静默忽略（`S1244`，安全分诊第 5 节）**。该参数原先以
   `0.01` 兼作"用户没传参"的哨兵，于是"取值恰好等于默认值"和"命令行上根本没写这个参数"不可区分：
   契约写了 `maximum_failed_rows_ratio: 0.9`、命令行再显式收紧到 `0.01` 时，判据
