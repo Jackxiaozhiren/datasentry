@@ -53,7 +53,7 @@ The demo generates synthetic dirty data, runs the built-in detectors, exports JS
 ```text
 synthetic dirty CSV
         ↓
-39 deterministic detectors
+deterministic detectors
         ↓
 evidence-backed issues + quality score
         ↓
@@ -109,7 +109,7 @@ DataSentry fits best when you are looking at data you do not fully trust yet, wa
 
 ## What it catches automatically
 
-DataSentry ships with **39 deterministic detectors** covering common failure modes such as:
+DataSentry ships with a registry of **deterministic detectors** covering common failure modes such as:
 
 - missing and placeholder values;
 - invalid emails, URLs, dates, and encodings;
@@ -118,6 +118,15 @@ DataSentry ships with **39 deterministic detectors** covering common failure mod
 - foreign-key and referential-integrity problems;
 - numeric and statistical outliers;
 - schema, row-count, score, and issue-distribution drift.
+
+Re-count them from the registry the installed build actually ships:
+
+```bash
+datasentry detectors | python3 -c "import json,sys; print(len(json.load(sys.stdin)['detectors']))"
+# 39
+```
+
+That number is the registry, not what any single file triggers: a detector whose required column types are absent is **skipped**, so the count that actually runs depends on the schema you scan.
 
 Every scan produces an evidence-backed issue list and a six-dimension quality score across completeness, validity, uniqueness, consistency, integrity, and timeliness.
 
@@ -227,7 +236,7 @@ Tracked signals include schema changes, row-count movement, quality-score change
 ```mermaid
 flowchart LR
     Sources[Files / DBs / cloud objects] --> DuckDB[Local execution]
-    DuckDB --> Detect[39 detectors]
+    DuckDB --> Detect[Detectors]
     Detect --> Evidence[Evidence fusion]
     Evidence --> Score[6-dimension score]
     Score --> Reports[Reports / history / gates]
