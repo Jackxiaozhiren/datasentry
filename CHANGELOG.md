@@ -116,6 +116,13 @@
 - **MCP：无法解析的请求行不再被静默丢弃**。此前 `serve_stdio` 对非 JSON 行直接 `continue`，
   客户端只看到"服务器没反应"；现在回 `-32700`（id 为 `null`），非对象的 JSON 请求回 `-32600`。
 
+- **`estimated_rows_changed` 现在数的是「行」，不是「列命中数之和」（`R-07` 的前置）**。引擎原先逐列
+  累加 `count(*)`，同一行在两列上都有改动就被计两次（实测夹具：2 行读成 3）。报告要写的
+  `repair_runs.rows_changed` 必须是行数，因此计数收敛到 `affected_row_count()`（任一目标列变化即计
+  一次），提案与修复记录共用同一算法。**行为变更**：多列修复提案的 `estimated_rows_changed` 会变小
+  并等于真值；`repair_runs` 新增 `rows_changed` 列，schema v11 自动迁移，历史行该列为 NULL
+  （未知，不是 0），报告据此显示「未知」而不是编造一个数。
+
 ### 修复
 
 - **显式 `--max-failure-ratio 0.01` 不再被静默忽略（`S1244`，安全分诊第 5 节）**。该参数原先以
