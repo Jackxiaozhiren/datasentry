@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use DataSentry in research or a published workflow, please cite the versioned software release."
+type: software
+title: "DataSentry: Local-First Data Quality Discovery and Safe Repair"
+authors:
+  - family-names: Xiao
+    given-names: Zhiren
+version: 1.0.4
+date-released: 2026-08-29
+url: https://github.com/Jackxiaozhiren/datasentry/releases/tag/v1.0.4
+repository-code: https://github.com/Jackxiaozhiren/datasentry
+license: Apache-2.0
+abstract: >-
+  DataSentry is a local-first data-quality toolkit that detects suspicious
+  patterns, explains findings with evidence, and supports previewable,
+  reversible repair workflows. Deterministic detection works without an LLM;
+  optional AI suggestions remain proposals.
+keywords:
+  - data quality
+  - data profiling
+  - data cleaning
+  - data drift
+  - data repair
+  - reproducibility
+  - local-first
