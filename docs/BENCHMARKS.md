@@ -53,6 +53,36 @@ A scan depends on column types, cardinality, active detectors, storage format, h
 
 DataSentry therefore keeps executable acceptance gates in the repository and encourages users to run the same workload on their own hardware.
 
+## Repair path
+
+`benchmarks/bench_scan.py` budgets the **scan** only. The repair chain
+(`propose → preview → apply → diff/verify/rollback`) has no published acceptance budget, and
+this section deliberately does not invent one. Invariant 6 requires a published performance
+statement to be reproducible with its methodology written down; a number that can only be
+reproduced from an untracked local audit workspace does not meet that bar.
+
+What is known, without a ceiling:
+
+- The stage worth budgeting is `apply`, reached through `client.repair_apply`. Its window covers
+  `repair_open` + `engine.propose` + `engine.apply` + the store write. `preview`, `verify` and
+  `rollback` are not timed by any instrument in this repository; `scan_file` and `repair_diff`
+  are timed only to show their share.
+- A local, on-demand instrument once measured that window over generated CSV/JSONL fixtures at
+  50 000 / 200 000 / 1 000 000 rows with paired repeats. The instrument, its readings and the
+  review notes that discussed them are **not tracked in this repository**: the audit workspace is
+  excluded by `.gitignore`, and no file under it is versioned. Those readings are historical
+  context, not a budget, and cannot be reproduced from a clean clone.
+- Two measurement pitfalls are recorded so a future attempt does not repeat them. A bare linear
+  ceiling breaches at small row counts because opening two DuckDB views is a fixed cost; adding a
+  constant floor suppresses that false breach but also mutes regressions at small n. Under
+  concurrent load, repeated arms on the same machine varied enough to produce a breach with no
+  code change, so a single-sample "median" is not evidence of a regression in either direction.
+
+To publish a repair-path budget, the instrument and its raw evidence must first be committed
+under `benchmarks/`, with a gate that reads them back — the same contract R-04 and R-22 use.
+Until then, no absolute repair time is claimed here, and nothing in this section is wired into
+`make bench` or CI.
+
 ## Report size and render budget (R-04)
 
 `interactive.py` inlines one `issue-data` element per issue and nothing from the source table. That architecture is correct but had no guard and no budget, so a future change could inline the whole table without any check turning red. Both were added *after* measurement: the ceilings below are derived from seven probe arms, never chosen first and then justified.
@@ -84,7 +114,7 @@ Budget row (the single source of truth for both ceilings):
 
 64 KiB is about 1.45x the largest measured report (43.01 KiB) and 0.01 is about 3.6x the largest measured ratio. The padding is deliberate: the machine was shared with other sessions, and the regression policy below says an ambient-host reading is not a defect. The padding is also *bounded*: the test rejects a bytes ceiling above 4x every reading and a ratio ceiling above 10x every reading, so "make it enormous and it can never go red" fails too.
 
-`tests/test_report_size_budget.py` is the gate. It re-reads this row and the probe evidence, asserts the payload row bound on a real rendered report, and carries two injection controls (inflating `issue_rows` 50x and replacing issue shapes with raw-row shapes) plus an oversized-report arm that must fail the bytes ceiling. A copy of this document with a shrunk ceiling must also fail. None of it is wired into `make bench` or CI: this is an on-demand measurement with a re-runnable command, not a wall-clock assertion in the unit suite.
+`tests/test_report_size_budget.py` is the gate. It re-reads this row and the probe evidence, asserts the payload row bound on a real rendered report, and carries two injection controls (inflating `issue_rows` 50x and replacing issue shapes with raw-row shapes) plus an oversized-report arm that must fail the bytes ceiling. A copy of this document with a shrunk ceiling must also fail. None of it is wired into `make bench` or CI: like the repair-path section above, this is an on-demand measurement with a re-runnable command, not a wall-clock assertion in the unit suite.
 
 What is deliberately **not** claimed: any absolute render time, any cross-machine promise, or that no raw cell value appears anywhere in the HTML. A sentinel cell injected by this probe did not surface in either the payload or the HTML, which is an observation about that one fixture, not a proof of absence.
 
@@ -151,3 +181,26 @@ Performance changes should be reviewed like functional regressions:
 - changes that materially improve or worsen a detector should include before/after measurements;
 - benchmark methodology changes must be documented so historical numbers are not compared as if they used the same workload;
 - memory high-water measurements should be treated carefully because process RSS can retain allocator and DuckDB buffers after a stage completes.
+
+## Test-suite judgements that are not timing judgements
+
+Hypothesis property tests carry a per-example wall-clock deadline, and the default (200 ms) was
+not chosen for this suite. Under concurrent load, single examples have been observed exceeding it
+without any product defect: Hypothesis reports such a case as `FlakyFailure` wrapping
+`DeadlineExceeded`. A wall-clock deadline is therefore a load detector, not a correctness
+judgement.
+
+Methodology for sizing one, when the change is made:
+
+- Measure the test body over repeated warm replays and record min / p50 / p90 / max. Choose a
+  deadline that still leaves visible headroom for a genuine pathological slowdown, rather than
+  `deadline=None`, which deletes the guard instead of sizing it.
+- Keep the probe and the replay logs in the repository next to the gate that reads them. A margin
+  report that cannot be re-run is not evidence.
+- Do not turn an ambient-host red reading into a defect, or a green reading into proof that
+  nothing regressed. Record the load and repeat the run.
+
+No deadline change is claimed for the current `main` tree here, and no absolute test-suite
+wall-clock number is published: the same gate has been measured at widely different totals within
+one hour on this host. Timing claims belong to `benchmarks/bench_scan.py` and its budgets, not to
+unit-test deadlines.
