@@ -87,6 +87,9 @@ class RepairRun(BaseModel):
     fingerprint_before: str
     fingerprint_after: str | None = None
     operations: list[RepairOperationRecord] = Field(default_factory=list)
+    #: 真被改动的**行**数。`operations` 是至多 `_OPERATION_LOG_CAP` 条的样本，
+    #: 所以"改动行数"不能由它的长度代替；None 表示这条记录诞生于该字段之前，未知而非 0。
+    rows_changed: int | None = Field(default=None, ge=0)
     approved_by: str = "local-user"
     approval_kind: Literal["manual", "yes_typed"] = "manual"
     approved_at: datetime | None = None

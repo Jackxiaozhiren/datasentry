@@ -441,7 +441,7 @@ def render_interactive_issue_table(
         f"{escape(t(lang, 'filter.collapse_all'))}</button>"
         '<span id="issue-count" class="meta"></span>'
         "</div>"
-        '<table id="issue-table">'
+        '<div class="table-scroll"><table id="issue-table">'
         "<thead><tr>"
         f'<th data-key="severity">{escape(t(lang, "table.severity"))}</th>'
         f'<th data-key="priority">{escape(t(lang, "table.priority"))}</th>'
@@ -450,7 +450,7 @@ def render_interactive_issue_table(
         f'<th data-key="affected">{escape(t(lang, "table.affected"))}</th>'
         "</tr></thead>"
         '<tbody id="issue-tbody"></tbody>'
-        "</table>"
+        "</table></div>"
         '<div class="issue-pager">'
         f'<button id="pg-prev" type="button">&larr; {escape(t(lang, "pager.prev"))}</button>'
         f'<button id="pg-next" type="button">{escape(t(lang, "pager.next"))} &rarr;</button>'
