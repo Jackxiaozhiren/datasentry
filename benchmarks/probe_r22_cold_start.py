@@ -151,6 +151,10 @@ def _arm(index: int, workdir: Path, python: str, python_version: str) -> dict[st
     return record
 
 
+# pythonsecurity:S8707 models CLI arguments as attacker-controlled HTTP input. This
+# probe is a local benchmark: --out and --workdir are typed by the operator, so that
+# taint source does not exist. Paths are normalised before use, and every filesystem
+# sink below carries a NOSONAR marker recording that decision.
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--arms", type=int, default=3)
@@ -162,13 +166,15 @@ def main() -> int:
     if python is None:
         print("python3 not found", file=sys.stderr)
         return 2
-    args.workdir.mkdir(parents=True, exist_ok=True)
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    _, _, version_out, _ = _timed([python, "--version"], args.workdir, os.environ.copy())
+    workdir = args.workdir.expanduser().resolve()
+    out = args.out.expanduser().resolve()
+    workdir.mkdir(parents=True, exist_ok=True)  # NOSONAR S8707: local CLI path
+    out.parent.mkdir(parents=True, exist_ok=True)  # NOSONAR S8707: local CLI path
+    _, _, version_out, _ = _timed([python, "--version"], workdir, os.environ.copy())
     python_version = (version_out.strip() or sys.version).splitlines()[-1]
     for i in range(1, args.arms + 1):
-        reading = _arm(i, args.workdir, python, python_version)
-        with args.out.open("a", encoding="utf-8") as handle:
+        reading = _arm(i, workdir, python, python_version)
+        with out.open("a", encoding="utf-8") as handle:  # NOSONAR S8707: local CLI path
             handle.write(json.dumps(reading, ensure_ascii=False) + "\n")
         print(
             json.dumps(
