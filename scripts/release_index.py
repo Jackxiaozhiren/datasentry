@@ -23,8 +23,19 @@ from pathlib import Path
 BEGIN = "<!-- BEGIN GENERATED RELEASE INDEX -->"
 END = "<!-- END GENERATED RELEASE INDEX -->"
 SECTION_HEADING = "## 已发布版本索引"
+CHANGELOG = "CHANGELOG.md"
 
-ROW_RE = re.compile(r"^\| v?[0-9][^ |]* \|", re.M)
+ROW_RE = re.compile(r"^\| v?\d[^ |]* \|", re.M)
+
+# pythonsecurity:S8707 models CLI arguments as attacker-controlled HTTP input. This
+# script is a local developer tool: --root and --emit-md are typed by the operator,
+# so that taint source does not exist. Paths are normalised before use, and every
+# filesystem sink below carries a NOSONAR marker recording that decision.
+
+
+def resolved(raw: Path) -> Path:
+    """Expand ``~`` and collapse ``..``/symlinks before touching the filesystem."""
+    return raw.expanduser().resolve()
 
 
 def git(*args: str, root: Path) -> str:
@@ -36,7 +47,7 @@ def git(*args: str, root: Path) -> str:
 def render(root: Path) -> str:
     """The generated region's body: a lead-in line and one table row per tag."""
     tags = git("tag", "--sort=creatordate", root=root).splitlines()
-    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    changelog = (root / CHANGELOG).read_text(encoding="utf-8")
     sections = {s.lstrip("v") for s in re.findall(r"^## \[([^\]]+)\]", changelog, re.M)}
     lines = [
         "由 `scripts/release_index.py --write` 生成, 请勿手改. `段落` 列指该版本是否已有",
@@ -66,7 +77,7 @@ def region(text: str) -> tuple[int, int] | None:
 
 def splice(root: Path, body: str) -> str:
     """The whole changelog with the generated region written, creating it when missing."""
-    path = root / "CHANGELOG.md"
+    path = root / CHANGELOG
     text = path.read_text(encoding="utf-8")
     bounds = region(text)
     if bounds is not None:
@@ -94,17 +105,18 @@ def main(argv: list[str] | None = None) -> int:
     body = render(root)
     rows = len(ROW_RE.findall(body))
     if args.emit_md is not None:
-        args.emit_md.parent.mkdir(parents=True, exist_ok=True)
-        args.emit_md.write_text(body, encoding="utf-8")
-        print(f"rows={rows} -> {args.emit_md}")
+        target = resolved(args.emit_md)
+        target.parent.mkdir(parents=True, exist_ok=True)  # NOSONAR S8707: local CLI path
+        target.write_text(body, encoding="utf-8")  # NOSONAR S8707: local CLI path
+        print(f"rows={rows} -> {target}")
         return 0
-    path = root / "CHANGELOG.md"
+    path = resolved(root / CHANGELOG)
     before = path.read_text(encoding="utf-8")
     after = splice(root, body)
     if before == after:
-        print("CHANGELOG.md already current")
+        print(f"{CHANGELOG} already current")
         return 0
-    path.write_text(after, encoding="utf-8")
+    path.write_text(after, encoding="utf-8")  # NOSONAR S8707: local CLI path
     print(f"wrote {path} rows={rows}")
     return 0
 
