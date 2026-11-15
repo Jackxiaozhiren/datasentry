@@ -5,7 +5,9 @@
 
 档位（20.4 预算表 / ADR-007）：
 - 画像 < 20s 优化档，≤ 60s 验收下限档（3.1/42.1 @1e6 行）
-- 全量扫描（36 检测器 + 融合 + 评分）≤ 60s 验收档
+- 全量扫描（N/M 检测器 + 融合 + 评分）≤ 60s 验收档；N = 本次真正执行过的检测器数，
+  M = 注册表里启用的总数，两者都由运行时填入、不写死在表里（`D7-06`：曾经写死 36，
+  而注册表是 39、基准数据集上实际执行 32，复现记录会跟着错一位）
 - 数值异常检测合计 < 20s 优化档（20.4 表「数值异常检测」行）
 - 峰值内存增量 ≤ 数据量 × 3 为优化目标档：duckdb 聚合常驻缓冲，
   RSS 高水位仅作客观跟踪，**不阻塞验收**（ADR-007 验收下限仅时间；
@@ -58,6 +60,16 @@ HEADER = "id,price,category,event_date,name,status\n"
 
 def _rss_mb() -> float:
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
+
+
+def scan_label(ran: int, registered: int) -> str:
+    """验收表里"全量扫描"那一行的名字：跑过的检测器数与注册表总数都写出来（`D7-06`）。
+
+    旧版把个数写死成 36，而注册表启用 39、基准数据集上真正执行的是 32（其余 `supports()`
+    为假被跳过）。档位定义因此与实测工作量对不上，任何按 `docs/BENCHMARKS.md` 复现验收档的人
+    读到的都是错位的一格。
+    """
+    return f"全量扫描({ran}/{registered} 检测器+融合+评分)"
 
 
 def row_generator(n: int, rng: random.Random) -> Iterator[list[Any]]:
@@ -164,8 +176,9 @@ def bench(n: int, seed: int, sample_size: int | None = None) -> int:
             profile_secs, _ = timed(lambda: Profiler(context.handle, "bench").profile())
             results["profile"] = profile_secs
 
+            active_detectors = registry.list_active()
             per_detector: dict[str, float] = {}
-            for detector in registry.list_active():
+            for detector in active_detectors:
                 if not detector.supports(context):
                     continue
                 d_secs, _ = timed(lambda d=detector: d.detect(context))
@@ -213,7 +226,7 @@ def bench(n: int, seed: int, sample_size: int | None = None) -> int:
         print("|------|------|-------------------|------|")
         print(judge("画像 profile", profile_s, 20, 60))
         print(judge("数值异常检测合计", outlier_s, 20, 60))
-        print(judge("全量扫描(36检测器+融合+评分)", scan_s, 60, 120))
+        print(judge(scan_label(len(per_detector), len(active_detectors)), scan_s, 60, 120))
         mem_target = file_mb * 3
         mem_status = "PASS(优化)" if peak_mb <= mem_target else "超出优化目标(仅跟踪)"
         print(f"| 峰值内存增量 | {peak_mb:.0f}MB | ≤ {mem_target:.0f}MB | {mem_status} |")
