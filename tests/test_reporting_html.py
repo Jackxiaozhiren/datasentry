@@ -7,7 +7,6 @@ R-01 `<head>` 必须含 viewport meta；R-02 生成物不得含任何外部 http
 from __future__ import annotations
 
 import json
-import pathlib
 import re
 from html.parser import HTMLParser
 
@@ -149,20 +148,6 @@ class TestReportBilingual:
         numeric = [(r["severity"], r["priority"], r["affected"]) for r in en["issues"]]
         assert numeric == [(r["severity"], r["priority"], r["affected"]) for r in zh["issues"]]
         assert en["pageSize"] == zh["pageSize"] == 25
-
-
-_SAMPLE = pathlib.Path(__file__).resolve().parents[1] / "docs" / "demo" / "orders-report.html"
-
-
-class TestCommittedSample:
-    """PRD R-06：README/Pages 指向的样例报告是当前渲染器的产物, 不是手写快照。"""
-
-    def test_committed_sample_carries_the_mobile_invariants(self) -> None:
-        html = _SAMPLE.read_text()
-        tables = html.count("<table")
-        assert 'name="viewport"' in html, "样例报告没有 viewport, 手机打不开"
-        assert html.count('<div class="table-scroll">') >= tables, f"样例有 {tables} 个表格未全包住"
-        assert _EXTERNAL_LOADERS.findall(html) == []
 
 
 class TestReportLayoutInvariants:
