@@ -53,6 +53,41 @@ A scan depends on column types, cardinality, active detectors, storage format, h
 
 DataSentry therefore keeps executable acceptance gates in the repository and encourages users to run the same workload on their own hardware.
 
+## Report size and render budget (R-04)
+
+`interactive.py` inlines one `issue-data` element per issue and nothing from the source table. That architecture is correct but had no guard and no budget, so a future change could inline the whole table without any check turning red. Both were added *after* measurement: the ceilings below are derived from seven probe arms, never chosen first and then justified.
+
+Instrument, run from the repository root with one arm per process so DuckDB memory is released between arms:
+
+```bash
+uv run --no-sync python benchmarks/probe_r04_report_size.py \
+    --rows 1000000 --cols 6 \
+    --out "$HOME/r04-report-size.jsonl" \
+    --workdir "$HOME/r04-report-size-work"
+```
+
+Committed evidence: `benchmarks/r04_report_size_probe.jsonl` (7 arms at 1 000 / 50 000 / 200 000 / 1 000 000 rows x 6 and 30 columns, seed 42). Environment: DataSentry `0.8.6` / HEAD `7020b11` on a shared dirty tree, macOS 27.2 / arm64, CPython 3.12.14. Raw readings stay in that file so they can be re-read instead of re-remembered; `tests/test_report_size_budget.py` reads it back. To refresh it, regenerate all seven arms into a fresh file and replace the snapshot deliberately — the one-off command above writes to scratch, so an ambient-host reading cannot silently edit published evidence. The snapshot predates the current `render_html` call path; refreshing it also requires re-checking the ceiling below.
+
+Both the instrument and its evidence live under `benchmarks/`, **not** `AUDIT/`: `.gitignore` excludes the whole `AUDIT/` tree, and no file under it is tracked. The first version of this section claimed its evidence was committed from `AUDIT/artifacts/` and the gate read it from there; that would pass on this machine and fail on a clean clone. `tests/test_report_size_budget.py` now asserts the evidence path is not ignored and that this section points at the same path.
+
+What the arms actually showed:
+
+- HTML stayed between 37 917 and 44 043 bytes across a 1000x range of source rows. The largest arm was 1 000 000 x 30 columns; the 1 000-row control arm was *larger* than every 1 000 000-row arm because it produced 11 issues instead of 8. Report size tracks **issue count**, not source row count. A claim of the form "1M rows produce an X-byte report" would be false on this data.
+- `issue-data` carried exactly one element per issue in all seven arms. Two arms 1000x apart in row count produced the same payload row count, which is the constant R-04 asks for.
+- Render wall-clock varied about 4x across arms with no corresponding change in the report, while scan wall-clock grew past 40x as columns were added. An absolute render promise on this shared host would be noise, so the accepted statement is the **render / scan ratio**. The largest observed ratio was 0.002742.
+
+Budget row (the single source of truth for both ceilings):
+
+| Fixture | HTML bytes ceiling | Render / scan ratio ceiling |
+|---|---|---|
+| 1 000 000 x 6 | <= 64 KiB | <= 0.01 |
+
+64 KiB is about 1.45x the largest measured report (43.01 KiB) and 0.01 is about 3.6x the largest measured ratio. The padding is deliberate: the machine was shared with other sessions, and the regression policy below says an ambient-host reading is not a defect. The padding is also *bounded*: the test rejects a bytes ceiling above 4x every reading and a ratio ceiling above 10x every reading, so "make it enormous and it can never go red" fails too.
+
+`tests/test_report_size_budget.py` is the gate. It re-reads this row and the probe evidence, asserts the payload row bound on a real rendered report, and carries two injection controls (inflating `issue_rows` 50x and replacing issue shapes with raw-row shapes) plus an oversized-report arm that must fail the bytes ceiling. A copy of this document with a shrunk ceiling must also fail. None of it is wired into `make bench` or CI: this is an on-demand measurement with a re-runnable command, not a wall-clock assertion in the unit suite.
+
+What is deliberately **not** claimed: any absolute render time, any cross-machine promise, or that no raw cell value appears anywhere in the HTML. A sentinel cell injected by this probe did not surface in either the payload or the HTML, which is an observation about that one fixture, not a proof of absence.
+
 ## Cold start budget (R-22)
 
 The first screen of this product is not a scan, it is "how long until I see a report". This section measures exactly that on a clean machine with the published package, because the install path had been an anecdote with no reading behind it.
