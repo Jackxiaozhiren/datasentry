@@ -111,13 +111,19 @@ _PROFILES_JS = """(function () {
 
 
 def _fmt(v: Any) -> str | None:
-    """数值显示：None → None（渲染为 -）；有限浮点 → 4 位有效数字。"""
+    """数值显示：None → None（渲染为 -）；有限浮点 → 4 位有效数字；文本值 → PII 掩码。
+
+    VARCHAR 列 min/max 是文本极值（可能是一条 DSN、邮箱或手机号）。这条分支
+    曾直接 `str(v)` 写进内嵌的 profiles-data JSON，成为本视图唯一未走
+    `mask_text_pii` 的展示字段（B3-e；AGENTS.md 不变量 5）。掩码只针对命中的
+    PII 片段，普通文本（如 "Zebra"）原样保留，不做整值丢弃。
+    """
     if v is None:
         return None
     try:
         return f"{float(v):.4g}"
     except (TypeError, ValueError):
-        return str(v)
+        return mask_text_pii(str(v))
 
 
 def profile_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
