@@ -140,7 +140,8 @@ def _measure(rows: int, cols: int, seed: int, workdir: Path) -> dict[str, Any]:
 # pythonsecurity:S8707 models CLI arguments as attacker-controlled HTTP input. This
 # probe is a local measurement tool: --out and --workdir are typed by the operator,
 # so that taint source does not exist. Paths are normalised before use, and every
-# filesystem sink above and below carries a NOSONAR marker recording that decision.
+# filesystem sink above and below carries an inline suppression marker recording
+# that decision.
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rows", type=int, required=True)

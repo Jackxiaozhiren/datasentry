@@ -1,12 +1,13 @@
 """PRD R-04: report size ceiling and the "no raw rows in payload" ratchet.
 
-Kept out of `tests/test_reporting_html.py` on purpose: that file is the HANDOFF
-section 0 baseline instrument (9 passed), and adding cases there would change
-the preflight reading every future session relies on.
-
 The budget ceiling lives in exactly one place, the R-04 table row in
 `docs/BENCHMARKS.md`. The probe evidence in `benchmarks/` is read back, so
 a ceiling written before measuring (or a ceiling quietly shrunk later) fails.
+
+The report fixture is reused from `tests/test_reporting.py` instead of being
+copied: seven reporting tests on main already carry the same constructor, and
+another copy would add ~60 lines of cloned code. If a shared fixture lands,
+only this import needs to change.
 """
 
 from __future__ import annotations
@@ -15,19 +16,13 @@ import copy
 import json
 import re
 import subprocess
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from datasentry_core import __version__
-from datasentry_core.models.enums import QualityDimension, Severity
-from datasentry_core.models.issue import Issue
-from datasentry_core.models.quality import QualityScore
-from datasentry_core.models.scan import DetectorRun, ReproducibilityInfo, ScanConfig, ScanRun
-from datasentry_core.reporting import build_report
 from datasentry_core.reporting.html import render_html
+from test_reporting import _report
 
 _REPO = Path(__file__).resolve().parents[1]
 _BENCHMARKS = _REPO / "docs" / "BENCHMARKS.md"
@@ -39,75 +34,6 @@ _BUDGET_ROW_RE = re.compile(
     re.M,
 )
 _BARE_SECONDS_RE = re.compile(r"\b\d+\.\d+\s*s\b")
-
-
-def _report() -> dict[str, Any]:
-    """A self-contained report fixture built only from public core models.
-
-    Kept local on purpose: the richer ``tests/test_reporting_html.py`` helper in
-    the working tree also asserts layout invariants that are not on ``main`` yet.
-    When that batch lands, this constructor can be replaced by a shared fixture.
-    """
-    scan = ScanRun(
-        id="scan_abc",
-        dataset_id="orders",
-        status="completed",
-        config=ScanConfig(),
-        fingerprint={
-            "dataset_id": "orders",
-            "fingerprint_type": "full",
-            "schema_hash": "h1",
-            "row_count": 100,
-            "column_count": 2,
-            "column_signature": [["id", "BIGINT"], ["email", "VARCHAR"]],
-        },
-        issues_count={s: 0 for s in Severity},
-        started_at=datetime.now(UTC),
-        finished_at=datetime.now(UTC),
-        reproducibility=ReproducibilityInfo(
-            datasentry_version=__version__,
-            detector_versions={"numeric_outlier": "1.0.0"},
-            seed=42,
-            scanned_at=datetime.now(UTC),
-        ),
-    )
-    runs = [
-        DetectorRun(
-            id="dr_1",
-            scan_run_id="scan_abc",
-            detector_id="numeric_outlier",
-            detector_version="1.0.0",
-            status="completed",
-            rows_scanned=100,
-            duration_ms=5,
-            issues_candidates=1,
-        )
-    ]
-    issues = [
-        Issue(
-            id="iss_1",
-            scan_run_id="scan_abc",
-            issue_type="numeric_outlier",
-            title="Outlier in amount",
-            dataset_id="orders",
-            columns=["amount"],
-            quality_dimensions=[QualityDimension.VALIDITY],
-            severity=Severity.HIGH,
-            confidence=0.9,
-            priority_score=78.5,
-            affected_count=2,
-            affected_ratio=0.02,
-            detector_ids=["numeric_outlier"],
-        )
-    ]
-    quality = QualityScore(
-        overall=88.2,
-        dimensions={"validity": 76.6},
-        weights={"validity": 1.0},
-        calculation_notes="dimension = 100 * (1 - ...)",
-        dimension_contributions={"validity": {"iss_1": 0.375}},
-    )
-    return build_report(scan, runs, issues, quality, generated_at=datetime(2026, 8, 2))
 
 
 def _payload(html: str) -> list[dict[str, Any]]:
@@ -185,10 +111,10 @@ class TestPayloadBound:
 
         a = _payload(render_html(small))
         b = _payload(render_html(large))
-        assert a and b
-        assert len(a) == len(b) == len(small["issues"]), (
-            "the payload must not grow with the source table"
-        )
+        assert a, "the small report carries no issue payload"
+        assert b, "the large report carries no issue payload"
+        assert len(a) == len(small["issues"]), "the payload must match the issue count"
+        assert len(b) == len(a), "the payload must not grow with the source table"
 
     def test_probe_evidence_confirms_the_constant_across_two_orders(self) -> None:
         arms = _evidence()
@@ -235,7 +161,8 @@ class TestPayloadBound:
 class TestBudgetRow:
     def test_budget_row_exists_and_is_parsed(self) -> None:
         kib, ratio = _budget()
-        assert kib > 0 and ratio > 0
+        assert kib > 0, "the byte ceiling must be positive"
+        assert ratio > 0, "the render/scan ratio ceiling must be positive"
 
     def test_evidence_is_committable_not_ignored(self) -> None:
         """A gate reading an ignored local file passes here, fails on a clean clone.
