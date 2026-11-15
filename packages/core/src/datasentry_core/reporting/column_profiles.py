@@ -174,7 +174,7 @@ def render_column_profiles(data: dict[str, Any], *, lang: str = "en") -> str:
     }
     return (
         '<div id="profiles">'
-        '<table id="profiles-table">'
+        '<div class="table-scroll"><table id="profiles-table">'
         "<thead><tr>"
         f'<th data-key="name">{escape(t(lang, "profiles.column"))}</th>'
         f"<th>{escape(t(lang, 'profiles.semantic'))}</th><th>{escape(t(lang, 'profiles.pii'))}</th>"
@@ -189,7 +189,7 @@ def render_column_profiles(data: dict[str, Any], *, lang: str = "en") -> str:
         f"<th>{escape(t(lang, 'profiles.top_categories'))}</th>"
         "</tr></thead>"
         '<tbody id="profiles-tbody"></tbody>'
-        "</table>"
+        "</table></div>"
         "</div>"
         f'<script type="application/json" id="profiles-data">{json_script(payload)}</script>'
         f"<script>{_PROFILES_JS}</script>"

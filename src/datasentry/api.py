@@ -734,6 +734,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         lang: str = Query(default="en"),
     ) -> HTMLResponse:
         """交互式 HTML 报告（Step 49，V2-B）：server 模式注入工作台联动与趋势数据。"""
+        from datasentry.report_evidence import build_repair_records
         from datasentry.trends import build_comparison, build_trends
         from datasentry_core.reporting.html import render_html
 
@@ -746,6 +747,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         profiles = client.load_profile(run_id)
         dataset_id = str(cast("dict[str, Any]", report)["scan"]["dataset_id"])
         comparison = build_comparison(client.list_scan_runs(), dataset_id, run_id)
+        repair_records = build_repair_records(client, cast("dict[str, Any]", report))
         return HTMLResponse(
             render_html(
                 report,
@@ -754,6 +756,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
                 profiles=profiles,
                 comparison=comparison,
                 lang=lang,
+                repair_records=repair_records or None,
             )
         )
 

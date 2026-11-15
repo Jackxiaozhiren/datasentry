@@ -14,7 +14,7 @@ import sqlite3
 import time
 
 #: 当前 schema 版本（PRAGMA user_version）
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 _SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS repair_runs (
     fingerprint_before  TEXT NOT NULL,
     fingerprint_after   TEXT,
     operations          TEXT NOT NULL,
+    rows_changed        INTEGER,
     approved_by         TEXT NOT NULL,
     approval_kind       TEXT NOT NULL CHECK (approval_kind IN ('manual','yes_typed')),
     approved_at         TEXT,
@@ -480,6 +481,11 @@ def migrate(conn: sqlite3.Connection) -> None:
     # 支撑「验证」闭环（重扫修复副本后与原 run 对比）
     if version < 10:
         _ensure_column(conn, "repair_runs", "source_scan_run_id", "source_scan_run_id TEXT")
+    # v10 → v11：repair_runs.rows_changed —— 真被改动的行数。`operations` 是有上限的样本，
+    # 而 UI/CLI 一直拿它的长度当"改动行数"显示，600 行的修复会写 500（实测）。
+    # NULL 而非 0：旧记录确实不知道。
+    if version < 11:
+        _ensure_column(conn, "repair_runs", "rows_changed", "rows_changed INTEGER")
     # v7 → v8：job_runs.status 增 cancelled（V22，Step 114，ADR-114）——
     # SQLite 无法 ALTER CHECK，重建表放宽约束（数据原样保留；无表引用
     # job_runs，DROP 安全；外键到 scheduled_jobs 由 RENAME 保留）。

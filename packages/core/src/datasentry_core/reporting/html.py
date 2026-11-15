@@ -102,6 +102,7 @@ body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 2rem 
 h1 { border-bottom: 2px solid var(--accent); padding-bottom: .3rem; }
 h2 { margin-top: 2rem; border-bottom: 1px solid var(--border); padding-bottom: .2rem; }
 table { border-collapse: collapse; width: 100%; margin: .5rem 0; }
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 th, td { border: 1px solid var(--border); padding: .35rem .6rem; text-align: left;
        font-size: .9rem; }
 th { background: var(--surface); }
@@ -110,7 +111,7 @@ th { background: var(--surface); }
 .badge-medium { color: var(--medium); font-weight: 600; }
 .badge-low, .badge-info { color: var(--fg-muted); }
 .score-bar { display: flex; width: 100%; height: 1.4rem; border-radius: .4rem;
-             overflow: hidden; border: 1px solid var(--border); }
+             overflow: hidden; border: 1px solid var(--border); box-sizing: border-box; }
 .score-bar section { color: var(--on-accent); font-size: .7rem; text-align: center; }
 footer { margin-top: 3rem; font-size: .8rem; color: var(--fg-muted);
          border-top: 1px solid var(--border); }
@@ -171,6 +172,14 @@ tr.issue-row.highlight td { background: var(--highlight); }
 .cmp-down { color: var(--critical); font-weight: 600; }
 tr.cmp-current td { background: var(--surface); font-weight: 600; }
 .cmp-badge { color: var(--accent); font-size: .75rem; margin-left: .4rem; }
+/* 窄屏断点写在所有基础规则之后: 写在 _CSS 开头会被同特异性的
+   `.report-nav { position: sticky }` 等规则按层叠顺序盖掉 (实测 computed 仍是 sticky). */
+@media (max-width: 560px) {
+  body { margin: 1rem; }
+  a, button, input, select { min-height: 2.75rem; }
+  .report-nav { position: static; }
+  th, td { padding: .5rem .6rem; }
+}
 """
 
 _BAR_COLORS = [
@@ -278,6 +287,7 @@ def render_html(
     profiles: dict[str, Any] | None = None,
     comparison: list[dict[str, Any]] | None = None,
     lang: str = "en",
+    repair_records: list[dict[str, Any]] | None = None,
 ) -> str:
     """26 章报告 → 自包含 HTML（内嵌 CSS/JS，无外部资源）。
 
@@ -288,17 +298,21 @@ def render_html(
     comparison：`build_comparison` 输出（Step 64，ADR-064）→ 同数据集历史
     run 对比表，缺省/空不渲染；
     lang：框架文案语言（en/zh，V8，ADR-069），未知语言回退 en；
+    repair_records：`build_repair_records()` 的产出 → Repair Record 证据节；
+    缺省/空时整节不渲染（不出现空壳）。
     检测器产出的 issue 标题/描述不译。
     """
     parts = [
         "<!DOCTYPE html>",
         f'<html lang="{t(lang, "html.lang")}"><head><meta charset="utf-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1">',
         f"<title>{escape(t(lang, 'report.title'))}</title>",
         f"<style>{_CSS}</style></head><body>",
         f"<h1>{escape(t(lang, 'report.title'))}</h1>",
         _report_nav(
             include_profiles=bool(profiles and profiles.get("column_profiles")),
             include_comparison=bool(comparison),
+            include_repair=bool(repair_records),
             lang=lang,
         ),
         _meta(report),
@@ -320,6 +334,8 @@ def render_html(
         parts.append(_column_profiles(profiles, lang=lang))
     if comparison:
         parts.append(_comparison_section(comparison, lang=lang))
+    if repair_records:
+        parts.append(_repair_record_section(repair_records, lang=lang))
     parts.extend(
         [
             _methodology(lang=lang),
@@ -342,6 +358,7 @@ def _report_nav(
     *,
     include_profiles: bool = False,
     include_comparison: bool = False,
+    include_repair: bool = False,
     lang: str = "en",
 ) -> str:
     """粘性章节导航（scrollspy 追踪当前章节，脚本见 _LINKAGE_JS）。"""
@@ -350,12 +367,154 @@ def _report_nav(
         sections.append("column_profiles")
     if include_comparison:
         sections.append("comparison")
+    if include_repair:
+        sections.append("repair_record")
     links = "".join(f'<a href="#{s}">{escape(t(lang, f"section.{s}"))}</a>' for s in sections)
     return (
         f'<nav class="report-nav" id="report-nav" '
         f'aria-label="{escape(t(lang, "report.nav_aria"))}">'
         f"{links}</nav>"
     )
+
+
+def _repair_cell(value: object) -> str:
+    """人类可读输出前的最后一道掩码, 与 Critical Findings 用同一个 mask_text_pii."""
+    if value is None:
+        return "&#8709;"
+    return escape(mask_text_pii(str(value)))
+
+
+def _repair_diff_table(diff: dict[str, Any], *, lang: str) -> str:
+    """整行 before/after 内联。表格必须落在 table-scroll 里(R-01 断言覆盖所有 table)。"""
+    columns = [str(c) for c in (diff.get("columns") or [])]
+    head = "".join(
+        f"<th>{escape(t(lang, key))}</th>"
+        for key in (
+            "ui.artifact_line",
+            "repair.diff_column",
+            "ui.artifact_before",
+            "ui.artifact_after",
+        )
+    )
+    no_key = escape(t(lang, "ui.artifact_no_key"))
+    body: list[str] = []
+    for row in diff.get("rows") or []:
+        before = row.get("before") or {}
+        after = row.get("after") or {}
+        line = escape(str(row.get("line", "")))
+        for column in columns:
+            if column not in before and column not in after:
+                continue  # json_cell_map 省略了从未出现过的键, 不替文件编造
+            b = _repair_cell(before[column]) if column in before else no_key
+            a = _repair_cell(after[column]) if column in after else no_key
+            body.append(
+                f"<tr><td>{line}</td><td>{escape(mask_text_pii(column))}</td>"
+                f"<td>{b}</td><td>{a}</td></tr>"
+            )
+    hidden = int(diff.get("hidden") or 0)
+    if hidden:
+        note = escape(t(lang, "ui.artifact_more").format(n=hidden))
+        body.append(f'<tr><td colspan="4">{note}</td></tr>')
+    return (
+        '<div class="table-scroll"><table>'
+        f"<thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>"
+    )
+
+
+def _verify_line(verify: dict[str, Any], *, lang: str = "en") -> str:
+    """R-08: verify 结论只占一行, 措辞全部由 i18n 键提供, 不在这里拼判断。
+
+    两个分数各自带"哪份检测器代码"; 两次扫描代码不同时明写不可直接比较。
+    刻意不做"变好/变差"的判断 —— 那是 Goodhart 陷阱(本次实测 96.8 -> 96.2,
+    分数下降, 但那不是"质量下降"的结论, 只是同一重扫器的另一次读数)。
+    """
+
+    def code_label(code: Any) -> str:
+        item = code if isinstance(code, dict) else {}
+        text = (
+            t(lang, "verify.code_label")
+            .replace("{version}", str(item.get("version") or "unknown"))
+            .replace("{n}", str(item.get("detector_count") or 0))
+        )
+        return escape(text)
+
+    before = escape(str(verify.get("before_score")))
+    after = escape(str(verify.get("after_score")))
+    run_id = escape(str(verify.get("verify_scan_run_id") or "-"))
+    types = verify.get("new_issue_types")
+    new_count = len(types) if isinstance(types, list) else 0
+    new_types = escape(t(lang, "verify.new_types").replace("{n}", str(new_count)))
+    fields = [
+        f"<strong>{escape(t(lang, 'verify.label'))}</strong>",
+        f"({escape(t(lang, 'verify.same_engine'))}, <code>{run_id}</code>):",
+        f"<code>{before}</code> [{code_label(verify.get('source_code'))}]",
+        "&rarr;",
+        f"<code>{after}</code> [{code_label(verify.get('verify_code'))}]",
+        "|",
+        new_types,
+        "|",
+        escape(t(lang, "verify.no_claim")),
+        escape(t(lang, "verify.code_note")),
+    ]
+    if not verify.get("same_code", False):
+        fields += ["|", escape(t(lang, "verify.code_mismatch"))]
+    return '<p class="verify-line">' + " ".join(fields) + "</p>"
+
+
+def _repair_record_section(records: list[dict[str, Any]], *, lang: str = "en") -> str:
+    """R-07: 修复证据。只在有记录时被调用, 不渲染空壳。"""
+    parts = [f'<h2 id="repair_record">{escape(t(lang, "section.repair_record"))}</h2>']
+    for record in records:
+        run_id = escape(str(record["run_id"]))
+        issue = escape(str(record.get("issue_type") or record.get("issue_id") or "-"))
+        parts.append('<div class="repair-record">')
+        parts.append(
+            f"<p><strong>Run</strong> <code>{run_id}</code> | "
+            f"<strong>{escape(t(lang, 'repair.issue'))}</strong> <code>{issue}</code> | "
+            f"{escape(str(record['status']))}</p>"
+        )
+        operations = record.get("operations") or []
+        ops = (
+            ", ".join(
+                f"{escape(str(o['operation']))} ({escape(str(o['column']))}) x{int(o['count'])}"
+                for o in operations
+            )
+            or "-"
+        )
+        parts.append(f"<p><strong>{escape(t(lang, 'repair.operations'))}</strong> {ops}</p>")
+        changed = record.get("rows_changed")
+        label = escape(t(lang, "repair.rows_changed"))
+        value = (
+            str(changed)
+            if isinstance(changed, int)
+            else escape(t(lang, "repair.unknown_rows_changed"))
+        )
+        parts.append(f"<p><strong>{label}</strong> {value}</p>")
+        artifact_links = [
+            f'<a href="../repairs/{escape(str(name))}">{escape(str(name))}</a>'
+            for name in (record.get("artifact_before"), record.get("artifact_copy"))
+            if name
+        ]
+        links = " | ".join(artifact_links)
+        parts.append(f"<p><strong>{escape(t(lang, 'repair.artifacts'))}</strong> {links}</p>")
+        parts.append(
+            f"<p><strong>{escape(t(lang, 'repair.rollback_command'))}</strong> "
+            f"<code>{escape(str(record['rollback_command']))}</code></p>"
+        )
+        verify = record.get("verify")
+        if isinstance(verify, dict):
+            parts.append(_verify_line(verify, lang=lang))
+        diff = record.get("diff")
+        if diff is None:
+            parts.append(f'<p class="meta">{escape(t(lang, "ui.artifact_unavailable"))}</p>')
+        else:
+            parts.append(_repair_diff_table(diff, lang=lang))
+        parts.append(
+            f'<p><a href="/ui/repairs/{run_id}/artifact">'
+            f"{escape(t(lang, 'ui.view_full_artifact'))}</a></p>"
+        )
+        parts.append("</div>")
+    return "\n".join(parts)
 
 
 _SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"]
@@ -413,7 +572,8 @@ def _comparison_section(comparison: list[dict[str, Any]], *, lang: str = "en") -
         body.append(f"<tr{cls}>{''.join(cells)}</tr>")
     return (
         f'<h2 id="comparison">{escape(t(lang, "section.comparison"))}</h2>'
-        f"<table><thead><tr>{header}</tr></thead><tbody>{''.join(body)}</tbody></table>"
+        f'<div class="table-scroll"><table><thead><tr>{header}</tr></thead>'
+        f"<tbody>{''.join(body)}</tbody></table></div>"
     )
 
 
@@ -444,14 +604,14 @@ def _executive_summary(report: Report, *, lang: str = "en") -> str:
     overall = f"{quality['overall']:.1f}" if quality else t(lang, "meta.not_scored")
     return (
         f'<h2 id="executive_summary">{escape(t(lang, "section.executive_summary"))}</h2>'
-        "<table>"
+        '<div class="table-scroll"><table>'
         f"<tr><th>{escape(t(lang, 'meta.overall'))}</th><td>{overall}</td></tr>"
         f"<tr><th>{escape(t(lang, 'meta.issues'))}</th><td>{len(report['issues'])}</td></tr>"
         f"<tr><th>{escape(t(lang, 'meta.detector_runs'))}</th>"
         f"<td>{len(report['detector_runs'])}</td></tr>"
         f"<tr><th>{escape(t(lang, 'meta.rows_cols'))}</th><td>{scan['fingerprint']['row_count']} / "
         f"{scan['fingerprint']['column_count']}</td></tr>"
-        "</table>"
+        "</table></div>"
     )
 
 
@@ -574,7 +734,7 @@ def _dataset_overview(report: Report, *, lang: str = "en") -> str:
     ]
     return (
         f'<h2 id="dataset_overview">{escape(t(lang, "section.dataset_overview"))}</h2>'
-        f"<table>{''.join(rows)}</table>"
+        f'<div class="table-scroll"><table>{"".join(rows)}</table></div>'
         f"<p><strong>{escape(t(lang, 'meta.columns'))}</strong></p><ul>{''.join(columns)}</ul>"
     )
 

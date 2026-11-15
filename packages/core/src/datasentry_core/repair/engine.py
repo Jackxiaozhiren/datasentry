@@ -112,6 +112,31 @@ def _after_expr(operation: RepairOperation, column: str, params: dict[str, Any])
     raise ValueError(f"unsupported repair operation: {operation}")
 
 
+def _distinct_expr(operation: RepairOperation, column: str, params: dict[str, Any]) -> str:
+    """「这次修复是否改动了这个单元格」的唯一 SQL 拼写。"""
+    return f"{quote_ident(column)} IS DISTINCT FROM ({_after_expr(operation, column, params)})"
+
+
+def affected_row_count(
+    handle: Any,
+    operation: RepairOperation,
+    columns: list[str],
+    params: dict[str, Any],
+) -> int:
+    """受影响**行**数的唯一算法：任一目标列真正变化的行只算一次。
+
+    按列累加会把同一行在多列上重复计数（同一夹具下 2 行被读成 3）。报告里的
+    `rows_changed` 与提案的 `estimated_rows_changed` 问的都是行数，所以只在这里算一次。
+    """
+    if not columns:
+        return 0
+    predicates = [_distinct_expr(operation, column, params) for column in columns]
+    table = handle.sql_aggregate(
+        f"SELECT count(*) AS n FROM data WHERE {' OR '.join(predicates)}"
+    ).table
+    return int(table.column("n").to_pylist()[0])
+
+
 def cells_equal(left: object, right: object) -> bool:
     """Same cell content on both sides -- which is not the same question as ``==``.
 
@@ -289,15 +314,7 @@ class RepairEngine:
         params: dict[str, object],
     ) -> int:
         """估算受影响行数（任一目标列变化即计）。"""
-        total = 0
-        for column in columns:
-            q = quote_ident(column)
-            expr = _after_expr(operation, column, params)
-            table = context.handle.sql_aggregate(
-                f"SELECT count(*) AS n FROM data WHERE {q} IS DISTINCT FROM ({expr})"
-            ).table
-            total += int(table.column("n").to_pylist()[0])
-        return total
+        return affected_row_count(context.handle, operation, columns, params)
 
     def preview(
         self,
@@ -397,6 +414,9 @@ class RepairEngine:
             fingerprint_before=fingerprint_before.file_sha256 or "",
             fingerprint_after=fingerprint_after.file_sha256 or "",
             operations=operations,
+            rows_changed=RepairEngine._affected_rows(
+                context, proposal.operation, list(proposal.target_columns), proposal.parameters
+            ),
             rollback_artifact=str(artifact_path),
             status=RepairRunStatus.APPLIED,
         )

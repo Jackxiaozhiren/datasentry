@@ -321,9 +321,9 @@ class MetadataStore:
                 INSERT OR REPLACE INTO repair_runs (
                     id, dataset_id, proposal_id, source_scan_run_id,
                     fingerprint_before, fingerprint_after,
-                    operations, approved_by, approval_kind, approved_at, status,
+                    operations, rows_changed, approved_by, approval_kind, approved_at, status,
                     rollback_artifact, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run.id,
@@ -333,6 +333,7 @@ class MetadataStore:
                     run.fingerprint_before,
                     run.fingerprint_after,
                     json.dumps([op.model_dump() for op in run.operations], default=str),
+                    run.rows_changed,
                     run.approved_by,
                     run.approval_kind,
                     _iso(run.approved_at) if run.approved_at else None,
@@ -762,6 +763,7 @@ class MetadataStore:
             operations=[
                 RepairOperationRecord.model_validate(op) for op in json.loads(d["operations"])
             ],
+            rows_changed=d.get("rows_changed"),
             approved_by=d["approved_by"],
             approval_kind=d["approval_kind"],
             approved_at=(datetime.fromisoformat(d["approved_at"]) if d["approved_at"] else None),

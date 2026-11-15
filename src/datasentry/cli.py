@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from datasentry import __version__
 from datasentry.client import DataSentry
+from datasentry.report_evidence import build_repair_records
 from datasentry_core.connectors.errors import ConnectorError, DataSourceNotFoundError
 from datasentry_core.llm.provider import LLMError
 from datasentry_core.models.contract import Contract, QualityGate
@@ -459,6 +460,32 @@ def _cmd_issues_show(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _render_html_content(
+    client: DataSentry, report: dict[str, object], selector: str, lang: str
+) -> str:
+    """报告 → 自包含 HTML。CLI `report export --as html` 的唯一渲染路径。
+
+    修复证据（R-07）在这里注入：导出与 REST 端点各调一次 `build_repair_records`，
+    渲染层只负责输出，不回头查库。
+    """
+    from datasentry.trends import build_comparison, build_trends
+    from datasentry_core.reporting.html import render_html
+
+    trends = [t.to_report_dict() for t in build_trends(client.list_scan_runs())]
+    profiles = client.load_profile(selector)
+    dataset_id = str(cast("dict[str, Any]", report)["scan"]["dataset_id"])
+    comparison = build_comparison(client.list_scan_runs(), dataset_id, selector)
+    repair_records = build_repair_records(client, cast("dict[str, Any]", report))
+    return render_html(
+        report,
+        trends=trends or None,
+        profiles=profiles,
+        comparison=comparison,
+        lang=lang,
+        repair_records=repair_records or None,
+    )
+
+
 def _cmd_report_export(args: argparse.Namespace) -> int:
     """22.1 report export：JSON/Markdown/HTML 报告（26 章），输出文件路径。"""
     client = DataSentry(args.project)
@@ -486,20 +513,7 @@ def _cmd_report_export(args: argparse.Namespace) -> int:
 
         content = json.dumps(render_sarif(report), ensure_ascii=False, indent=2)
     else:
-        from datasentry.trends import build_comparison, build_trends
-        from datasentry_core.reporting.html import render_html
-
-        trends = [t.to_report_dict() for t in build_trends(client.list_scan_runs())]
-        profiles = client.load_profile(args.run_id)
-        dataset_id = str(cast("dict[str, Any]", report)["scan"]["dataset_id"])
-        comparison = build_comparison(client.list_scan_runs(), dataset_id, args.run_id)
-        content = render_html(
-            report,
-            trends=trends or None,
-            profiles=profiles,
-            comparison=comparison,
-            lang=args.lang,
-        )
+        content = _render_html_content(client, report, str(args.run_id), args.lang)
     path = _report_output_path(client, args, args.as_format)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
