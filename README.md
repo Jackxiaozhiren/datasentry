@@ -187,6 +187,8 @@ datasentry mcp --project /path/to/project
 MCP-capable clients can scan files, inspect evidence-backed issues, read quality scores and trends, compare drift, validate contracts, manage scheduled jobs, and call DataSentry tools without bypassing the same underlying safety rules used by the CLI and REST API.
 
 Copy-paste setup recipes for **VS Code** and **Claude Desktop** are in [`docs/MCP.md`](docs/MCP.md).
+Hosts that declare MCP Apps support also get a read-only report card from `report_export`; see
+[`docs/MCP_APPS.md`](docs/MCP_APPS.md) for the negotiation contract and its verification limits.
 
 > **Boundary:** AI may propose; humans approve state-changing repairs.
 
