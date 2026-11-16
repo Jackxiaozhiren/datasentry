@@ -381,6 +381,23 @@
   非排序列不进 Tab 序列、`click` 与 `keydown` 绑定数量相等（新增第三张表却忘键盘路径会红）、
   评分条段是原生 `<button>` 且不再重复声明语义、不会重复触发、焦点环与可点信号存在。
 
+### 新增
+
+- **MCP Apps：声明支持的客户端可从 `report_export` 额外拿到一张只读报告卡片（R-10/R-11/R-13）**。
+  能力由客户端在 `initialize` 里声明（`extensions` 或旧写法 `experimental` 下的 `mcp-apps` 键），
+  服务端不猜；声明缺失或格式不对时，`initialize` 与 `tools/call` 的响应与加此功能前**逐字节相同**
+  （`tests/fixtures/mcp_report_export_legacy.json` 是功能前抓的快照，任何多出的键、`_meta` 或
+  content 块都会让门禁变红）。声明支持时 `capabilities` 多一个 `extensions["mcp-apps"].resourceUri`，
+  `report_export` 在同一份 `text` 块之后多一个 `text/html` 资源块，指向
+  `ui://datasentry/report.html`；脚本解析的 JSON **没有变化**。
+  卡片只投影 payload 里的分数与分级计数，无 `<script>`/`<form>`/`<button>`/`href`，也没有
+  approve/apply/reject/rollback 词表（invariant 2：AI 只能提案）；数字门禁证明卡片正文里出现的
+  每个数字都能在 payload 里找到同源值，且换一份 payload 数字会跟着变（R-13：不引入第二套领域逻辑）。
+  390 CSS px 下的 viewport 与 `box-sizing:border-box; width:100%; max-width:520px` 有结构性判据，
+  浏览器实测截图归档在 `docs/assets/mcp-apps-card-390.png`。
+  **R-12 未完成**：未在 Claude / ChatGPT / Cursor 等真客户端里渲染验证，归档截图是无头浏览器的
+  排版证据而非真客户端结果；`docs/MCP_APPS.md` 明确写了这一点，测试也钉住该声明不许含糊。
+
 ### 文档
 
 - **`docs/demo/orders-report.html` 重新由渲染器生成，并补上生成入口**。此前这份样例是手工保存的快照，
