@@ -62,7 +62,7 @@ _FIXED_REPORT: dict[str, Any] = {
 }
 
 
-@pytest.fixture()
+@pytest.fixture
 def server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     srv = McpServer(project=tmp_path / "ws")
     monkeypatch.setattr(srv._client, "export_report", lambda scan_run_id: dict(_FIXED_REPORT))
@@ -199,8 +199,10 @@ class TestNoSecondDomainLogic:
         other["scan"]["issues_count"] = {"critical": 7}
         first = mcp_apps.report_card_html(_FIXED_REPORT)
         second = mcp_apps.report_card_html(other)
-        assert "96.75" in first and "96.75" not in second
-        assert "71.5" in second and "71.5" not in first
+        assert "96.75" in first
+        assert "96.75" not in second
+        assert "71.5" in second
+        assert "71.5" not in first
         assert ">7<" in second
 
     def test_card_numbers_helper_matches_the_rendered_body(self) -> None:
@@ -215,15 +217,17 @@ class TestGateCanGoRed:
         response = _export(server)
         drifted = json.loads(json.dumps(response))
         drifted["result"]["structuredContent"] = {"ok": True}
+        snapshot = _SNAPSHOT.read_text(encoding="utf-8")
         with pytest.raises(AssertionError, match="legacy response bytes changed"):
-            _assert_matches_snapshot(drifted, _SNAPSHOT.read_text(encoding="utf-8"))
+            _assert_matches_snapshot(drifted, snapshot)
 
     def test_a_card_leaking_into_the_legacy_path_is_detected(self, server: McpServer) -> None:
         response = _export(server)
         drifted = json.loads(json.dumps(response))
         drifted["result"]["content"].append({"type": "resource", "resource": {}})
+        snapshot = _SNAPSHOT.read_text(encoding="utf-8")
         with pytest.raises(AssertionError, match="legacy response bytes changed"):
-            _assert_matches_snapshot(drifted, _SNAPSHOT.read_text(encoding="utf-8"))
+            _assert_matches_snapshot(drifted, snapshot)
 
     def test_an_invented_number_in_the_card_is_detected(self) -> None:
         html = mcp_apps.report_card_html(_FIXED_REPORT).replace(
