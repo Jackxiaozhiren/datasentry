@@ -112,7 +112,8 @@ th { background: var(--surface); }
 .badge-low, .badge-info { color: var(--fg-muted); }
 .score-bar { display: flex; width: 100%; height: 1.4rem; border-radius: .4rem;
              overflow: hidden; border: 1px solid var(--border); box-sizing: border-box; }
-.score-bar section { color: var(--on-accent); font-size: .7rem; text-align: center; }
+.score-bar button { appearance: none; margin: 0; border: 0; border-radius: 0; padding: 0;
+                    font: inherit; font-size: .7rem; color: var(--on-accent); text-align: center; }
 footer { margin-top: 3rem; font-size: .8rem; color: var(--fg-muted);
          border-top: 1px solid var(--border); }
 .notes { font-size: .85rem; color: var(--fg-muted); background: var(--surface); padding: .6rem;
@@ -146,9 +147,9 @@ h2 { scroll-margin-top: 3.2rem; }
               margin-top: .6rem; }
 .report-nav a { color: var(--accent); text-decoration: none; }
 .report-nav a.active { font-weight: 600; text-decoration: underline; }
-.score-bar section { cursor: pointer; }
-.score-bar section:hover { filter: brightness(1.08); }
-.score-bar section:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.score-bar button { cursor: pointer; }
+.score-bar button:hover { filter: brightness(1.08); }
+.score-bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 th[data-key] { cursor: pointer; user-select: none; }
 th[data-key]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px;
                              background: var(--highlight); }
@@ -244,14 +245,8 @@ _LINKAGE_JS = """(function () {
     var f = e.target.closest(".finding-link");
     if (f) { focusIssue(f.getAttribute("data-issue-id")); }
   });
-  Array.prototype.forEach.call(document.querySelectorAll("[data-dim-link]"), function (seg) {
-    seg.addEventListener("keydown", function (e) {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        jumpToDimension(seg.getAttribute("data-dim-link"));
-      }
-    });
-  });
+  // 评分条段是真 <button>: Enter/空格由浏览器合成为 click. 这里再绑 keydown 会让
+  // 一次回车跳两次 (第二次把已设好的筛选再设一遍, 日志里看不出, 用户只感到闪).
   var nav = byId("report-nav");
   var links = nav ? Array.prototype.slice.call(nav.querySelectorAll("a[href^='#']")) : [];
   var sections = [];
@@ -644,11 +639,10 @@ def _quality_score(report: Report, *, lang: str = "en") -> str:
         color = _BAR_COLORS[index % len(_BAR_COLORS)]
         title = escape(_contributions_tooltip(quality, dim, lang=lang))
         sections.append(
-            '<section class="score-dim" role="button" tabindex="0" '
+            '<button type="button" class="score-dim" '
             f'data-dim-link="{escape(dim)}" '
-            f'style="width:{width};background:{color}" title="{title}" '
-            f'aria-label="{escape(dim)}: {value:.1f}">'
-            f"{escape(dim)} {value:.1f}</section>"
+            f'style="width:{width};background:{color}" title="{title}">'
+            f"{escape(dim)} {value:.1f}</button>"
         )
     contributions = quality.get("dimension_contributions") or {}
     notes_rows = []

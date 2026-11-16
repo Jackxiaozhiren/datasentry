@@ -198,7 +198,9 @@ class TestNavAndLinkage:
         html = render_html(_report())
         for dim in ("validity", "uniqueness"):
             assert f'data-dim-link="{dim}"' in html
-        assert 'role="button"' in html and 'tabindex="0"' in html
+        # 维度条是真 <button>：键盘与读屏语义由元素本身提供，不再靠 role/tabindex 补。
+        assert '<button type="button" class="score-dim"' in html
+        assert 'role="button"' not in html
         assert 'class="score-dim"' in html
 
     def test_critical_findings_link_to_issue_rows(self) -> None:

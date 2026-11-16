@@ -366,15 +366,20 @@
 
 - **报告的三个交互面都能用键盘操作，排序状态也会被读屏器读出来**。此前两张可排序表（问题表、列画像）
   的 `<th>` 只挂 `click`：Tab 停不到表头，回车/空格无效，只能靠鼠标排序；问题行同样只能点整行展开。
-  评分条虽然有 `role="button"` + `tabindex="0"`，但键盘处理是 document 级委托——浏览器里能用，
-  辅助技术与静态检查都看不到"等价键盘事件"。现在：可排序表头进 Tab 序列（`tabindex="0"`）、
-  带 `aria-sort`（`none`/`ascending`/`descending`，每次排序后重绘），回车与空格都能触发排序；
-  问题行可聚焦、用 `aria-expanded` 报告展开状态；三个面的键盘监听都绑在元素自身而非 document 上；
-  并补了 `:focus-visible` 焦点环与 `cursor: pointer`（焦点环此前只在评分条上有）。
+  评分条段则是 `<section role="button" tabindex="0">` 配 document 级 keydown 委托，还带一个与可见文本
+  不一致的 `aria-label`（`validity: 76.6` 对 `validity 76.6`）。现在：可排序表头进 Tab 序列
+  （`tabindex="0"`）、带 `aria-sort`（`none`/`ascending`/`descending`，每次排序后重绘），
+  回车与空格都能触发排序；问题行可聚焦、用 `aria-expanded` 报告展开状态；评分条段改为原生
+  `<button type="button">`——Tab 序、Enter/空格激活与「按钮」角色都由元素本身给出，`role`/`tabindex`/
+  `aria-label` 一并去掉，也不再额外绑 keydown（浏览器已把按键合成为 click，再绑会让一次回车跳两次）；
+  UA 的默认边框与内边距用 `appearance: none` + `border/padding/margin: 0` 复位，色段宽度与条高不变。
+  两张可排序表的键盘监听绑在元素自身而非 document 上，并补了 `:focus-visible` 焦点环与
+  `cursor: pointer`（焦点环此前只在评分条上有，且被评分条的 `overflow: hidden` 裁掉大半——
+  改用 `outline-offset: -2px` 画在色段内侧，与表头一致）。
   **无行为变更**：鼠标路径、排序语义与分页都不变，只是多了一条等价的键盘路径。
-  判据见 `tests/test_reporting_a11y.py`（11 例）：可排序表头数量与 `tabindex`/`aria-sort`、
+  判据见 `tests/test_reporting_a11y.py`（14 例）：可排序表头数量与 `tabindex`/`aria-sort`、
   非排序列不进 Tab 序列、`click` 与 `keydown` 绑定数量相等（新增第三张表却忘键盘路径会红）、
-  焦点环与可点信号存在。
+  评分条段是原生 `<button>` 且不再重复声明语义、不会重复触发、焦点环与可点信号存在。
 
 ### 文档
 
