@@ -2,12 +2,15 @@
 
 此前三个交互面只有鼠标路径：两张可排序表的 `<th>` 只挂 `click`，问题行只靠点整行
 展开详情，评分条的 `data-dim-link` 依赖 document 级 keydown 委托（浏览器里能用，
-但静态检查看不到"等价键盘事件"，也无法用 Tab 到达表头与行）。这里钉住三件事：
+但静态检查看不到"等价键盘事件"，也无法用 Tab 到达表头与行）。评分条后来改用真
+`<button>`：键盘激活、Tab 序与角色都由元素本身给出，不再靠 `role`/`tabindex`/
+`keydown` 三样东西拼一个按钮出来。这里钉住四件事：
 
 1. 每个可排序表头都在 Tab 序列里，并带 `aria-sort` 初值；
 2. 非可排序表头不进 Tab 序列（否则用户要按十几次才跳过一行表头）；
 3. 每个 `click` 绑定都有同元素的 `keydown` 绑定——用计数相等做棘轮，
-   将来新增第三张可排序表却忘了键盘路径时会红。
+   将来新增第三张可排序表却忘了键盘路径时会红；
+4. 评分条段是原生 `<button>`，且没有多余语义声明或会重复触发的键盘绑定。
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from datasentry_core.reporting.html import render_html
 from test_reporting_profiles import _profiles, _report
 
 _TH_RE = re.compile(r"<th\b[^>]*>", re.IGNORECASE)
+_BUTTON_RE = re.compile(r"<button\b[^>]*>", re.IGNORECASE)
 _ATTR_RE = re.compile(r'([a-zA-Z-]+)="([^"]*)"')
 _INTERACTIVE_TABLES = ("issue-table", "profiles-table")
 
@@ -103,10 +107,28 @@ class TestKeyboardBindings:
         assert 'tr.addEventListener("keydown"' in js, "行展开必须有键盘等价路径"
         assert 'tr.setAttribute("aria-expanded"' in js, "展开/收起后要更新状态"
 
-    def test_score_dimension_segments_bind_their_own_keydown(self) -> None:
+    def test_score_dimension_segments_are_native_buttons(self) -> None:
+        html = _report_html()
+        segments = [
+            dict(_ATTR_RE.findall(tag))
+            for tag in _BUTTON_RE.findall(html)
+            if "data-dim-link" in tag
+        ]
+        assert segments, "评分条的维度段必须是 <button>: 键盘与读屏语义不该靠补属性拼出来"
+        assert 'role="button"' not in html, "真 <button> 再挂 role=button 是重复声明同一语义"
+        for attrs in segments:
+            assert attrs.get("type") == "button", (
+                "没有 type=button 的按钮在表单上下文里默认是提交按钮"
+            )
+            assert "tabindex" not in attrs, "原生 <button> 自带 Tab 序, 再写 tabindex 是噪音"
+            assert "aria-label" not in attrs, (
+                "可见文本已含维度名与分数; 与可见文本不一致的 aria-label 是读屏噪音"
+            )
+
+    def test_score_segments_do_not_double_fire_on_enter(self) -> None:
         js = _scripts(_report_html())
-        assert 'seg.addEventListener("keydown"' in js, (
-            "评分条此前用 document 级委托, 静态检查与部分辅助技术都看不到键盘等价"
+        assert 'seg.addEventListener("keydown"' not in js, (
+            "原生 <button> 已把 Enter/空格合成为 click, 再绑 keydown 会让一次回车跳两次"
         )
 
 
@@ -115,6 +137,17 @@ class TestFocusIsVisible:
         html = _report_html()
         assert "th[data-key]:focus-visible" in html
         assert "tr.issue-row:focus-visible" in html
+
+    def test_score_segments_keep_a_focus_ring(self) -> None:
+        """换成 <button> 时最容易丢的就是焦点环: 它原来挂在 `section` 选择器上。"""
+        assert ".score-bar button:focus-visible" in _report_html()
+
+    def test_css_neutralises_the_ua_button_chrome(self) -> None:
+        html = _report_html()
+        assert ".score-bar button { appearance: none" in html, (
+            "不复位 UA 样式, 色段会多出边框与内边距, 评分条高度与段宽都会变"
+        )
+        assert ".score-bar section" not in html, "选择器还指着 section 就说明只改了标记没改样式"
 
     def test_css_marks_sortable_headers_as_clickable(self) -> None:
         html = _report_html()
