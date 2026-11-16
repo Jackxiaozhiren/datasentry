@@ -7,6 +7,7 @@ R-01 `<head>` 必须含 viewport meta；R-02 生成物不得含任何外部 http
 from __future__ import annotations
 
 import json
+import pathlib
 import re
 from html.parser import HTMLParser
 
@@ -174,3 +175,39 @@ class TestReportLayoutInvariants:
         sized = [b for b in bodies if re.search(r"min-height:\s*(44px|2\.75rem)", b)]
         assert sized, "窄屏断点里没有把可交互控件抬到 44px 的规则"
         assert re.search(r"\ba\b|report-nav", sized[0]), sized[0][:120]
+
+
+_REPO = pathlib.Path(__file__).resolve().parents[1]
+_SAMPLE = _REPO / "docs" / "demo" / "orders-report.html"
+
+
+class TestCommittedSample:
+    """PRD R-06：README/Pages 指向的样例是当前渲染器的产物，不是手写快照。
+
+    只钉结构性判据：`scan_run_id`、`generated_at` 与各 detector 的 `duration_ms`
+    每次重生成都会变，比对全文会把"重跑生成器"变成一次假红。生成入口是
+    `scripts/render_demo_report.py`（扫 `demo-data/orders.csv`，修一条，再导出）。
+    """
+
+    def test_committed_sample_carries_the_mobile_invariants(self) -> None:
+        html = _SAMPLE.read_text(encoding="utf-8")
+        tables = html.count("<table")
+        assert 'name="viewport"' in html, "样例报告没有 viewport, 手机打不开"
+        assert html.count('<div class="table-scroll">') >= tables, f"样例有 {tables} 个表格未全包住"
+        assert _EXTERNAL_LOADERS.findall(html) == []
+
+    def test_committed_sample_shows_the_current_sections(self) -> None:
+        """样例停在旧版式时文档在撒谎：三节都在才算"当前渲染器的产物"。"""
+        html = _SAMPLE.read_text(encoding="utf-8")
+        for marker in ('id="report-nav"', 'id="issues"', 'id="profiles"', 'id="repair_record"'):
+            assert marker in html, f"样例缺少 {marker}: 它代表的是旧版式"
+
+    def test_committed_sample_stays_within_the_report_size_budget(self) -> None:
+        """R-04 的 64 KiB 预算对样例同样成立: 它是最常被打开的那份报告。"""
+        size = _SAMPLE.stat().st_size
+        assert size <= 64 * 1024, f"样例 {size} 字节, 超出单份报告的 64 KiB 预算"
+
+    def test_committed_sample_has_a_generator(self) -> None:
+        """没有生成入口, 样例就退回手写快照——这条钉住入口还在。"""
+        script = _REPO / "scripts" / "render_demo_report.py"
+        assert script.is_file(), "样例生成器不见了"

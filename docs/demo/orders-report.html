@@ -1,34 +1,563 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DataSentry Data Quality Report</title>
 <style>
-:root { color-scheme: light; }
+:root {
+  color-scheme: light;
+  --fg: #1f2328;
+  --fg-muted: #57606a;
+  --fg-subtle: #8c959f;
+  --accent: #0969da;
+  --border: #d0d7de;
+  --surface: #f6f8fa;
+  --surface-strong: #fff;
+  --surface-nav: rgba(255,255,255,.95);
+  --on-accent: #fff;
+  --critical: #cf222e;
+  --high: #bc4c00;
+  --medium: #9a6700;
+  --ok: #1a7f37;
+  --highlight: #fff8c5;
+  --semantic: #8250df;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --fg: #e6edf3;
+    --fg-muted: #8c959f;
+    --fg-subtle: #6e7681;
+    --accent: #58a6ff;
+    --border: #30363d;
+    --surface: #21262d;
+    --surface-strong: #161b22;
+    --surface-nav: rgba(22,27,34,.92);
+    --on-accent: #fff;
+    --critical: #f85149;
+    --high: #d29922;
+    --medium: #bb8009;
+    --ok: #3fb950;
+    --highlight: #3d3320;
+    --semantic: #a371f7;
+  }
+}
+@media print {
+  :root {
+    color-scheme: light;
+    --fg: #1f2328;
+    --fg-muted: #57606a;
+    --fg-subtle: #8c959f;
+    --accent: #0969da;
+    --border: #d0d7de;
+    --surface: #f6f8fa;
+    --surface-strong: #fff;
+    --surface-nav: rgba(255,255,255,.95);
+    --on-accent: #fff;
+    --critical: #cf222e;
+    --high: #bc4c00;
+    --medium: #9a6700;
+    --ok: #1a7f37;
+    --highlight: #fff8c5;
+    --semantic: #8250df;
+  }
+}
 body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 2rem auto;
-       max-width: 960px; color: #1f2328; line-height: 1.5; }
-h1 { border-bottom: 2px solid #0969da; padding-bottom: .3rem; }
-h2 { margin-top: 2rem; border-bottom: 1px solid #d0d7de; padding-bottom: .2rem; }
+       max-width: 960px; color: var(--fg); line-height: 1.5; }
+h1 { border-bottom: 2px solid var(--accent); padding-bottom: .3rem; }
+h2 { margin-top: 2rem; border-bottom: 1px solid var(--border); padding-bottom: .2rem; }
 table { border-collapse: collapse; width: 100%; margin: .5rem 0; }
-th, td { border: 1px solid #d0d7de; padding: .35rem .6rem; text-align: left; font-size: .9rem; }
-th { background: #f6f8fa; }
-.badge-critical { color: #cf222e; font-weight: 600; }
-.badge-high { color: #bc4c00; font-weight: 600; }
-.badge-medium { color: #9a6700; font-weight: 600; }
-.badge-low, .badge-info { color: #57606a; }
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+th, td { border: 1px solid var(--border); padding: .35rem .6rem; text-align: left;
+       font-size: .9rem; }
+th { background: var(--surface); }
+.badge-critical { color: var(--critical); font-weight: 600; }
+.badge-high { color: var(--high); font-weight: 600; }
+.badge-medium { color: var(--medium); font-weight: 600; }
+.badge-low, .badge-info { color: var(--fg-muted); }
 .score-bar { display: flex; width: 100%; height: 1.4rem; border-radius: .4rem;
-             overflow: hidden; border: 1px solid #d0d7de; }
-.score-bar section { color: #fff; font-size: .7rem; text-align: center; }
-footer { margin-top: 3rem; font-size: .8rem; color: #57606a; border-top: 1px solid #d0d7de; }
-.notes { font-size: .85rem; color: #57606a; background: #f6f8fa; padding: .6rem;
+             overflow: hidden; border: 1px solid var(--border); box-sizing: border-box; }
+.score-bar section { color: var(--on-accent); font-size: .7rem; text-align: center; }
+footer { margin-top: 3rem; font-size: .8rem; color: var(--fg-muted);
+         border-top: 1px solid var(--border); }
+.notes { font-size: .85rem; color: var(--fg-muted); background: var(--surface); padding: .6rem;
          border-radius: .4rem; }
+.issue-controls { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;
+                  margin: .6rem 0; }
+.issue-controls select, .issue-controls input[type=search] { padding: .25rem .45rem;
+                  font-size: .85rem; }
+.issue-row td { cursor: pointer; }
+.issue-detail td { background: var(--surface); font-size: .85rem; }
+.issue-detail.collapsed { display: none; }
+th[data-key] { cursor: pointer; user-select: none; white-space: nowrap; }
+th[data-key]::after { content: " \21C5"; font-size: .7rem; color: var(--fg-subtle); }
+th[data-key].sorted-asc::after { content: " \2191"; }
+th[data-key].sorted-desc::after { content: " \2193"; }
+.trend-block { margin: 1rem 0; }
+.trend-svg { display: block; background: var(--surface-strong); border: 1px solid var(--border);
+             border-radius: .4rem; padding: .3rem; }
+.trend-line { stroke: var(--accent); }
+.trend-dot { fill: var(--accent); }
+.issue-pager { display: flex; gap: .6rem; align-items: center; margin: .6rem 0; }
+.issue-pager button { background: var(--surface); color: var(--accent);
+                      border: 1px solid var(--border); border-radius: .3rem;
+                      padding: .2rem .7rem; cursor: pointer; }
+.workbench-link { margin-left: .6rem; font-size: .8rem; }
+html { scroll-behavior: smooth; }
+h2 { scroll-margin-top: 3.2rem; }
+.report-nav { position: sticky; top: 0; z-index: 10; display: flex; gap: .9rem;
+              flex-wrap: wrap; align-items: center; background: var(--surface-nav);
+              border-bottom: 1px solid var(--border); padding: .45rem .2rem; font-size: .85rem;
+              margin-top: .6rem; }
+.report-nav a { color: var(--accent); text-decoration: none; }
+.report-nav a.active { font-weight: 600; text-decoration: underline; }
+.score-bar section { cursor: pointer; }
+.score-bar section:hover { filter: brightness(1.08); }
+.score-bar section:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+th[data-key] { cursor: pointer; user-select: none; }
+th[data-key]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px;
+                             background: var(--highlight); }
+tr.issue-row { cursor: pointer; }
+tr.issue-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+tr.issue-row:focus-visible td { background: var(--highlight); }
+.finding-link { color: inherit; text-decoration: none; }
+.finding-link:hover { text-decoration: underline; }
+tr.issue-row.highlight td { background: var(--highlight); }
+.issue-controls button { background: var(--surface); color: var(--accent);
+                         border: 1px solid var(--border); border-radius: .3rem;
+                         padding: .2rem .55rem; font-size: .8rem; cursor: pointer; }
+#back-to-top { position: fixed; right: 1.2rem; bottom: 1.2rem; display: none;
+               background: var(--accent); color: var(--on-accent); border: 0; border-radius: .3rem;
+               padding: .45rem .7rem; font-size: .8rem; cursor: pointer; z-index: 20; }
+#back-to-top.show { display: block; }
+.profiles-bar-track { display: inline-block; width: 64px; height: .6rem;
+                      background: var(--surface); border: 1px solid var(--border);
+                      border-radius: .3rem; vertical-align: middle; overflow: hidden; }
+.profiles-bar { display: block; height: 100%; background: var(--critical); }
+.chip { display: inline-block; background: var(--surface); border: 1px solid var(--border);
+        border-radius: .8rem; padding: .05rem .45rem; font-size: .78rem;
+        margin-right: .3rem; }
+.badge-semantic { color: var(--semantic); font-weight: 600; }
+.badge-pii { color: var(--critical); font-weight: 600; }
+.cmp-up { color: var(--ok); font-weight: 600; }
+.cmp-down { color: var(--critical); font-weight: 600; }
+tr.cmp-current td { background: var(--surface); font-weight: 600; }
+.cmp-badge { color: var(--accent); font-size: .75rem; margin-left: .4rem; }
+/* 窄屏断点写在所有基础规则之后: 写在 _CSS 开头会被同特异性的
+   `.report-nav { position: sticky }` 等规则按层叠顺序盖掉 (实测 computed 仍是 sticky). */
+@media (max-width: 560px) {
+  body { margin: 1rem; }
+  a, button, input, select { min-height: 2.75rem; }
+  .report-nav { position: static; }
+  th, td { padding: .5rem .6rem; }
+}
 </style></head><body>
 <h1>DataSentry Data Quality Report</h1>
-<p>report_schema_version: <code>1.0</code> &middot; datasentry_version: <code>0.1.0</code> &middot; scan_run_id: <code>scan_3426008c0380</code> &middot; generated_at: <code>2026-08-09T12:29:19.607681+00:00</code> &middot; reproducible: <code>True</code> &middot; llm_used: <code>False</code></p>
-<h2 id="executive_summary">Executive Summary</h2><table><tr><th>Overall</th><td>94.6</td></tr><tr><th>Issues</th><td>15</td></tr><tr><th>Detector runs</th><td>39</td></tr><tr><th>Rows / Columns</th><td>200 / 7</td></tr></table>
-<h2 id="quality_score">Quality Score</h2><p>Overall: <strong>94.6</strong> (score_version <code>1</code>)</p><div class="score-bar"><section style="width:36.4%;background:#0969da" title="completeness: iss_13cb4b2748a9: 0.0045">completeness 99.7</section><section style="width:36.4%;background:#1a7f37" title="validity: iss_929393fa2a85: 0.2000; iss_cdebe323eecc: 0.1950; iss_1b511e197afe: 0.0062; iss_415a97f489bc: 0.0137; iss_e2e5ca64a707: 0.0125; iss_943fa10b1c0d: 0.0045; iss_2473ce3e8eb2: 0.0420; iss_2db8aad2eb53: 0.0149">validity 96.2</section><section style="width:27.3%;background:#bf8700" title="uniqueness: iss_38d1503a72bd: 0.0123; iss_7e6a695150bd: 0.4778; iss_0ecf36788e2f: 0.4655; iss_5b135524e462: 0.1470; iss_4acdab0fa68a: 0.0588">uniqueness 85.5</section><section title="consistency: no detector ran">consistency: n/a</section><section title="integrity: no detector ran">integrity: n/a</section><section title="timeliness: no detector ran">timeliness: n/a</section></div><p class="notes">dimension = 100 * (1 - sum(weight_issue * severity_norm * affected_ratio) / (n * 1.6)); severity_norm = SEVERITY_WEIGHTS (ADR-003); field criticality = NORMAL default (contract V1); coverage adjust = 1.0 (V1); weights renormalized across scored dimensions</p><p><strong>Per-issue deductions (hover the score bar):</strong></p><ul><li>completeness / <code>iss_13cb4b2748a9</code>: 0.0045</li><li>integrity / <code>iss_460b2a6dcdfc</code>: 0.0035</li><li>uniqueness / <code>iss_0ecf36788e2f</code>: 0.4655</li><li>uniqueness / <code>iss_38d1503a72bd</code>: 0.0123</li><li>uniqueness / <code>iss_4acdab0fa68a</code>: 0.0588</li><li>uniqueness / <code>iss_5b135524e462</code>: 0.1470</li><li>uniqueness / <code>iss_7e6a695150bd</code>: 0.4778</li><li>validity / <code>iss_1b511e197afe</code>: 0.0062</li><li>validity / <code>iss_2473ce3e8eb2</code>: 0.0420</li><li>validity / <code>iss_2db8aad2eb53</code>: 0.0149</li><li>validity / <code>iss_415a97f489bc</code>: 0.0137</li><li>validity / <code>iss_929393fa2a85</code>: 0.2000</li><li>validity / <code>iss_943fa10b1c0d</code>: 0.0045</li><li>validity / <code>iss_cdebe323eecc</code>: 0.1950</li><li>validity / <code>iss_e2e5ca64a707</code>: 0.0125</li></ul>
-<h2 id="issue_breakdown">Issue Breakdown</h2><table><tr><th>Severity</th><th>Priority</th><th>Title</th><th>Columns</th><th>Detectors</th><th>Affected</th></tr><tr><td class="badge-low">low</td><td>81.5</td><td>String format issue in email</td><td>email</td><td>leading_or_trailing_whitespace, repeated_whitespace, invalid_email</td><td>11 (0.0550)</td></tr><tr><td class="badge-medium">medium</td><td>76.5</td><td>Numeric outlier in total</td><td>total</td><td>iqr_outlier, percentile_outlier, modified_zscore, tail_probability</td><td>5 (0.0250)</td></tr><tr><td class="badge-medium">medium</td><td>73.5</td><td>Duplicate values in status</td><td>status</td><td>uniqueness_violation</td><td>195 (0.9750)</td></tr><tr><td class="badge-medium">medium</td><td>73.5</td><td>Duplicate values in quantity</td><td>quantity</td><td>uniqueness_violation</td><td>190 (0.9500)</td></tr><tr><td class="badge-medium">medium</td><td>73.5</td><td>Duplicate values in total</td><td>total</td><td>uniqueness_violation</td><td>60 (0.3000)</td></tr><tr><td class="badge-medium">medium</td><td>73.5</td><td>Duplicate values in event_date</td><td>event_date</td><td>uniqueness_violation</td><td>24 (0.1200)</td></tr><tr><td class="badge-high">high</td><td>72.4</td><td>Datetime anomaly in event_date</td><td>event_date</td><td>invalid_date, impossible_date</td><td>4 (0.0200)</td></tr><tr><td class="badge-medium">medium</td><td>69.0</td><td>Numeric outlier in quantity</td><td>quantity</td><td>modified_zscore</td><td>21 (0.1050)</td></tr><tr><td class="badge-low">low</td><td>69.0</td><td>String format issue in customer</td><td>customer</td><td>leading_or_trailing_whitespace, repeated_whitespace</td><td>5 (0.0250)</td></tr><tr><td class="badge-low">low</td><td>66.5</td><td>Categorical anomaly in customer</td><td>customer</td><td>category_explosion</td><td>200 (1.0000)</td></tr><tr><td class="badge-low">low</td><td>66.5</td><td>Categorical anomaly in email</td><td>email</td><td>category_explosion</td><td>195 (0.9750)</td></tr><tr><td class="badge-medium">medium</td><td>66.0</td><td>Duplicate values in email</td><td>email</td><td>uniqueness_violation</td><td>5 (0.0250)</td></tr><tr><td class="badge-low">low</td><td>60.0</td><td>Missing values in event_date</td><td>event_date</td><td>suspicious_missing_token</td><td>4 (0.0200)</td></tr><tr><td class="badge-medium">medium</td><td>59.5</td><td>Numeric outlier in order_id</td><td>order_id</td><td>percentile_outlier</td><td>2 (0.0100)</td></tr><tr><td class="badge-low">low</td><td>55.0</td><td>Distribution anomaly in order_id</td><td>order_id</td><td>model_outlier</td><td>4 (0.0200)</td></tr></table>
-<h2 id="critical_findings">Critical Findings</h2><ul><li><span class="badge-high">[high]</span> Datetime anomaly in event_date &mdash; priority 72.4, 4 rows affected</li><li><span class="badge-medium">[medium]</span> Numeric outlier in total &mdash; priority 76.5, 5 rows affected</li><li><span class="badge-medium">[medium]</span> Duplicate values in status &mdash; priority 73.5, 195 rows affected</li><li><span class="badge-medium">[medium]</span> Duplicate values in quantity &mdash; priority 73.5, 190 rows affected</li><li><span class="badge-medium">[medium]</span> Duplicate values in total &mdash; priority 73.5, 60 rows affected</li></ul>
-<h2 id="dataset_overview">Dataset Overview</h2><table><tr><th>dataset_id</th><td>orders</td></tr><tr><th>status</th><td>completed</td></tr><tr><th>rows</th><td>200</td></tr><tr><th>schema_hash</th><td><code>64ff9e1cc2c6058dd12b3cf6c83e40af95bd3bb304cb809774cbde6f0dda0151</code></td></tr></table><p><strong>Columns:</strong></p><ul><li><code>order_id</code> (BIGINT)</li><li><code>customer</code> (VARCHAR)</li><li><code>email</code> (VARCHAR)</li><li><code>status</code> (VARCHAR)</li><li><code>quantity</code> (BIGINT)</li><li><code>total</code> (DOUBLE)</li><li><code>event_date</code> (VARCHAR)</li></ul>
+<nav class="report-nav" id="report-nav" aria-label="report sections"><a href="#executive_summary">Executive Summary</a><a href="#dataset_overview">Dataset Overview</a><a href="#quality_score">Quality Score</a><a href="#issue_breakdown">Issue Breakdown</a><a href="#critical_findings">Critical Findings</a><a href="#methodology">Methodology</a><a href="#reproducibility">Reproducibility Metadata</a><a href="#column_profiles">Column Profiles</a><a href="#repair_record">Repair Record</a></nav>
+<p>report_schema_version: <code>1.0</code> &middot; datasentry_version: <code>0.8.6</code> &middot; scan_run_id: <code>scan_58429f06e203</code> &middot; generated_at: <code>2026-11-16T04:00:25.922600+00:00</code> &middot; reproducible: <code>True</code> &middot; llm_used: <code>False</code></p>
+<h2 id="executive_summary">Executive Summary</h2><div class="table-scroll"><table><tr><th>Overall</th><td>95.3</td></tr><tr><th>Issues</th><td>13</td></tr><tr><th>Detector runs</th><td>39</td></tr><tr><th>Rows / Columns</th><td>200 / 4</td></tr></table></div>
+<h2 id="quality_score">Quality Score</h2><p>Overall: <strong>95.3</strong> (score_version <code>1</code>)</p><div class="score-bar"><section class="score-dim" role="button" tabindex="0" data-dim-link="completeness" style="width:36.4%;background:#0969da" title="completeness: iss_e13ede65cfe4: 0.0079; iss_ecd070556ef0: 0.0101" aria-label="completeness: 99.4">completeness 99.4</section><section class="score-dim" role="button" tabindex="0" data-dim-link="validity" style="width:36.4%;background:#1a7f37" title="validity: iss_902300bf0e8e: 0.1940; iss_15f2be59d99d: 0.0518; iss_45e3338488fc: 0.1282; iss_0bbd2eb7427a: 0.0045; iss_ee012be123fc: 0.0336; iss_17e308bc32c3: 0.0149" aria-label="validity: 95.6">validity 95.6</section><section class="score-dim" role="button" tabindex="0" data-dim-link="uniqueness" style="width:27.3%;background:#bf8700" title="uniqueness: iss_1e1f43cf261b: 0.0319; iss_202395aa88e4: 0.4815; iss_6b43bb04aca0: 0.0147; iss_e7fd13f7b2c3: 0.1470" aria-label="uniqueness: 89.5">uniqueness 89.5</section><section title="consistency: no detector ran">consistency: n/a</section><section title="integrity: no detector ran">integrity: n/a</section><section title="timeliness: no detector ran">timeliness: n/a</section></div><p class="notes">dimension = 100 * (1 - sum(weight_issue * severity_norm * affected_ratio) / (n * 1.6)); severity_norm = SEVERITY_WEIGHTS (ADR-003); field criticality = NORMAL default (contract V1); coverage adjust = 1.0 (V1); weights renormalized across scored dimensions</p><p><strong>Per-issue deductions (hover the score bar):</strong></p><ul><li>completeness / <code>iss_e13ede65cfe4</code>: 0.0079</li><li>completeness / <code>iss_ecd070556ef0</code>: 0.0101</li><li>integrity / <code>iss_90e568bb6a89</code>: 0.0035</li><li>uniqueness / <code>iss_1e1f43cf261b</code>: 0.0319</li><li>uniqueness / <code>iss_202395aa88e4</code>: 0.4815</li><li>uniqueness / <code>iss_6b43bb04aca0</code>: 0.0147</li><li>uniqueness / <code>iss_e7fd13f7b2c3</code>: 0.1470</li><li>validity / <code>iss_0bbd2eb7427a</code>: 0.0045</li><li>validity / <code>iss_15f2be59d99d</code>: 0.0518</li><li>validity / <code>iss_17e308bc32c3</code>: 0.0149</li><li>validity / <code>iss_45e3338488fc</code>: 0.1282</li><li>validity / <code>iss_902300bf0e8e</code>: 0.1940</li><li>validity / <code>iss_ee012be123fc</code>: 0.0336</li></ul>
+
+<h2 id="issue_breakdown">Issue Breakdown</h2><div id="issues"><div class="issue-controls"><select id="f-severity" aria-label="filter by severity"><option value="all">all severities</option><option value="critical">critical</option><option value="high">high</option><option value="medium">medium</option><option value="low">low</option><option value="info">info</option></select><select id="f-dimension" aria-label="filter by dimension"><option value="all">all dimensions</option><option value="completeness">completeness</option><option value="distribution_stability">distribution_stability</option><option value="uniqueness">uniqueness</option><option value="validity">validity</option></select><input id="f-search" type="search" placeholder="search title / columns / detectors" aria-label="search issues"><button id="btn-expand-all" type="button">expand all</button><button id="btn-collapse-all" type="button">collapse all</button><span id="issue-count" class="meta"></span></div><div class="table-scroll"><table id="issue-table"><thead><tr><th scope="col" data-key="severity" tabindex="0" aria-sort="none">Severity</th><th scope="col" data-key="priority" tabindex="0" aria-sort="none">Priority</th><th scope="col" data-key="title" tabindex="0" aria-sort="none">Title</th><th scope="col">Columns</th><th scope="col">Detectors</th><th scope="col" data-key="affected" tabindex="0" aria-sort="none">Affected</th></tr></thead><tbody id="issue-tbody"></tbody></table></div><div class="issue-pager"><button id="pg-prev" type="button">&larr; prev</button><button id="pg-next" type="button">next &rarr;</button><span id="pg-info" class="meta"></span></div></div><script type="application/json" id="issue-data">{"issues":[{"id":"iss_ee012be123fc","issue_type":"datetime_anomaly","title":"Datetime anomaly in order_date","description":"[invalid_date v1.0.0] invalid_date: 9 | [impossible_date v1.0.0] impossible_date: 5","severity":"high","priority":79.9,"confidence":0.995,"falsePositiveRisk":"low","affected":9,"affectedRatio":0.045,"affectedRowIds":[],"columns":["order_date"],"detectors":["invalid_date","impossible_date"],"dimensions":["validity"],"suggestions":[{"operation":"set_null","label":"set invalid values to NULL","rationale":"values failing ISO date parsing are set to NULL (missing semantics)","risk":"medium","targetColumns":["order_date"]}],"evidence":["9 values fail ISO date pattern","5 calendar-invalid dates"]},{"id":"iss_202395aa88e4","issue_type":"uniqueness","title":"Duplicate values in customer","description":"[uniqueness_violation v1.0.0] uniqueness_violation: 193 | [fuzzy_duplicate v1.0.0] fuzzy_duplicate: 101","severity":"medium","priority":79.0,"confidence":0.998,"falsePositiveRisk":"low","affected":193,"affectedRatio":0.965,"affectedRowIds":[],"columns":["customer"],"detectors":["uniqueness_violation","fuzzy_duplicate"],"dimensions":["uniqueness"],"suggestions":[],"evidence":["7 duplicated values, 193 duplicate rows","2 normalized groups with 101 redundant rows"]},{"id":"iss_45e3338488fc","issue_type":"string_format","title":"String format issue in customer","description":"[leading_or_trailing_whitespace v1.0.0] leading_or_trailing_whitespace: 51 | [spelling_variant v1.0.0] spelling_variant: 103","severity":"low","priority":76.4,"confidence":0.996,"falsePositiveRisk":"low","affected":103,"affectedRatio":0.515,"affectedRowIds":[],"columns":["customer"],"detectors":["leading_or_trailing_whitespace","spelling_variant"],"dimensions":["validity"],"suggestions":[{"operation":"trim_whitespace","label":"trim whitespace","rationale":"strip leading/trailing whitespace to a single canonical form","risk":"low","targetColumns":["customer"]}],"evidence":["51 values differ from their trimmed form","103 values (0.5150) share normalized forms"]},{"id":"iss_1e1f43cf261b","issue_type":"uniqueness","title":"Duplicate values in order_id","description":"[uniqueness_violation v1.0.0] uniqueness_violation: 13","severity":"medium","priority":73.5,"confidence":0.98,"falsePositiveRisk":"low","affected":13,"affectedRatio":0.065,"affectedRowIds":[],"columns":["order_id"],"detectors":["uniqueness_violation"],"dimensions":["uniqueness"],"suggestions":[],"evidence":["13 duplicated values, 13 duplicate rows"]},{"id":"iss_e7fd13f7b2c3","issue_type":"uniqueness","title":"Duplicate values in order_date","description":"[uniqueness_violation v1.0.0] uniqueness_violation: 60","severity":"medium","priority":73.5,"confidence":0.98,"falsePositiveRisk":"low","affected":60,"affectedRatio":0.3,"affectedRowIds":[],"columns":["order_date"],"detectors":["uniqueness_violation"],"dimensions":["uniqueness"],"suggestions":[],"evidence":["20 duplicated values, 60 duplicate rows"]},{"id":"iss_15f2be59d99d","issue_type":"categorical_anomaly","title":"Categorical anomaly in customer","description":"[inconsistent_case v1.0.0] inconsistent_case: 46","severity":"low","priority":69.0,"confidence":0.9,"falsePositiveRisk":"low","affected":46,"affectedRatio":0.23,"affectedRowIds":[],"columns":["customer"],"detectors":["inconsistent_case"],"dimensions":["validity"],"suggestions":[{"operation":"normalize_case","label":"normalize case","rationale":"lowercase values to a single canonical form","risk":"low","targetColumns":["customer"]}],"evidence":["46 rows in 1 case-variant groups"]},{"id":"iss_ecd070556ef0","issue_type":"missingness","title":"Missing values in order_date","description":"[suspicious_missing_token v1.0.0] suspicious_missing_token: 9","severity":"low","priority":67.5,"confidence":0.9,"falsePositiveRisk":"low","affected":9,"affectedRatio":0.045,"affectedRowIds":[],"columns":["order_date"],"detectors":["suspicious_missing_token"],"dimensions":["completeness"],"suggestions":[{"operation":"replace_missing_token","label":"replace missing token","rationale":"replace missing stand-ins (e.g. 'n/a', 'unknown') with NULL","risk":"medium","targetColumns":["order_date"]}],"evidence":["9 values are missing stand-ins (0.0450)"]},{"id":"iss_6b43bb04aca0","issue_type":"uniqueness","title":"Duplicate values in amount","description":"[uniqueness_violation v1.0.0] uniqueness_violation: 6","severity":"medium","priority":67.5,"confidence":0.98,"falsePositiveRisk":"low","affected":6,"affectedRatio":0.03,"affectedRowIds":[],"columns":["amount"],"detectors":["uniqueness_violation"],"dimensions":["uniqueness"],"suggestions":[],"evidence":["1 duplicated values, 6 duplicate rows"]},{"id":"iss_902300bf0e8e","issue_type":"categorical_anomaly","title":"Categorical anomaly in amount","description":"[category_explosion v1.0.0] category_explosion: 194","severity":"low","priority":66.5,"confidence":0.8,"falsePositiveRisk":"low","affected":194,"affectedRatio":0.97,"affectedRowIds":[],"columns":["amount"],"detectors":["category_explosion"],"dimensions":["validity"],"suggestions":[],"evidence":["unique_ratio=0.970 \u003e 0.9"]},{"id":"iss_17e308bc32c3","issue_type":"string_format","title":"String format issue in amount","description":"[invalid_numeric v1.0.0] invalid_numeric: 7","severity":"medium","priority":65.8,"confidence":0.85,"falsePositiveRisk":"low","affected":7,"affectedRatio":0.035,"affectedRowIds":[],"columns":["amount"],"detectors":["invalid_numeric"],"dimensions":["validity"],"suggestions":[],"evidence":["7 values (0.0350) are not numeric in numeric-semantic column amount"]},{"id":"iss_e13ede65cfe4","issue_type":"missingness","title":"Missing values in amount","description":"[suspicious_missing_token v1.0.0] suspicious_missing_token: 7","severity":"low","priority":64.5,"confidence":0.9,"falsePositiveRisk":"low","affected":7,"affectedRatio":0.035,"affectedRowIds":[],"columns":["amount"],"detectors":["suspicious_missing_token"],"dimensions":["completeness"],"suggestions":[{"operation":"replace_missing_token","label":"replace missing token","rationale":"replace missing stand-ins (e.g. 'n/a', 'unknown') with NULL","risk":"medium","targetColumns":["amount"]}],"evidence":["7 values are missing stand-ins (0.0350)"]},{"id":"iss_0bbd2eb7427a","issue_type":"numeric_outlier","title":"Numeric outlier in order_id","description":"[percentile_outlier v1.0.0] percentile_outlier: 2","severity":"medium","priority":59.5,"confidence":0.9,"falsePositiveRisk":"low","affected":2,"affectedRatio":0.01,"affectedRowIds":[],"columns":["order_id"],"detectors":["percentile_outlier"],"dimensions":["validity"],"suggestions":[{"operation":"clip_value","label":"clip to outlier bounds","rationale":"clip values outside the detected percentile bounds (bounds in evidence)","risk":"medium","targetColumns":["order_id"]}],"evidence":["2 values outside [999, 1.2e+03]"]},{"id":"iss_90e568bb6a89","issue_type":"distribution_anomaly","title":"Distribution anomaly in order_id","description":"[model_outlier v1.0.0] model_outlier: 4","severity":"low","priority":55.0,"confidence":0.7,"falsePositiveRisk":"medium","affected":4,"affectedRatio":0.02,"affectedRowIds":[],"columns":["order_id"],"detectors":["model_outlier"],"dimensions":["distribution_stability"],"suggestions":[],"evidence":["isolation_forest: 4 anomalies out of 200 values (2.0%)"]}],"pageSize":25,"runId":"scan_58429f06e203","serverBaseUrl":null,"labels":{"table.severity":"Severity","table.priority":"Priority","table.title":"Title","table.columns":"Columns","table.detectors":"Detectors","table.affected":"Affected","table.issue_count_suffix":"issue(s)","table.page":"page","table.no_issues":"no issues","table.workbench":"workbench","detail.description":"Description: ","detail.no_description":"No description.","detail.confidence":"Confidence: ","detail.false_positive_risk":"false-positive risk: ","detail.affected_rows":"Affected rows: ","detail.row_ids":"Row ids (first 10): ","detail.suggestions":"Repair suggestions:","detail.no_suggestion":"No built-in repair suggestion for this issue type."}}</script><script>(function () {
+  "use strict";
+  var data = JSON.parse(document.getElementById("issue-data").textContent);
+  var issues = data.issues || [];
+  var pageSize = data.pageSize || 25;
+  var runId = data.runId || "";
+  var baseUrl = data.serverBaseUrl || null;
+  var L = data.labels || {};
+  function l(key, fallback) { return L[key] !== undefined ? L[key] : fallback; }
+  var SEV = {critical: 0, high: 1, medium: 2, low: 3, info: 4};
+  var SEV_CLASS = {
+    critical: "badge-critical", high: "badge-high", medium: "badge-medium",
+    low: "badge-low", info: "badge-info"
+  };
+  var state = {severity: "all", dimension: "all", search: "",
+               key: "priority", reverse: true, page: 1};
+  var tbody = document.getElementById("issue-tbody");
+  var countEl = document.getElementById("issue-count");
+  var pgInfo = document.getElementById("pg-info");
+  var searchInput = document.getElementById("f-search");
+  var headers = Array.prototype.slice.call(document.querySelectorAll("#issue-table th[data-key]"));
+
+  function filtered() {
+    var q = state.search;
+    return issues.filter(function (r) {
+      if (state.severity !== "all" && r.severity !== state.severity) { return false; }
+      if (state.dimension !== "all" &&
+          (r.dimensions || []).indexOf(state.dimension) < 0) { return false; }
+      if (q) {
+        var hay = (r.title + " " + (r.columns || []).join(" ") + " " +
+                   (r.detectors || []).join(" ")).toLowerCase();
+        if (hay.indexOf(q) < 0) { return false; }
+      }
+      return true;
+    });
+  }
+
+  function cmp(a, b, key, reverse) {
+    var ka, kb;
+    if (key === "severity") {
+      ka = SEV[a.severity] === undefined ? 9 : SEV[a.severity];
+      kb = SEV[b.severity] === undefined ? 9 : SEV[b.severity];
+    } else if (key === "priority") { ka = a.priority; kb = b.priority; }
+    else if (key === "affected") { ka = a.affected; kb = b.affected; }
+    else { ka = (a.title || "").toLowerCase(); kb = (b.title || "").toLowerCase(); }
+    var d = ka < kb ? -1 : ka > kb ? 1 : 0;
+    return reverse ? -d : d;
+  }
+
+  function cell(text, cls) {
+    var td = document.createElement("td");
+    if (cls) { td.className = cls; }
+    td.textContent = text;
+    return td;
+  }
+
+  function detailRow(r) {
+    var tr = document.createElement("tr");
+    tr.className = "issue-detail";
+    var td = document.createElement("td");
+    td.colSpan = 6;
+    var lines = [];
+    lines.push((r.description
+                   ? l("detail.description", "Description: ")
+                   : l("detail.no_description", "No description.")) + (r.description || ""));
+    lines.push(l("detail.confidence", "Confidence: ") + r.confidence.toFixed(2) +
+               " - " + l("detail.false_positive_risk", "false-positive risk: ") +
+               (r.falsePositiveRisk || "n/a"));
+    lines.push(l("detail.affected_rows", "Affected rows: ") + r.affected +
+               " (" + (r.affectedRatio * 100).toFixed(2) + "%)");
+    var ids = r.affectedRowIds || [];
+    if (ids.length) {
+      lines.push(l("detail.row_ids", "Row ids (first 10): ") +
+                 ids.slice(0, 10).join(", "));
+    }
+    var sugs = r.suggestions || [];
+    if (sugs.length) {
+      lines.push(l("detail.suggestions", "Repair suggestions:"));
+      sugs.forEach(function (s) {
+        lines.push("  - [" + s.operation + "] " + s.label +
+                   " (risk: " + (s.risk || "n/a") + "): " + s.rationale);
+      });
+    } else {
+      lines.push(l("detail.no_suggestion", "No built-in repair suggestion for this issue type."));
+    }
+    var evs = r.evidence || [];
+    if (evs.length) {
+      lines.push(l("detail.evidence", "Evidence:"));
+      evs.forEach(function (e) { lines.push("  - " + e); });
+    }
+    td.textContent = lines.join("\n");
+    td.style.whiteSpace = "pre-line";
+    tr.appendChild(td);
+    return tr;
+  }
+
+  function render() {
+    var rows = filtered().sort(function (a, b) { return cmp(a, b, state.key, state.reverse); });
+    var totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+    state.page = Math.max(1, Math.min(state.page, totalPages));
+    var start = (state.page - 1) * pageSize;
+    var page = rows.slice(start, start + pageSize);
+    countEl.textContent = rows.length + " " + l("table.issue_count_suffix", "issue(s)");
+    pgInfo.textContent = (rows.length ? (start + 1) + "-" + (start + page.length) : "0")
+      + " / " + rows.length + " - " + l("table.page", "page") + " " + state.page + "/" + totalPages;
+    headers.forEach(function (th) {
+      th.classList.remove("sorted-asc", "sorted-desc");
+      var active = th.getAttribute("data-key") === state.key;
+      if (active) {
+        th.classList.add(state.reverse ? "sorted-desc" : "sorted-asc");
+      }
+      th.setAttribute("aria-sort",
+                      active ? (state.reverse ? "descending" : "ascending") : "none");
+    });
+    tbody.textContent = "";
+    if (!page.length) {
+      var empty = document.createElement("tr");
+      var emptyTd = document.createElement("td");
+      emptyTd.colSpan = 6;
+      emptyTd.className = "meta";
+      emptyTd.textContent = l("table.no_issues", "no issues");
+      empty.appendChild(emptyTd);
+      tbody.appendChild(empty);
+      return;
+    }
+    page.forEach(function (r) {
+      var tr = document.createElement("tr");
+      tr.className = "issue-row";
+      tr.setAttribute("data-issue-id", r.id);
+      var sevClass = SEV_CLASS[r.severity] || "badge-info";
+      tr.appendChild(cell(r.severity, sevClass));
+      tr.appendChild(cell(r.priority.toFixed(1)));
+      var titleTd = cell(r.title);
+      if (baseUrl) {
+        var a = document.createElement("a");
+        a.href = baseUrl + "/ui/scans/" + encodeURIComponent(runId) +
+                 "/issues/" + encodeURIComponent(r.id);
+        a.textContent = l("table.workbench", "workbench");
+        a.className = "workbench-link";
+        titleTd.appendChild(a);
+      }
+      tr.appendChild(titleTd);
+      tr.appendChild(cell((r.columns || []).join(", ") || "-"));
+      tr.appendChild(cell((r.detectors || []).join(", ")));
+      tr.appendChild(cell(r.affected + " (" + (r.affectedRatio * 100).toFixed(2) + "%)"));
+      tr.appendChild(detailRow(r));
+      tr.tabIndex = 0;
+      tr.setAttribute("aria-expanded", "false");
+      function toggleDetail() {
+        var detail = tr.querySelector(".issue-detail");
+        if (!detail) { return; }
+        var expanded = !detail.classList.toggle("collapsed");
+        tr.setAttribute("aria-expanded", expanded ? "true" : "false");
+      }
+      tr.addEventListener("click", toggleDetail);
+      tr.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleDetail(); }
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  searchInput.addEventListener("input", function () {
+    state.search = searchInput.value.trim().toLowerCase();
+    state.page = 1;
+    render();
+  });
+  function sortBy(th) {
+    var key = th.getAttribute("data-key");
+    if (state.key === key) { state.reverse = !state.reverse; }
+    else { state.key = key; state.reverse = true; }
+    state.page = 1;
+    render();
+  }
+  headers.forEach(function (th) {
+    th.addEventListener("click", function () { sortBy(th); });
+    th.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); sortBy(th); }
+    });
+  });
+  document.getElementById("f-severity").addEventListener("change", function (e) {
+    state.severity = e.target.value; state.page = 1; render();
+  });
+  document.getElementById("f-dimension").addEventListener("change", function (e) {
+    state.dimension = e.target.value; state.page = 1; render();
+  });
+  document.getElementById("pg-prev").addEventListener("click", function () {
+    if (state.page > 1) { state.page -= 1; render(); }
+  });
+  document.getElementById("pg-next").addEventListener("click", function () {
+    state.page += 1; render();
+  });
+  document.getElementById("issues")._render = render;
+  var btnExpand = document.getElementById("btn-expand-all");
+  var btnCollapse = document.getElementById("btn-collapse-all");
+  if (btnExpand) {
+    btnExpand.addEventListener("click", function () {
+      var details = tbody.querySelectorAll(".issue-detail");
+      Array.prototype.forEach.call(details, function (d) { d.classList.remove("collapsed"); });
+    });
+  }
+  if (btnCollapse) {
+    btnCollapse.addEventListener("click", function () {
+      var details = tbody.querySelectorAll(".issue-detail");
+      Array.prototype.forEach.call(details, function (d) { d.classList.add("collapsed"); });
+    });
+  }
+  render();
+})();</script>
+<h2 id="critical_findings">Critical Findings</h2><ul><li><a class="finding-link" href="#issue_breakdown" data-issue-id="iss_ee012be123fc"><span class="badge-high">[high]</span> Datetime anomaly in order_date &mdash; priority 79.9, 9 rows affected</a></li><li><a class="finding-link" href="#issue_breakdown" data-issue-id="iss_202395aa88e4"><span class="badge-medium">[medium]</span> Duplicate values in customer &mdash; priority 79.0, 193 rows affected</a></li><li><a class="finding-link" href="#issue_breakdown" data-issue-id="iss_1e1f43cf261b"><span class="badge-medium">[medium]</span> Duplicate values in order_id &mdash; priority 73.5, 13 rows affected</a></li><li><a class="finding-link" href="#issue_breakdown" data-issue-id="iss_e7fd13f7b2c3"><span class="badge-medium">[medium]</span> Duplicate values in order_date &mdash; priority 73.5, 60 rows affected</a></li><li><a class="finding-link" href="#issue_breakdown" data-issue-id="iss_6b43bb04aca0"><span class="badge-medium">[medium]</span> Duplicate values in amount &mdash; priority 67.5, 6 rows affected</a></li></ul>
+<h2 id="dataset_overview">Dataset Overview</h2><div class="table-scroll"><table><tr><th>dataset_id</th><td>orders</td></tr><tr><th>status</th><td>completed</td></tr><tr><th>rows</th><td>200</td></tr><tr><th>schema_hash</th><td><code>8206969088a7cd7c1d87f33a7e7bbd1915fbcdda68ff7a1826413d1fb6f12a50</code></td></tr></table></div><p><strong>Columns:</strong></p><ul><li><code>order_id</code> (BIGINT)</li><li><code>customer</code> (VARCHAR)</li><li><code>amount</code> (VARCHAR)</li><li><code>order_date</code> (VARCHAR)</li></ul>
+<h2 id="column_profiles">Column Profiles</h2><div id="profiles"><div class="table-scroll"><table id="profiles-table"><thead><tr><th scope="col" data-key="name" tabindex="0" aria-sort="none">Column</th><th scope="col">Semantic</th><th scope="col">PII</th><th scope="col" data-key="null" tabindex="0" aria-sort="none">Null</th><th scope="col" data-key="unique" tabindex="0" aria-sort="none">Unique</th><th scope="col" data-key="distinct" tabindex="0" aria-sort="none">Distinct</th><th scope="col">Min</th><th scope="col" data-key="median" tabindex="0" aria-sort="none">Median</th><th scope="col" data-key="mean" tabindex="0" aria-sort="none">Mean</th><th scope="col">Max</th><th scope="col" data-key="std" tabindex="0" aria-sort="none">Std</th><th scope="col">Top categories</th></tr></thead><tbody id="profiles-tbody"></tbody></table></div></div><script type="application/json" id="profiles-data">{"columns":[{"name":"order_id","physicalType":"BIGINT","semanticType":"unknown","containsPii":false,"null":0.0,"unique":0.935,"distinct":187,"min":"999","median":"1100","mean":"1099","max":"1199","std":"57.88","topCategories":[{"value":"1179","count":2},{"value":"1074","count":2},{"value":"1044","count":2}]},{"name":"customer","physicalType":"VARCHAR","semanticType":"unknown","containsPii":false,"null":0.0,"unique":0.035,"distinct":7,"min":" bob","median":null,"mean":null,"max":"erin","std":null,"topCategories":[{"value":"carol","count":49},{"value":" bob","count":29},{"value":"bob","count":28}]},{"name":"amount","physicalType":"VARCHAR","semanticType":"unknown","containsPii":false,"null":0.0,"unique":0.97,"distinct":194,"min":"105.8","median":null,"mean":null,"max":"n/a","std":null,"topCategories":[{"value":"n/a","count":7},{"value":"110.25","count":1},{"value":"338.32","count":1}]},{"name":"order_date","physicalType":"VARCHAR","semanticType":"unknown","containsPii":false,"null":0.0,"unique":0.475,"distinct":95,"min":"2026-04-03","median":null,"mean":null,"max":"n/a","std":null,"topCategories":[{"value":"n/a","count":9},{"value":"2026-04-13","count":5},{"value":"2026-04-05","count":5}]}],"labels":{"profiles.semantic_unknown":"unknown","profiles.pii_yes":"pii","profiles.pii_no":"no"}}</script><script>(function () {
+  "use strict";
+  var data = JSON.parse(document.getElementById("profiles-data").textContent);
+  var columns = data.columns || [];
+  var L = data.labels || {};
+  function l(key, fallback) { return L[key] !== undefined ? L[key] : fallback; }
+  var state = {key: "null", reverse: true};
+  var tbody = document.getElementById("profiles-tbody");
+  var headers = Array.prototype.slice.call(
+    document.querySelectorAll("#profiles-table th[data-key]"));
+
+  function cmp(a, b) {
+    var key = state.key;
+    var ka, kb;
+    if (key === "name") {
+      ka = (a.name || "").toLowerCase(); kb = (b.name || "").toLowerCase();
+    } else { ka = a[key]; kb = b[key]; }
+    var d = ka < kb ? -1 : ka > kb ? 1 : 0;
+    return state.reverse ? -d : d;
+  }
+
+  function cell(text, cls) {
+    var td = document.createElement("td");
+    if (cls) { td.className = cls; }
+    td.textContent = text;
+    return td;
+  }
+
+  function render() {
+    var rows = columns.slice().sort(cmp);
+    headers.forEach(function (th) {
+      th.classList.remove("sorted-asc", "sorted-desc");
+      var active = th.getAttribute("data-key") === state.key;
+      if (active) {
+        th.classList.add(state.reverse ? "sorted-desc" : "sorted-asc");
+      }
+      th.setAttribute("aria-sort",
+                      active ? (state.reverse ? "descending" : "ascending") : "none");
+    });
+    tbody.textContent = "";
+    rows.forEach(function (c) {
+      var tr = document.createElement("tr");
+      var nameTd = cell(c.name);
+      var typeTd = cell(c.physicalType || "-", "meta");
+      nameTd.appendChild(typeTd);
+      tr.appendChild(nameTd);
+      tr.appendChild(cell(c.semanticType || l("profiles.semantic_unknown", "unknown"),
+                          "badge-semantic"));
+      tr.appendChild(cell(c.containsPii ? l("profiles.pii_yes", "pii") : l("profiles.pii_no", "no"),
+                          c.containsPii ? "badge-pii" : "meta"));
+      var nullTd = document.createElement("td");
+      var track = document.createElement("span");
+      track.className = "profiles-bar-track";
+      var bar = document.createElement("span");
+      bar.className = "profiles-bar";
+      bar.style.width = (c.null * 100).toFixed(1) + "%";
+      track.appendChild(bar);
+      nullTd.appendChild(track);
+      nullTd.appendChild(document.createTextNode(" " + (c.null * 100).toFixed(1) + "%"));
+      tr.appendChild(nullTd);
+      tr.appendChild(cell(c.unique === null ? "-" : (c.unique * 100).toFixed(1) + "%"));
+      tr.appendChild(cell(String(c.distinct)));
+      tr.appendChild(cell(c.min === null ? "-" : c.min));
+      tr.appendChild(cell(c.median === null ? "-" : c.median));
+      tr.appendChild(cell(c.mean === null ? "-" : c.mean));
+      tr.appendChild(cell(c.max === null ? "-" : c.max));
+      tr.appendChild(cell(c.std === null ? "-" : c.std));
+      var chipsTd = cell("");
+      (c.topCategories || []).forEach(function (t) {
+        var chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = t.value + " ×" + t.count;
+        chipsTd.appendChild(chip);
+        chipsTd.appendChild(document.createTextNode(" "));
+      });
+      tr.appendChild(chipsTd);
+      tbody.appendChild(tr);
+    });
+  }
+
+  function sortBy(th) {
+    var key = th.getAttribute("data-key");
+    if (state.key === key) { state.reverse = !state.reverse; }
+    else { state.key = key; state.reverse = key !== "name"; }
+    render();
+  }
+
+  headers.forEach(function (th) {
+    th.addEventListener("click", function () { sortBy(th); });
+    th.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); sortBy(th); }
+    });
+  });
+  render();
+})();</script>
+<h2 id="repair_record">Repair Record</h2>
+<div class="repair-record">
+<p><strong>Run</strong> <code>rep_2d80dfc56ca8</code> | <strong>Issue</strong> <code>uniqueness</code> | applied</p>
+<p><strong>Operations</strong> trim_whitespace (customer) x51</p>
+<p><strong>Rows changed</strong> 51</p>
+<p><strong>Artifacts</strong> <a href="../repairs/rep_2d80dfc56ca8.before.csv">rep_2d80dfc56ca8.before.csv</a> | <a href="../repairs/rep_2d80dfc56ca8.csv">rep_2d80dfc56ca8.csv</a></p>
+<p><strong>Rollback command</strong> <code>datasentry repair rollback rep_2d80dfc56ca8</code></p>
+<div class="table-scroll"><table><thead><tr><th>line</th><th>column</th><th>before</th><th>after</th></tr></thead><tbody><tr><td>7</td><td>order_id</td><td>1005</td><td>1005</td></tr><tr><td>7</td><td>customer</td><td> bob</td><td>bob</td></tr><tr><td>7</td><td>amount</td><td>114.12</td><td>114.12</td></tr><tr><td>7</td><td>order_date</td><td>2026-05-18</td><td>2026-05-18</td></tr><tr><td>11</td><td>order_id</td><td>1009</td><td>1009</td></tr><tr><td>11</td><td>customer</td><td>ALICE </td><td>ALICE</td></tr><tr><td>11</td><td>amount</td><td>55.59</td><td>55.59</td></tr><tr><td>11</td><td>order_date</td><td>2026-06-14</td><td>2026-06-14</td></tr><tr><td>15</td><td>order_id</td><td>1013</td><td>1013</td></tr><tr><td>15</td><td>customer</td><td> bob</td><td>bob</td></tr><tr><td>15</td><td>amount</td><td>44.01</td><td>44.01</td></tr><tr><td>15</td><td>order_date</td><td>2026-06-25</td><td>2026-06-25</td></tr><tr><td>16</td><td>order_id</td><td>1014</td><td>1014</td></tr><tr><td>16</td><td>customer</td><td>ALICE </td><td>ALICE</td></tr><tr><td>16</td><td>amount</td><td>290.79</td><td>290.79</td></tr><tr><td>16</td><td>order_date</td><td>2026-05-03</td><td>2026-05-03</td></tr><tr><td>21</td><td>order_id</td><td>1019</td><td>1019</td></tr><tr><td>21</td><td>customer</td><td>ALICE </td><td>ALICE</td></tr><tr><td>21</td><td>amount</td><td>85.51</td><td>85.51</td></tr><tr><td>21</td><td>order_date</td><td>2026-06-17</td><td>2026-06-17</td></tr><tr><td>27</td><td>order_id</td><td>1025</td><td>1025</td></tr><tr><td>27</td><td>customer</td><td>ALICE </td><td>ALICE</td></tr><tr><td>27</td><td>amount</td><td>203.58</td><td>203.58</td></tr><tr><td>27</td><td>order_date</td><td>2026-07-24</td><td>2026-07-24</td></tr><tr><td>29</td><td>order_id</td><td>1027</td><td>1027</td></tr><tr><td>29</td><td>customer</td><td>ALICE </td><td>ALICE</td></tr><tr><td>29</td><td>amount</td><td>110.25</td><td>110.25</td></tr><tr><td>29</td><td>order_date</td><td>2026-05-30</td><td>2026-05-30</td></tr><tr><td>30</td><td>order_id</td><td>1028</td><td>1028</td></tr><tr><td>30</td><td>customer</td><td> bob</td><td>bob</td></tr><tr><td>30</td><td>amount</td><td>442.92</td><td>442.92</td></tr><tr><td>30</td><td>order_date</td><td>2026-05-11</td><td>2026-05-11</td></tr><tr><td>34</td><td>order_id</td><td>1032</td><td>1032</td></tr><tr><td>34</td><td>customer</td><td> bob</td><td>bob</td></tr><tr><td>34</td><td>amount</td><td>184.19</td><td>184.19</td></tr><tr><td>34</td><td>order_date</td><td>2026-07-15</td><td>2026-07-15</td></tr><tr><td>37</td><td>order_id</td><td>1035</td><td>1035</td></tr><tr><td>37</td><td>customer</td><td> bob</td><td>bob</td></tr><tr><td>37</td><td>amount</td><td>300.22</td><td>300.22</td></tr><tr><td>37</td><td>order_date</td><td>2026-06-13</td><td>2026-06-13</td></tr><tr><td colspan="4">41 more changed row(s) are not shown here — open the full artifact below.</td></tr></tbody></table></div>
+<p><a href="/ui/repairs/rep_2d80dfc56ca8/artifact">View full artifact</a></p>
+</div>
 <h2 id="methodology">Methodology</h2><p>Deterministic SQL pushdown detectors (15 in MVP) run per column; candidates are fused per issue cluster (confidence = 1 - prod(1 - c_i)); each issue receives a priority score (0-100, 12.8 formula); the quality score aggregates per dimension (27.1 formula, ADR-013). No LLM calls in MVP: scores are fully reproducible.</p>
-<h2 id="reproducibility">Reproducibility Metadata</h2><ul><li>datasentry_version: <code>0.1.0</code></li><li>detector_versions: <code>{&#x27;excessive_null_rate&#x27;: &#x27;1.0.0&#x27;, &#x27;suspicious_missing_token&#x27;: &#x27;1.0.0&#x27;, &#x27;sudden_missingness&#x27;: &#x27;1.0.0&#x27;, &#x27;group_missingness&#x27;: &#x27;1.0.0&#x27;, &#x27;conditional_missingness&#x27;: &#x27;1.0.0&#x27;, &#x27;correlated_missingness&#x27;: &#x27;1.0.0&#x27;, &#x27;uniqueness_violation&#x27;: &#x27;1.0.0&#x27;, &#x27;fuzzy_duplicate&#x27;: &#x27;1.0.0&#x27;, &#x27;suspicious_placeholder&#x27;: &#x27;1.0.0&#x27;, &#x27;rare_category&#x27;: &#x27;1.0.0&#x27;, &#x27;category_explosion&#x27;: &#x27;1.0.0&#x27;, &#x27;inconsistent_case&#x27;: &#x27;1.0.0&#x27;, &#x27;leading_or_trailing_whitespace&#x27;: &#x27;1.0.0&#x27;, &#x27;repeated_whitespace&#x27;: &#x27;1.0.0&#x27;, &#x27;hidden_control_character&#x27;: &#x27;1.0.0&#x27;, &#x27;unusual_length&#x27;: &#x27;1.0.0&#x27;, &#x27;invalid_email&#x27;: &#x27;1.0.0&#x27;, &#x27;invalid_phone&#x27;: &#x27;1.0.0&#x27;, &#x27;invalid_url&#x27;: &#x27;1.0.0&#x27;, &#x27;invalid_ip&#x27;: &#x27;1.0.0&#x27;, &#x27;iqr_outlier&#x27;: &#x27;1.0.0&#x27;, &#x27;percentile_outlier&#x27;: &#x27;1.0.0&#x27;, &#x27;modified_zscore&#x27;: &#x27;1.0.0&#x27;, &#x27;tail_probability&#x27;: &#x27;1.0.0&#x27;, &#x27;histogram_rarity&#x27;: &#x27;1.0.0&#x27;, &#x27;suspicious_formula_injection&#x27;: &#x27;1.0.0&#x27;, &#x27;cross_field_rule&#x27;: &#x27;1.0.0&#x27;, &#x27;invalid_date&#x27;: &#x27;1.0.0&#x27;, &#x27;impossible_date&#x27;: &#x27;1.0.0&#x27;, &#x27;future_date&#x27;: &#x27;1.0.0&#x27;, &#x27;stale_date&#x27;: &#x27;1.0.0&#x27;, &#x27;mixed_date_format&#x27;: &#x27;1.0.0&#x27;, &#x27;duplicate_timestamp&#x27;: &#x27;1.0.0&#x27;, &#x27;spelling_variant&#x27;: &#x27;1.0.0&#x27;, &#x27;fullwidth_character&#x27;: &#x27;1.0.0&#x27;, &#x27;mojibake_character&#x27;: &#x27;1.0.0&#x27;, &#x27;invalid_numeric&#x27;: &#x27;1.0.0&#x27;, &#x27;foreign_key_violation&#x27;: &#x27;1.0.0&#x27;, &#x27;model_outlier&#x27;: &#x27;1.0.0&#x27;}</code></li><li>seed: <code>42</code></li><li>scanned_at: <code>2026-08-09T12:29:19.607684Z</code></li></ul>
-<footer>Generated by DataSentry 0.1.0 &middot; report_schema_version 1.0 &middot; sections: <a href="#executive_summary">executive_summary</a>, <a href="#dataset_overview">dataset_overview</a>, <a href="#quality_score">quality_score</a>, <a href="#issue_breakdown">issue_breakdown</a>, <a href="#critical_findings">critical_findings</a>, <a href="#methodology">methodology</a>, <a href="#reproducibility">reproducibility</a></footer>
+<h2 id="reproducibility">Reproducibility Metadata</h2><ul><li>datasentry_version: <code>0.8.6</code></li><li>detector_versions: <code>{&#x27;excessive_null_rate&#x27;: &#x27;1.0.0&#x27;, &#x27;suspicious_missing_token&#x27;: &#x27;1.0.0&#x27;, &#x27;sudden_missingness&#x27;: &#x27;1.0.0&#x27;, &#x27;group_missingness&#x27;: &#x27;1.0.0&#x27;, &#x27;conditional_missingness&#x27;: &#x27;1.0.0&#x27;, &#x27;correlated_missingness&#x27;: &#x27;1.0.0&#x27;, &#x27;uniqueness_violation&#x27;: &#x27;1.0.0&#x27;, &#x27;fuzzy_duplicate&#x27;: &#x27;1.0.0&#x27;, &#x27;suspicious_placeholder&#x27;: &#x27;1.0.0&#x27;, &#x27;rare_category&#x27;: &#x27;1.0.0&#x27;, &#x27;category_explosion&#x27;: &#x27;1.0.0&#x27;, &#x27;inconsistent_case&#x27;: &#x27;1.0.0&#x27;, &#x27;leading_or_trailing_whitespace&#x27;: &#x27;1.0.0&#x27;, &#x27;repeated_whitespace&#x27;: &#x27;1.0.0&#x27;, &#x27;hidden_control_character&#x27;: &#x27;1.0.0&#x27;, &#x27;unusual_length&#x27;: &#x27;1.0.0&#x27;, &#x27;invalid_email&#x27;: &#x27;1.0.0&#x27;, &#x27;invalid_phone&#x27;: &#x27;1.0.0&#x27;, &#x27;invalid_url&#x27;: &#x27;1.0.0&#x27;, &#x27;invalid_ip&#x27;: &#x27;1.0.0&#x27;, &#x27;iqr_outlier&#x27;: &#x27;1.0.0&#x27;, &#x27;percentile_outlier&#x27;: &#x27;1.0.0&#x27;, &#x27;modified_zscore&#x27;: &#x27;1.0.0&#x27;, &#x27;tail_probability&#x27;: &#x27;1.0.0&#x27;, &#x27;histogram_rarity&#x27;: &#x27;1.0.0&#x27;, &#x27;suspicious_formula_injection&#x27;: &#x27;1.0.0&#x27;, &#x27;cross_field_rule&#x27;: &#x27;1.0.0&#x27;, &#x27;invalid_date&#x27;: &#x27;1.0.0&#x27;, &#x27;impossible_date&#x27;: &#x27;1.0.0&#x27;, &#x27;future_date&#x27;: &#x27;1.0.0&#x27;, &#x27;stale_date&#x27;: &#x27;1.0.0&#x27;, &#x27;mixed_date_format&#x27;: &#x27;1.0.0&#x27;, &#x27;duplicate_timestamp&#x27;: &#x27;1.0.0&#x27;, &#x27;spelling_variant&#x27;: &#x27;1.0.0&#x27;, &#x27;fullwidth_character&#x27;: &#x27;1.0.0&#x27;, &#x27;mojibake_character&#x27;: &#x27;1.0.0&#x27;, &#x27;invalid_numeric&#x27;: &#x27;1.0.0&#x27;, &#x27;foreign_key_violation&#x27;: &#x27;1.0.0&#x27;, &#x27;model_outlier&#x27;: &#x27;1.0.0&#x27;}</code></li><li>seed: <code>42</code></li><li>scanned_at: <code>2026-11-16T04:00:25.922603Z</code></li></ul>
+<footer>Generated by DataSentry 0.8.6 &middot; report_schema_version 1.0 &middot; sections: <a href="#executive_summary">Executive Summary</a>, <a href="#dataset_overview">Dataset Overview</a>, <a href="#quality_score">Quality Score</a>, <a href="#issue_breakdown">Issue Breakdown</a>, <a href="#critical_findings">Critical Findings</a>, <a href="#methodology">Methodology</a>, <a href="#reproducibility">Reproducibility Metadata</a></footer>
+<button id="back-to-top" type="button" aria-label="back to top">top &uarr;</button>
+<script>(function () {
+  "use strict";
+  function byId(id) { return document.getElementById(id); }
+  function jumpToDimension(dim) {
+    var sel = byId("f-dimension");
+    if (!sel) { return; }
+    sel.value = dim;
+    var ev = document.createEvent("Event");
+    ev.initEvent("change", true, false);
+    sel.dispatchEvent(ev);
+    var target = byId("issue_breakdown");
+    if (target) { target.scrollIntoView(); }
+  }
+  function focusIssue(id) {
+    var issues = byId("issues");
+    var tbody = byId("issue-tbody");
+    if (!issues || !tbody || typeof issues._render !== "function") { return; }
+    var sel = byId("f-severity"), dim = byId("f-dimension"), search = byId("f-search");
+    if (sel) { sel.value = "all"; }
+    if (dim) { dim.value = "all"; }
+    if (search) {
+      search.value = "";
+      var ev = document.createEvent("Event");
+      ev.initEvent("input", true, false);
+      search.dispatchEvent(ev);
+    }
+    issues._render();
+    var match = null;
+    Array.prototype.forEach.call(tbody.querySelectorAll(".issue-row"), function (tr) {
+      if (tr.getAttribute("data-issue-id") === id) { match = tr; }
+    });
+    if (!match) { return; }
+    var detail = match.querySelector(".issue-detail");
+    if (detail) { detail.classList.remove("collapsed"); }
+    match.classList.add("highlight");
+    match.scrollIntoView({block: "center"});
+    window.setTimeout(function () { match.classList.remove("highlight"); }, 4000);
+  }
+  document.addEventListener("click", function (e) {
+    var seg = e.target.closest("[data-dim-link]");
+    if (seg) { jumpToDimension(seg.getAttribute("data-dim-link")); return; }
+    var f = e.target.closest(".finding-link");
+    if (f) { focusIssue(f.getAttribute("data-issue-id")); }
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("[data-dim-link]"), function (seg) {
+    seg.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        jumpToDimension(seg.getAttribute("data-dim-link"));
+      }
+    });
+  });
+  var nav = byId("report-nav");
+  var links = nav ? Array.prototype.slice.call(nav.querySelectorAll("a[href^='#']")) : [];
+  var sections = [];
+  function refreshSections() {
+    sections = links.map(function (a) {
+      return byId(a.getAttribute("href").slice(1));
+    }).filter(function (el) { return el !== null; });
+  }
+  refreshSections();
+  var topBtn = byId("back-to-top");
+  document.addEventListener("scroll", function () {
+    var y = window.scrollY + 96;
+    var active = null;
+    for (var i = sections.length - 1; i >= 0; i -= 1) {
+      if (y >= sections[i].offsetTop) { active = sections[i]; break; }
+    }
+    links.forEach(function (a) { a.classList.remove("active"); });
+    if (active) {
+      var href = "#" + active.id;
+      links.forEach(function (a) {
+        if (a.getAttribute("href") === href) { a.classList.add("active"); }
+      });
+    }
+    if (topBtn) { topBtn.classList.toggle("show", window.scrollY > 600); }
+  });
+  if (topBtn) {
+    topBtn.addEventListener("click", function () {
+      window.scrollTo({top: 0, behavior: "smooth"});
+    });
+  }
+})();</script>
 </body></html>
