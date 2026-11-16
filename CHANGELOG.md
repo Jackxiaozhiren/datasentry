@@ -362,6 +362,30 @@
   几百 MB 页面，工件页不封顶），以及该页的异常文案改走 `_safe_detail`（`repair_diff` 的报错带服务端绝对路径，
   与 `D2-02`/`D5-06` 同一规则）。
 
+### 可访问性
+
+- **报告的三个交互面都能用键盘操作，排序状态也会被读屏器读出来**。此前两张可排序表（问题表、列画像）
+  的 `<th>` 只挂 `click`：Tab 停不到表头，回车/空格无效，只能靠鼠标排序；问题行同样只能点整行展开。
+  评分条虽然有 `role="button"` + `tabindex="0"`，但键盘处理是 document 级委托——浏览器里能用，
+  辅助技术与静态检查都看不到"等价键盘事件"。现在：可排序表头进 Tab 序列（`tabindex="0"`）、
+  带 `aria-sort`（`none`/`ascending`/`descending`，每次排序后重绘），回车与空格都能触发排序；
+  问题行可聚焦、用 `aria-expanded` 报告展开状态；三个面的键盘监听都绑在元素自身而非 document 上；
+  并补了 `:focus-visible` 焦点环与 `cursor: pointer`（焦点环此前只在评分条上有）。
+  **无行为变更**：鼠标路径、排序语义与分页都不变，只是多了一条等价的键盘路径。
+  判据见 `tests/test_reporting_a11y.py`（11 例）：可排序表头数量与 `tabindex`/`aria-sort`、
+  非排序列不进 Tab 序列、`click` 与 `keydown` 绑定数量相等（新增第三张表却忘键盘路径会红）、
+  焦点环与可点信号存在。
+
+### 文档
+
+- **`docs/demo/orders-report.html` 重新由渲染器生成，并补上生成入口**。此前这份样例是手工保存的快照，
+  停在 `report_schema_version 1.0` / `datasentry_version 0.1.0` 的旧版式：没有导航、没有 Column Profiles、
+  没有 Repair Record，而 README 与 Pages 仍把它当作"当前渲染器的产物"。现在
+  `scripts/render_demo_report.py` 是唯一入口（扫 `demo-data/orders.csv`、修一条前后空格、再 `report export`），
+  样例含导航、画像节、修复记录节，45 KiB 在 R-04 的 64 KiB 预算内。`tests/test_reporting_html.py`
+  的 `TestCommittedSample` 只钉结构性判据（`scan_run_id`/`generated_at`/`duration_ms` 每次都变，
+  比对全文会把重跑生成器变成假红），并要求样例里三节都在。
+
 ## [1.0.4] - 2026-08-29
 
 ### 修复

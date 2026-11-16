@@ -149,6 +149,12 @@ h2 { scroll-margin-top: 3.2rem; }
 .score-bar section { cursor: pointer; }
 .score-bar section:hover { filter: brightness(1.08); }
 .score-bar section:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+th[data-key] { cursor: pointer; user-select: none; }
+th[data-key]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px;
+                             background: var(--highlight); }
+tr.issue-row { cursor: pointer; }
+tr.issue-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+tr.issue-row:focus-visible td { background: var(--highlight); }
 .finding-link { color: inherit; text-decoration: none; }
 .finding-link:hover { text-decoration: underline; }
 tr.issue-row.highlight td { background: var(--highlight); }
@@ -238,12 +244,13 @@ _LINKAGE_JS = """(function () {
     var f = e.target.closest(".finding-link");
     if (f) { focusIssue(f.getAttribute("data-issue-id")); }
   });
-  document.addEventListener("keydown", function (e) {
-    var seg = e.target.closest("[data-dim-link]");
-    if (seg && (e.key === "Enter" || e.key === " ")) {
-      e.preventDefault();
-      jumpToDimension(seg.getAttribute("data-dim-link"));
-    }
+  Array.prototype.forEach.call(document.querySelectorAll("[data-dim-link]"), function (seg) {
+    seg.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        jumpToDimension(seg.getAttribute("data-dim-link"));
+      }
+    });
   });
   var nav = byId("report-nav");
   var links = nav ? Array.prototype.slice.call(nav.querySelectorAll("a[href^='#']")) : [];
