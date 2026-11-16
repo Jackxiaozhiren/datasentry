@@ -56,16 +56,20 @@ datasentry repair apply-batch "$SCAN" --file orders.csv --all &&
 
 ## 给代理（MCP）和脚本（REST）的验证
 
-代理通过 MCP 用 `repair_verify`——同样的报告，JSON，无需浏览器。脚本用
-`POST /repairs/{id}/verify` 拿同样的负载，`GET /repairs/{id}/diff` 则只返回变更行
-（`line` / `before` / `after`），不用传输整个文件。
+代理通过 MCP 用 `repair_verify`——同样的报告，JSON，无需浏览器；行级 diff 用
+同一端的 `repair_diff` 工具。脚本用 `POST /repairs/{id}/verify` 拿同样的负载，
+`GET /repairs/{id}/diff` 则只返回变更行（`line` / `before` / `after`），不用传输
+整个文件。
 
 ## 处处可看 diff
 
 工件页是 diff 的 Web 侧；`datasentry repair diff <run_id>` 在终端打印同样的变更
-（`line 3: name: ' alice ' -> 'alice'`）；REST diff 端点喂给审计流水线。四个入口，
-一套实现：Web UI、CLI、MCP server、REST API 全部调用同一个
-`client.repair_verify` / `client.repair_diff`。
+（`line 3: name: ' alice ' -> 'alice'`）；REST 的 `GET /repairs/{id}/diff` 喂给审计
+流水线；MCP 上对应的工具叫 `repair_diff`。四个入口读的都是
+`client.repair_diff()` 返回的同一批行，但它们并不是四份相同的 JSON：CLI
+（`--format json`）、REST、MCP 三个面共用 `src/datasentry/repair_diff_payload.py`
+里唯一的组装函数，Web 页自己渲染 HTML。`tests/test_mcp_repair_diff_parity.py`
+逐键比对这三个 JSON 面，任何一端单边改结构都会变红。
 
 ## 为什么这很重要
 

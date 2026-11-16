@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from datasentry import __version__
 from datasentry.client import DataSentry
+from datasentry.repair_diff_payload import build_repair_diff_payload
 from datasentry.report_evidence import build_repair_records
 from datasentry_core.connectors.errors import ConnectorError, DataSourceNotFoundError
 from datasentry_core.errors import DataSentryError
@@ -958,26 +959,10 @@ def _cmd_repair_diff(args: argparse.Namespace) -> int:
                     a = after[j] if j < len(after) else None
                     print(f"    {col}: {b!r} -> {a!r}")
         return EXIT_OK
-    rows = []
-    for i in changed:
-        b = before_rows[i] if i < len(before_rows) else []
-        a = after_rows[i] if i < len(after_rows) else []
-        rows.append(
-            {
-                "line": i + 2,
-                "before": {c: b[j] for j, c in enumerate(columns) if j < len(b)},
-                "after": {c: a[j] for j, c in enumerate(columns) if j < len(a)},
-            }
-        )
     _emit(
         _envelope(
             "repair diff",
-            {
-                "run_id": run.id,
-                "status": run.status.value,
-                "columns": columns,
-                "changed_rows": rows,
-            },
+            build_repair_diff_payload(run, columns, before_rows, after_rows, changed),
         ),
         args.format,
     )

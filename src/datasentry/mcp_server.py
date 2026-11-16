@@ -45,6 +45,7 @@ from typing import Any, Literal, cast
 from datasentry import __version__, mcp_apps
 from datasentry.client import DataSentry
 from datasentry.redact import safe_detail
+from datasentry.repair_diff_payload import build_repair_diff_payload
 from datasentry.scan_paths import ScanPathRejected
 from datasentry_core.errors import DataSentryError
 
@@ -687,6 +688,25 @@ class McpServer:
             except Exception as exc:
                 return _json_safe({"error": safe_detail(exc)})
             return _json_safe({"verify_scan_run_id": scan.id, **report})
+
+        @self._tool(
+            "repair_diff",
+            "Row-level diff of an applied repair: changed rows between the "
+            "before snapshot and the repaired copy, as line/before/after. "
+            "Read-only. Same JSON structure as GET /repairs/{id}/diff and "
+            "`datasentry repair diff --format json`.",
+            {"repair_run_id": {"type": "string"}},
+            ["repair_run_id"],
+            read_only=True,
+        )
+        def repair_diff(repair_run_id: str) -> dict[str, Any]:
+            try:
+                run, columns, before_rows, after_rows, changed = client.repair_diff(repair_run_id)
+            except Exception as exc:
+                return _json_safe({"error": safe_detail(exc)})
+            return _json_safe(
+                build_repair_diff_payload(run, columns, before_rows, after_rows, changed)
+            )
 
         @self._tool(
             "contract_validate",

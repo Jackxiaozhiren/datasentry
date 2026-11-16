@@ -295,6 +295,33 @@ class TestRepairApi:
         missing = client.post("/repairs/no_such/verify")
         assert missing.status_code == 404
 
+    def test_repair_diff_omits_a_missing_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """缺键要由"JSON 对象里没有这个键"表达，不能凭空写成 null。
+
+        行是注入的：本基线 `table_diff` 用 `None` 补齐短行，缺键与 null 的区分属于后续
+        切片。这里用短行钉住同一条对外规则——键不存在时必须省略。
+        """
+        from datasentry_core.repair import RepairEngine
+
+        csv = _sample_csv(tmp_path)
+        client = TestClient(create_app(project=tmp_path))
+        scan = client.post("/scans", json={"path": str(csv)}).json()
+        issue_id = next(i["id"] for i in scan["issues"] if i["issue_type"] == "string_format")
+        rep = client.post(
+            f"/scans/{scan['run']['id']}/repairs/apply",
+            json={"issue_id": issue_id, "source_path": str(csv)},
+        ).json()
+        rows = (["name", "note"], [[" alice "]], [["alice", None]], [0])
+        monkeypatch.setattr(RepairEngine, "table_diff", staticmethod(lambda *_a: rows))
+
+        response = client.get(f"/repairs/{rep['id']}/diff")
+        assert response.status_code == 200, response.text
+        row = response.json()["changed_rows"][0]
+        assert "note" not in row["before"], f"the endpoint invented a key: {row['before']}"
+        assert row["after"]["note"] is None, row
+
     def test_repair_propose_unmapped(self, tmp_path: Path) -> None:
         csv = _sample_csv(tmp_path)
         client = TestClient(create_app(project=tmp_path))

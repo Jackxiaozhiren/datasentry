@@ -52,6 +52,7 @@ from datasentry import __version__, ui
 from datasentry import client as sdk
 from datasentry.pii_vault import PIIVault, VaultKeyMissingError, format_mapping_summary
 from datasentry.redact import safe_detail
+from datasentry.repair_diff_payload import build_repair_diff_payload
 from datasentry.scheduler.core import LocalScanExecutor, Scheduler, SchedulerWorker
 from datasentry.scheduler.models import (
     JobCommand,
@@ -881,30 +882,18 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
 
     @app.get("/repairs/{repair_run_id}/diff", tags=["repairs"])
     def repair_run_diff(repair_run_id: str) -> dict[str, object]:
-        """V46：修复工件 diff REST 端点——仅返回变更行（JSON 友好）。"""
+        """V46：修复工件 diff REST 端点——仅返回变更行（JSON 友好）。
+
+        与 CLI `--format json`、MCP `repair_diff` 共用 `build_repair_diff_payload`：
+        一条记录没有的键直接省略，而不是写成 null。
+        """
         try:
             run, columns, before_rows, after_rows, changed = client.repair_diff(repair_run_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=safe_detail(exc)) from exc
         except (ValueError, FileNotFoundError) as exc:
             raise HTTPException(status_code=400, detail=safe_detail(exc)) from exc
-        rows = []
-        for i in changed:
-            b = before_rows[i] if i < len(before_rows) else []
-            a = after_rows[i] if i < len(after_rows) else []
-            rows.append(
-                {
-                    "line": i + 2,
-                    "before": {c: b[j] for j, c in enumerate(columns) if j < len(b)},
-                    "after": {c: a[j] for j, c in enumerate(columns) if j < len(a)},
-                }
-            )
-        return {
-            "run_id": run.id,
-            "status": run.status.value,
-            "columns": columns,
-            "changed_rows": rows,
-        }
+        return build_repair_diff_payload(run, columns, before_rows, after_rows, changed)
 
     # ---- Web UI（Step 24：服务端渲染核心页） ----------------------------
 

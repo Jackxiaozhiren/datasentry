@@ -141,6 +141,7 @@ class TestTools:
                 "repair_apply_batch",
                 "repair_rollback_batch",
                 "repair_verify",
+                "repair_diff",
                 "report_export",
             } == names
             for tool in tools:
@@ -1416,7 +1417,10 @@ class TestFifthFaceAndRawEcho:
 # `ping` as the control) showed scan_file writing a profile sidecar; source reading then showed
 # repair_propose_batch calling save_repair_proposal and repair_verify running a fresh scan_file
 # through client.repair_verify. report_export only *sounds* like a writer -- export_report
-# builds the report in memory and returns it.
+# builds the report in memory and returns it. R-09 added repair_diff: a workspace snapshot
+# around a steady-state call (one long-lived server, warm-up call first) is byte-for-byte
+# identical; the first call on a cold workspace only bumps metadata.db's mtime, not its size
+# (connection/schema init), which is why the probe uses a long-lived process.
 _READ_ONLY_TOOLS = frozenset(
     {
         "comparison_build",
@@ -1429,6 +1433,7 @@ _READ_ONLY_TOOLS = frozenset(
         "pii_sessions",
         "profiles_get",
         "quality_score",
+        "repair_diff",
         "report_export",
         "trends_list",
     }
