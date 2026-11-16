@@ -42,7 +42,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from datasentry import __version__
+from datasentry import __version__, mcp_apps
 from datasentry.client import DataSentry
 from datasentry.redact import safe_detail
 from datasentry.scan_paths import ScanPathRejected
@@ -154,6 +154,9 @@ class McpServer:
         self._client = DataSentry(project=project, enforce_scan_containment=True)
         self._tools: dict[str, dict[str, Any]] = {}
         self._handlers: dict[str, Callable[..., Any]] = {}
+        # R-10: set from the client's `initialize` capabilities, never assumed. Until a
+        # client declares support this stays False and every response keeps today's bytes.
+        self._apps = False
         self._register_tools()
 
     # ---- 工具注册 ------------------------------------------------------
@@ -1057,12 +1060,21 @@ class McpServer:
         message_id = message.get("id")
         params = message.get("params") or {}
         if method == "initialize":
+            # R-10: the client declares, the server never guesses. A client that does not
+            # declare `mcp-apps` gets the exact `capabilities` object it gets today; the
+            # snapshot in `tests/test_mcp_apps.py` was taken before this branch existed.
+            self._apps = mcp_apps.client_declares_apps(params.get("capabilities"))
+            capabilities: dict[str, Any] = {"tools": {"listChanged": False}}
+            if self._apps:
+                capabilities["extensions"] = {
+                    mcp_apps.APPS_KEY: {"resourceUri": mcp_apps.REPORT_CARD_URI}
+                }
             return {
                 "jsonrpc": "2.0",
                 "id": message_id,
                 "result": {
                     "protocolVersion": _PROTOCOL_VERSION,
-                    "capabilities": {"tools": {"listChanged": False}},
+                    "capabilities": capabilities,
                     "serverInfo": {"name": "datasentry", "version": __version__},
                 },
             }
@@ -1103,13 +1115,20 @@ class McpServer:
                 return self._rpc_error(message_id, -32602, safe_detail(exc))
             except Exception as exc:
                 return self._rpc_error(message_id, -32603, safe_detail(exc))
+            content: list[dict[str, Any]] = [
+                {"type": "text", "text": json.dumps(result, ensure_ascii=False)}
+            ]
+            # R-11: only `report_export` carries a card, and only for a host that declared
+            # support. The JSON block above is untouched either way, so a script parses the
+            # same payload with and without the component.
+            if self._apps and name == "report_export" and isinstance(result, dict):
+                content.append(
+                    {"type": "resource", "resource": mcp_apps.report_card_resource(result)}
+                )
             return {
                 "jsonrpc": "2.0",
                 "id": message_id,
-                "result": {
-                    "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}],
-                    "isError": False,
-                },
+                "result": {"content": content, "isError": False},
             }
         if message_id is not None:
             return self._rpc_error(message_id, -32601, f"method not found: {method}")
