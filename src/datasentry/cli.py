@@ -26,6 +26,7 @@ from datasentry import __version__
 from datasentry.client import DataSentry
 from datasentry.report_evidence import build_repair_records
 from datasentry_core.connectors.errors import ConnectorError, DataSourceNotFoundError
+from datasentry_core.errors import DataSentryError
 from datasentry_core.llm.provider import LLMError
 from datasentry_core.models.contract import Contract, QualityGate
 from datasentry_core.models.enums import RepairRunStatus, Severity
@@ -853,6 +854,10 @@ def _cmd_repair_preview(args: argparse.Namespace) -> int:
         result = client.repair_preview(args.issue_id, args.file)
     except (KeyError, ValueError) as exc:
         _emit(_envelope("repair preview", {"error": str(exc)}), args.format)
+        # 阶段 3 #1 切片 c CLI 半：DataSentryError 读 kind 枚举的 exit_code（PolicyRefusal→3），
+        # 其余 ValueError 保持 EXIT_CONFIG(2)——策略拒绝不是参数错误。
+        if isinstance(exc, DataSentryError):
+            return exc.exit_code
         return EXIT_CONFIG
     if result is None:
         _emit(_envelope("repair preview", {"previewed": False}), args.format)

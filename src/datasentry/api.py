@@ -21,7 +21,8 @@
     POST   /repairs/{run_id}/rollback         回滚
     GET    /repairs                          修复运行列表
 
-错误映射：FileNotFoundError/KeyError→404、ValueError→400、其余→500，
+错误映射：FileNotFoundError/KeyError→404、格式/SQL/连接器错→400、
+ValueError→422、`DataSentryError` 按 kind（策略拒绝 422、内部故障 500），其余→500，
 body 统一 {"ok": false, "detail": "..."}。
 """
 
@@ -61,6 +62,7 @@ from datasentry.scheduler.models import (
     utcnow,
     webhook_target_refusal,
 )
+from datasentry_core.errors import DataSentryError
 from datasentry_core.models.issue import Issue
 from datasentry_core.models.repair import RepairPreview, RepairProposal, RepairRun
 from datasentry_core.models.scan import DetectorRun, SamplingConfig, ScanConfig, ScanRun
@@ -250,6 +252,10 @@ def _error(exc: Exception) -> int:
         return 404
     if isinstance(exc, (UnsupportedFormatError, UnsafeSqlError, ConnectorError)):
         return 400
+    if isinstance(exc, DataSentryError):
+        # 阶段 3 #1 切片 c：四类 kind 各读各的 `http_status`（从枚举映射来，不逐类写分支）。
+        # 一条拒绝不能变成 500，一条内部错不能变成 exit-0（提案 §1 原话）。
+        return exc.http_status
     if isinstance(exc, ValueError):
         return 422
     return 500
