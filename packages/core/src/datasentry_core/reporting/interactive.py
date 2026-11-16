@@ -142,9 +142,12 @@ _INTERACTIVE_JS = """(function () {
       + " / " + rows.length + " - " + l("table.page", "page") + " " + state.page + "/" + totalPages;
     headers.forEach(function (th) {
       th.classList.remove("sorted-asc", "sorted-desc");
-      if (th.getAttribute("data-key") === state.key) {
+      var active = th.getAttribute("data-key") === state.key;
+      if (active) {
         th.classList.add(state.reverse ? "sorted-desc" : "sorted-asc");
       }
+      th.setAttribute("aria-sort",
+                      active ? (state.reverse ? "descending" : "ascending") : "none");
     });
     tbody.textContent = "";
     if (!page.length) {
@@ -178,9 +181,17 @@ _INTERACTIVE_JS = """(function () {
       tr.appendChild(cell((r.detectors || []).join(", ")));
       tr.appendChild(cell(r.affected + " (" + (r.affectedRatio * 100).toFixed(2) + "%)"));
       tr.appendChild(detailRow(r));
-      tr.addEventListener("click", function () {
+      tr.tabIndex = 0;
+      tr.setAttribute("aria-expanded", "false");
+      function toggleDetail() {
         var detail = tr.querySelector(".issue-detail");
-        detail.classList.toggle("collapsed");
+        if (!detail) { return; }
+        var expanded = !detail.classList.toggle("collapsed");
+        tr.setAttribute("aria-expanded", expanded ? "true" : "false");
+      }
+      tr.addEventListener("click", toggleDetail);
+      tr.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleDetail(); }
       });
       tbody.appendChild(tr);
     });
@@ -191,13 +202,17 @@ _INTERACTIVE_JS = """(function () {
     state.page = 1;
     render();
   });
+  function sortBy(th) {
+    var key = th.getAttribute("data-key");
+    if (state.key === key) { state.reverse = !state.reverse; }
+    else { state.key = key; state.reverse = true; }
+    state.page = 1;
+    render();
+  }
   headers.forEach(function (th) {
-    th.addEventListener("click", function () {
-      var key = th.getAttribute("data-key");
-      if (state.key === key) { state.reverse = !state.reverse; }
-      else { state.key = key; state.reverse = true; }
-      state.page = 1;
-      render();
+    th.addEventListener("click", function () { sortBy(th); });
+    th.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); sortBy(th); }
     });
   });
   document.getElementById("f-severity").addEventListener("change", function (e) {
@@ -443,11 +458,16 @@ def render_interactive_issue_table(
         "</div>"
         '<div class="table-scroll"><table id="issue-table">'
         "<thead><tr>"
-        f'<th data-key="severity">{escape(t(lang, "table.severity"))}</th>'
-        f'<th data-key="priority">{escape(t(lang, "table.priority"))}</th>'
-        f'<th data-key="title">{escape(t(lang, "table.title"))}</th>'
-        f"<th>{escape(t(lang, 'table.columns'))}</th><th>{escape(t(lang, 'table.detectors'))}</th>"
-        f'<th data-key="affected">{escape(t(lang, "table.affected"))}</th>'
+        f'<th scope="col" data-key="severity" tabindex="0" aria-sort="none">'
+        f"{escape(t(lang, 'table.severity'))}</th>"
+        f'<th scope="col" data-key="priority" tabindex="0" aria-sort="none">'
+        f"{escape(t(lang, 'table.priority'))}</th>"
+        f'<th scope="col" data-key="title" tabindex="0" aria-sort="none">'
+        f"{escape(t(lang, 'table.title'))}</th>"
+        f'<th scope="col">{escape(t(lang, "table.columns"))}</th>'
+        f'<th scope="col">{escape(t(lang, "table.detectors"))}</th>'
+        f'<th scope="col" data-key="affected" tabindex="0" aria-sort="none">'
+        f"{escape(t(lang, 'table.affected'))}</th>"
         "</tr></thead>"
         '<tbody id="issue-tbody"></tbody>'
         "</table></div>"

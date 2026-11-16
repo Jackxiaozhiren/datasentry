@@ -53,9 +53,12 @@ _PROFILES_JS = """(function () {
     var rows = columns.slice().sort(cmp);
     headers.forEach(function (th) {
       th.classList.remove("sorted-asc", "sorted-desc");
-      if (th.getAttribute("data-key") === state.key) {
+      var active = th.getAttribute("data-key") === state.key;
+      if (active) {
         th.classList.add(state.reverse ? "sorted-desc" : "sorted-asc");
       }
+      th.setAttribute("aria-sort",
+                      active ? (state.reverse ? "descending" : "ascending") : "none");
     });
     tbody.textContent = "";
     rows.forEach(function (c) {
@@ -98,12 +101,17 @@ _PROFILES_JS = """(function () {
     });
   }
 
+  function sortBy(th) {
+    var key = th.getAttribute("data-key");
+    if (state.key === key) { state.reverse = !state.reverse; }
+    else { state.key = key; state.reverse = key !== "name"; }
+    render();
+  }
+
   headers.forEach(function (th) {
-    th.addEventListener("click", function () {
-      var key = th.getAttribute("data-key");
-      if (state.key === key) { state.reverse = !state.reverse; }
-      else { state.key = key; state.reverse = key !== "name"; }
-      render();
+    th.addEventListener("click", function () { sortBy(th); });
+    th.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); sortBy(th); }
     });
   });
   render();
@@ -176,17 +184,25 @@ def render_column_profiles(data: dict[str, Any], *, lang: str = "en") -> str:
         '<div id="profiles">'
         '<div class="table-scroll"><table id="profiles-table">'
         "<thead><tr>"
-        f'<th data-key="name">{escape(t(lang, "profiles.column"))}</th>'
-        f"<th>{escape(t(lang, 'profiles.semantic'))}</th><th>{escape(t(lang, 'profiles.pii'))}</th>"
-        f'<th data-key="null">{escape(t(lang, "profiles.null"))}</th>'
-        f'<th data-key="unique">{escape(t(lang, "profiles.unique"))}</th>'
-        f'<th data-key="distinct">{escape(t(lang, "profiles.distinct"))}</th>'
-        f"<th>{escape(t(lang, 'profiles.min'))}</th>"
-        f'<th data-key="median">{escape(t(lang, "profiles.median"))}</th>'
-        f'<th data-key="mean">{escape(t(lang, "profiles.mean"))}</th>'
-        f"<th>{escape(t(lang, 'profiles.max'))}</th>"
-        f'<th data-key="std">{escape(t(lang, "profiles.std"))}</th>'
-        f"<th>{escape(t(lang, 'profiles.top_categories'))}</th>"
+        f'<th scope="col" data-key="name" tabindex="0" aria-sort="none">'
+        f"{escape(t(lang, 'profiles.column'))}</th>"
+        f'<th scope="col">{escape(t(lang, "profiles.semantic"))}</th>'
+        f'<th scope="col">{escape(t(lang, "profiles.pii"))}</th>'
+        f'<th scope="col" data-key="null" tabindex="0" aria-sort="none">'
+        f"{escape(t(lang, 'profiles.null'))}</th>"
+        f'<th scope="col" data-key="unique" tabindex="0" aria-sort="none">'
+        f"{escape(t(lang, 'profiles.unique'))}</th>"
+        f'<th scope="col" data-key="distinct" tabindex="0" aria-sort="none">'
+        f"{escape(t(lang, 'profiles.distinct'))}</th>"
+        f'<th scope="col">{escape(t(lang, "profiles.min"))}</th>'
+        f'<th scope="col" data-key="median" tabindex="0" aria-sort="none">'
+        f"{escape(t(lang, 'profiles.median'))}</th>"
+        f'<th scope="col" data-key="mean" tabindex="0" aria-sort="none">'
+        f"{escape(t(lang, 'profiles.mean'))}</th>"
+        f'<th scope="col">{escape(t(lang, "profiles.max"))}</th>'
+        f'<th scope="col" data-key="std" tabindex="0" aria-sort="none">'
+        f"{escape(t(lang, 'profiles.std'))}</th>"
+        f'<th scope="col">{escape(t(lang, "profiles.top_categories"))}</th>'
         "</tr></thead>"
         '<tbody id="profiles-tbody"></tbody>'
         "</table></div>"
