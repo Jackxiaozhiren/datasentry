@@ -33,6 +33,7 @@ from datasentry_core.connectors import (
 )
 from datasentry_core.detectors import DetectionContext, DetectorRegistry
 from datasentry_core.detectors.common import quote_ident, quote_literal, quote_re
+from datasentry_core.errors import PolicyRefusalError
 from datasentry_core.models.enums import (
     RepairOperation,
     RepairProposalStatus,
@@ -555,7 +556,7 @@ class RepairEngine:
         the other cannot do (F6).
         """
         if source_type not in _REPAIRABLE_SOURCE_TYPES:
-            raise ValueError(
+            raise PolicyRefusalError(
                 f"repair does not support {source_type} sources yet: propose works, but "
                 "preview and apply need a copy writer this format does not have"
             )

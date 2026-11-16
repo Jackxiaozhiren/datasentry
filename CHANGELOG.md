@@ -7,6 +7,17 @@
 ## [Unreleased]
 
 ### 变更（破坏性）
+
+- **策略拒绝在 CLI / MCP / REST 三面按 kind 映射（阶段 3 第 1 项切片 b/c）**。新增
+  `datasentry_core.errors`：四类 `ErrorKind`（用户错 / 数据源不可达 / 策略拒绝 / 内部故障）各带
+  CLI 退出码、HTTP 状态码、MCP JSON-RPC code 一组映射，消息原文不变；基类继承 `ValueError`，
+  现有 `except ValueError` 调用方不破。修复引擎的 `_require_copy_writer` 拒绝改用
+  `PolicyRefusalError`。**行为变更**：`repair preview` 的策略拒绝退出码由 2（配置错）变为
+  3（执行错），MCP 中漏到 dispatch 的同类错误由 `-32603`（Server error）变为 `-32602`
+  （caller 错）；REST 仍是 422，但从"碰巧走 ValueError fallthrough"变成显式读 `http_status`。
+  **本批只搬运 main 上已存在的那个拒绝点**；另三个拒绝点与 `_require_json_writable` 属于
+  JSON cell-carry 等后续切片，未一并改。判据见 `tests/test_errors.py`、
+  `tests/test_error_taxonomy.py`、`tests/test_error_surface_mapping.py`——逐面移除映射分支均实测转红。
 - **`datasentry --project X mcp` 现在真的用 X（`D7-15`）**。`mcp` 子命令自己声明的 `--project`
   带 `default=None`，而 argparse 的父子解析器共享同一命名空间，于是子命令的默认值在解析时把全局
   `--project` 覆写成 None——按全局帮助书写的工作区参数被静默丢弃，MCP 服务把状态写进当前目录

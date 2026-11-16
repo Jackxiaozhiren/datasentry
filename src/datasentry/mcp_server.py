@@ -46,6 +46,7 @@ from datasentry import __version__, mcp_apps
 from datasentry.client import DataSentry
 from datasentry.redact import safe_detail
 from datasentry.scan_paths import ScanPathRejected
+from datasentry_core.errors import DataSentryError
 
 _PROTOCOL_VERSION = "2024-11-05"
 
@@ -1113,6 +1114,10 @@ class McpServer:
                 # `resolve_allowed_scan_path` directly, not through `confine()`), and a permanent
                 # refusal is not an internal error (A-8-mcp).
                 return self._rpc_error(message_id, -32602, safe_detail(exc))
+            except DataSentryError as exc:
+                # 阶段 3 #1 切片 c MCP 半：四类 kind 各读各的 `mcp_code`，
+                # 一条策略拒绝（PolicyRefusalError→-32602）不再落进 -32603 "Server error"。
+                return self._rpc_error(message_id, exc.mcp_code, safe_detail(exc))
             except Exception as exc:
                 return self._rpc_error(message_id, -32603, safe_detail(exc))
             content: list[dict[str, Any]] = [
