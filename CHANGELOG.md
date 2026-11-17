@@ -15,9 +15,19 @@
   `PolicyRefusalError`。**行为变更**：`repair preview` 的策略拒绝退出码由 2（配置错）变为
   3（执行错），MCP 中漏到 dispatch 的同类错误由 `-32603`（Server error）变为 `-32602`
   （caller 错）；REST 仍是 422，但从"碰巧走 ValueError fallthrough"变成显式读 `http_status`。
-  **本批只搬运 main 上已存在的那个拒绝点**；另三个拒绝点与 `_require_json_writable` 属于
-  JSON cell-carry 等后续切片，未一并改。判据见 `tests/test_errors.py`、
+  **该批只搬运了 main 上当时已存在的那个拒绝点**（`_require_copy_writer`）；其余四个拒绝点
+  已在紧随的收尾批（下一条）归入同一体系。`_require_json_writable` 仍属 JSON cell-carry
+  后续切片、main 上尚不存在，未引用。判据见 `tests/test_errors.py`、
   `tests/test_error_taxonomy.py`、`tests/test_error_surface_mapping.py`——逐面移除映射分支均实测转红。
+- **修复引擎其余四个策略拒绝点也按 kind 映射（阶段 3 第 1 项切片 b 收尾）**。`_copy_cells`
+  的四处"搬不动就拒绝"（JSONL 逐格搬运未实现、源无法逐格读出、投影列名与文件表头不一致、
+  行数不一致）此前抛裸 `ValueError`：CLI `repair preview` 把它们算成 `EXIT_CONFIG(2)`，REST
+  与 MCP 只是碰巧走到 422 / -32603。现统一改用 `PolicyRefusalError`（仍是 `ValueError` 子类，
+  现有捕获方不破），三面从此按 kind 读同一张映射表。**行为变更**：这四类拒绝在 CLI preview
+  的退出码由 2（配置错）变为 3（执行错）；REST 仍 422、MCP 仍 -32602（从"碰巧"变为有意）。
+  `_require_json_writable` 与 `ABSENT` 哨兵在 main 上不存在，未纳入。判据见
+  `tests/test_refusal_points_taxonomy.py`：四个拒绝点逐个断言类型、CLI exit 3、REST 422；
+  把四处改回裸 `ValueError` 时 5 个判据全部实测转红。
 - **`datasentry --project X mcp` 现在真的用 X（`D7-15`）**。`mcp` 子命令自己声明的 `--project`
   带 `default=None`，而 argparse 的父子解析器共享同一命名空间，于是子命令的默认值在解析时把全局
   `--project` 覆写成 None——按全局帮助书写的工作区参数被静默丢弃，MCP 服务把状态写进当前目录
