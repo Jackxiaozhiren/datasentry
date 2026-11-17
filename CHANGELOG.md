@@ -394,6 +394,17 @@
 
 ### 新增
 
+- **MCP 新增只读 `repair_diff` 工具，三个 JSON 面共用一个组装函数（R-09）**。此前 REST
+  `GET /repairs/{id}/diff` 与 CLI `repair diff --format json` 各写一份行→JSON 代码，MCP 面根本没有
+  这个工具；新增第三份会等于把同一报告拼出第三种形状。现在三面都调用
+  `src/datasentry/repair_diff_payload.py::build_repair_diff_payload`，缺键由"对象里没有这个键"
+  表达而不是写成 `null`；Web 页仍自己渲染 HTML（它不是 JSON 面）。`tests/test_mcp_repair_diff_parity.py`
+  逐键比较三份负载、注入短行验证缺键、验证未知 run 返回错误信封不终止 stdio、并用工作区快照
+  证明该工具在稳态下不写文件；单独把 CLI 的结构改一下就有一条判据转红（已实测）。
+  `.growth/blog-4-verify-loop-{zh,en}.md` 原先的"四个入口，一套实现"改成可核对的说法。
+  验证：10 例三面判据 + 142 例 API/MCP/修复回归通过，全量 pytest 覆盖率 95.26%。
+  本基线尚无区分缺键与 null 的 `ABSENT` 哨兵——它属于后续切片，此处未引用。
+
 - **MCP Apps：声明支持的客户端可从 `report_export` 额外拿到一张只读报告卡片（R-10/R-11/R-13）**。
   能力由客户端在 `initialize` 里声明（`extensions` 或旧写法 `experimental` 下的 `mcp-apps` 键），
   服务端不猜；声明缺失或格式不对时，`initialize` 与 `tools/call` 的响应与加此功能前**逐字节相同**

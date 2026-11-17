@@ -61,17 +61,21 @@ right bar for automation; "everything is clean" is a product decision, not a gat
 
 ## Verify for agents (MCP) and scripts (REST)
 
-Agents get `repair_verify` over MCP — same report, JSON, no browser. Scripts get
+Agents get `repair_verify` over MCP — same report, JSON, no browser — and the
+row-level diff from `repair_diff` on the same surface. Scripts get
 `POST /repairs/{id}/verify` for the same payload, plus `GET /repairs/{id}/diff` which
 returns only the changed rows (`line`, `before`, `after`) instead of the whole file.
 
 ## Diff everywhere
 
 The artifact page is the web side of the diff story; `datasentry repair diff <run_id>`
-prints the same changes on the terminal (`line 3: name: ' alice ' -> 'alice'`), and the
-REST diff endpoint feeds audit pipelines. Four surfaces, one implementation:
-`client.repair_verify` and `client.repair_diff` — the Web UI, CLI, MCP server, and REST
-API all call the same two functions.
+prints the same changes on the terminal (`line 3: name: ' alice ' -> 'alice'`),
+`GET /repairs/{id}/diff` feeds audit pipelines, and the MCP tool is `repair_diff`.
+All four surfaces read the same rows from `client.repair_diff()`, but they are not
+four copies of one JSON shape: CLI (`--format json`), REST and MCP share the single
+builder in `src/datasentry/repair_diff_payload.py`, while the Web page renders HTML.
+`tests/test_mcp_repair_diff_parity.py` compares those three JSON payloads key by key,
+so a one-sided structural change turns a test red.
 
 ## Why this matters
 
