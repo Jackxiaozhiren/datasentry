@@ -250,6 +250,8 @@ class PostgresConnector:
         return PostgresDataHandle(source)
 
     def close(self) -> None:
+        # Stateless connector: open() hands off a self-contained data handle,
+        # so there is no shared connection or resource to release here.
         pass
 
 
