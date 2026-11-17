@@ -73,6 +73,12 @@ class TestRemoteExecutor:
             result = executor.execute(JobCommand(project="p", path="orders.csv"))
         assert result.scan_run_id == "sr_fake"
 
+    def test_execute_url_field_does_not_shadow_endpoint_constant(self) -> None:
+        # S1845: the full URL field must not be named like the _ENDPOINT path constant.
+        executor = RemoteScanExecutor("http://worker", token="t")
+        assert executor._execute_url == "http://worker/rpc/execute"
+        assert "_endpoint" not in vars(executor)
+
     def test_execute_remote_error_raises(self) -> None:
         with _serve(_ok_app()) as base_url:
             executor = RemoteScanExecutor(base_url, token="t")

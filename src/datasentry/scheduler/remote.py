@@ -94,7 +94,7 @@ class RemoteScanExecutor:
         preflight: bool = False,
     ) -> None:
         self._base_url = base_url.rstrip("/")
-        self._endpoint = f"{self._base_url}{self._ENDPOINT}"
+        self._execute_url = f"{self._base_url}{self._ENDPOINT}"
         self._token = token
         self._timeout = httpx.Timeout(
             timeout,
@@ -252,7 +252,7 @@ class RemoteScanExecutor:
             client = self._client()
             try:
                 response = client.post(
-                    self._endpoint,
+                    self._execute_url,
                     headers={self._TOKEN_HEADER: self._token},
                     json=command.model_dump(mode="json"),
                 )
@@ -260,13 +260,13 @@ class RemoteScanExecutor:
                 client.close()
         except Exception as exc:
             raise ScanExecutionError(
-                f"network: remote execution to {self._endpoint} failed: {exc}",
+                f"network: remote execution to {self._execute_url} failed: {exc}",
                 category="network",
                 retryable=True,
             ) from exc
         if response.status_code >= 400:
             raise ScanExecutionError(
-                f"remote execution to {self._endpoint} failed: "
+                f"remote execution to {self._execute_url} failed: "
                 f"HTTP {response.status_code}: {response.text[:200]}",
                 category="http",
                 retryable=response.status_code in _RETRYABLE_HTTP_STATUS,
@@ -275,7 +275,7 @@ class RemoteScanExecutor:
             return JobResult.model_validate(response.json())
         except (ValueError, ValidationError) as exc:
             raise ScanExecutionError(
-                f"remote execution to {self._endpoint} returned invalid result: {exc}",
+                f"remote execution to {self._execute_url} returned invalid result: {exc}",
                 category="contract",
                 retryable=False,
             ) from exc
