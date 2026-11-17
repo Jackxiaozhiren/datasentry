@@ -19,13 +19,13 @@ from datasentry_core.storage.store import MetadataStore
 _MAPPING = {"email": ["alice@example.com", "bob@corp.io"], "cn_phone": ["13800138000"]}
 
 
-@pytest.fixture()
+@pytest.fixture
 def key_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("DATASENTRY_ENCRYPTION_KEY", "api-test-key-0001")
     monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
 
 
-@pytest.fixture()
+@pytest.fixture
 def no_key_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.delenv("DATASENTRY_ENCRYPTION_KEY", raising=False)
     monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")

@@ -43,7 +43,7 @@ class TinyPluginDetector:
 """
 
 
-@pytest.fixture()
+@pytest.fixture
 def plugin_dir(tmp_path: Path) -> Path:
     d = tmp_path / "plugins"
     d.mkdir()

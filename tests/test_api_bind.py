@@ -12,7 +12,7 @@ import pytest
 from datasentry.api import INSECURE_BIND_OPT_IN, InsecureBindRefused, main, resolve_bind
 
 
-@pytest.fixture()
+@pytest.fixture
 def run_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
     calls: list[dict[str, object]] = []
 

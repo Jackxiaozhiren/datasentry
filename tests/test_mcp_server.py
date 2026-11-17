@@ -21,7 +21,7 @@ def _write_csv(path: Path, columns: list[str], rows: list[list[object]]) -> None
         writer.writerows(rows)
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_csv(tmp_path: Path) -> Path:
     ws = tmp_path / "ws"
     ws.mkdir(parents=True, exist_ok=True)
@@ -1240,7 +1240,7 @@ class TestPathContainment:
             }
         )
 
-    @pytest.fixture()
+    @pytest.fixture
     def faces(self, tmp_path: Path) -> tuple[McpServer, str, str, str]:
         """(server, 工作区内文件, 工作区外文件, 真实 scan_run_id)。"""
         ws = tmp_path / "proj"
@@ -1332,7 +1332,7 @@ class TestFifthFaceAndRawEcho:
             }
         )
 
-    @pytest.fixture()
+    @pytest.fixture
     def server(self, tmp_path: Path) -> McpServer:
         ws = tmp_path / "proj"
         ws.mkdir()

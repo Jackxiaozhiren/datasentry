@@ -65,7 +65,7 @@ _GOOD_CSV = "name,age\nalice,30\nbob,25\n"
 _BAD_CSV = "name,age\n,30\nbob,\n"
 
 
-@pytest.fixture()
+@pytest.fixture
 def plugin_root(tmp_path: Path) -> Path:
     root = tmp_path / "fixture_plugin"
     root.mkdir()
