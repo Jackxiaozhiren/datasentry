@@ -33,8 +33,8 @@ def _id() -> str:
 
 def _schema_changes(reference: ScanRun, current: ScanRun) -> list[SchemaChange]:
     """column_signature 逐列 diff；无法确证的变更不报告。"""
-    ref_cols = {name: dtype for name, dtype in reference.fingerprint.column_signature}
-    cur_cols = {name: dtype for name, dtype in current.fingerprint.column_signature}
+    ref_cols = dict(reference.fingerprint.column_signature)
+    cur_cols = dict(current.fingerprint.column_signature)
     changes: list[SchemaChange] = []
     for name in cur_cols:
         if name not in ref_cols:
