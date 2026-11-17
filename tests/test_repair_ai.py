@@ -36,7 +36,7 @@ class _FakeProvider:
         )()
 
 
-@pytest.fixture()
+@pytest.fixture
 def repair_csv(tmp_path: Path) -> Path:
     rows = ["name,status,price"]
     for i in range(1, 21):
@@ -46,7 +46,7 @@ def repair_csv(tmp_path: Path) -> Path:
     return p
 
 
-@pytest.fixture()
+@pytest.fixture
 def outlier_csv(tmp_path: Path) -> Path:
     rows = ["name,price"]
     for i in range(1, 21):
@@ -257,7 +257,7 @@ class TestClientIntegration:
 class TestVaultRoundtrip:
     """加密 → LLM 往返 → 还原（Step 48）：映射加密落库、回复还原、审计。"""
 
-    @pytest.fixture()
+    @pytest.fixture
     def pii_csv(self, tmp_path: Path) -> Path:
         rows = ["name,email"]
         for i in range(1, 11):

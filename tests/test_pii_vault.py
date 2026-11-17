@@ -19,14 +19,14 @@ from datasentry_core.storage.store import MetadataStore
 _MAPPING = {"email": ["alice@example.com", "bob@corp.io"], "cn_phone": ["13800138000"]}
 
 
-@pytest.fixture()
+@pytest.fixture
 def store(tmp_path: Path) -> MetadataStore:
     s = MetadataStore.for_workspace(tmp_path)
     yield s
     s.close()
 
 
-@pytest.fixture()
+@pytest.fixture
 def vault(store: MetadataStore, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> PIIVault:
     monkeypatch.setattr("datasentry.pii_vault._key_file", lambda: tmp_path / "vault.key")
     return PIIVault(store, key="test-key-material")

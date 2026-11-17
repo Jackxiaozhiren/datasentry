@@ -37,7 +37,7 @@ def _make_context(path: Path) -> DetectionContext:
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def case_variant(tmp_path: Path) -> Path:
     path = tmp_path / "people.csv"
     _write_csv(
@@ -54,7 +54,7 @@ def case_variant(tmp_path: Path) -> Path:
     return path
 
 
-@pytest.fixture()
+@pytest.fixture
 def whitespace_cjk(tmp_path: Path) -> Path:
     path = tmp_path / "names.csv"
     _write_csv(

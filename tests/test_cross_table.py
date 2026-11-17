@@ -26,7 +26,7 @@ def _write_csv(path: Path, columns: list[str], rows: list[list[object]]) -> None
         writer.writerows(rows)
 
 
-@pytest.fixture()
+@pytest.fixture
 def orders_main(tmp_path: Path) -> Path:
     path = tmp_path / "orders.csv"
     _write_csv(
@@ -43,7 +43,7 @@ def orders_main(tmp_path: Path) -> Path:
     return path
 
 
-@pytest.fixture()
+@pytest.fixture
 def customers_ref(tmp_path: Path) -> Path:
     path = tmp_path / "customers.csv"
     _write_csv(

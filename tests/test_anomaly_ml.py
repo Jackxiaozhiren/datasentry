@@ -38,7 +38,7 @@ def _make_context(path: Path, config: ScanConfig | None = None) -> DetectionCont
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def gaussian_with_outliers(tmp_path: Path) -> Path:
     path = tmp_path / "measurements.csv"
     rng = np.random.default_rng(7)

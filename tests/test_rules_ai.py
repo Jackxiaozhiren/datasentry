@@ -16,7 +16,7 @@ from datasentry_core.storage.store import MetadataStore
 # ---- 规则引擎预运行（14.3） --------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def csv_file(tmp_path: Path) -> Path:
     p = tmp_path / "orders.csv"
     p.write_text(
@@ -31,7 +31,7 @@ def csv_file(tmp_path: Path) -> Path:
     return p
 
 
-@pytest.fixture()
+@pytest.fixture
 def handle(csv_file: Path):
     from datasentry_core.connectors import DataSourceSpec, default_registry
 

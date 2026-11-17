@@ -43,7 +43,7 @@ class LockedPluginDetector:
 """
 
 
-@pytest.fixture()
+@pytest.fixture
 def plugins_root(tmp_path: Path) -> Path:
     root = tmp_path / "plugins"
     root.mkdir()
