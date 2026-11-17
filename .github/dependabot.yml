@@ -5,6 +5,12 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3
+    ignore:
+      # duckdb 1.5.5 -> 2.0.0 is a major bump whose type stubs break mypy
+      # strict (engine/duckdb.py:72, next() on Any | None). Re-enable minor
+      # and patch updates so 1.x fixes still flow; only the major is held.
+      - dependency-name: "duckdb"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -15,3 +21,9 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 2
+    ignore:
+      # python 3.15-slim breaks the MCP/API images: dependabot bumps only the
+      # runtime FROM while the builder stage stays on python3.12, so the copied
+      # .venv cannot be imported. Hold this tag until a coordinated bump.
+      - dependency-name: "python"
+        versions: ["3.15", "3.15-slim"]
