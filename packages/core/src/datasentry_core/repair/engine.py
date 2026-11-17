@@ -791,8 +791,10 @@ class RepairEngine:
             # a key gains `"key": null` -- while `operations` records only the target column. The
             # claim that JSONL is exempt held only for records sharing one key set and no ISO-T
             # strings. Refusing beats writing an unauthorised copy; cell-by-cell carry for JSONL
-            # is filed as the follow-up candidate.
-            raise ValueError(
+            # is filed as the follow-up candidate. A refusal the caller asked for is a caller-side
+            # outcome: PolicyRefusalError carries the three-surface mapping (CLI exit 3 / REST 422
+            # / MCP -32602) instead of falling through the generic ValueError paths.
+            raise PolicyRefusalError(
                 "repair of JSONL sources is refused: the projection rewrites cells the proposal "
                 "does not authorise (timestamp formatting, null-filled missing keys), and carrying "
                 "JSONL cell-by-cell is not implemented yet"
@@ -804,7 +806,7 @@ class RepairEngine:
                 source_path, source_type, drop_trailing_blank_rows=False
             )
         except Exception as exc:
-            raise ValueError(
+            raise PolicyRefusalError(
                 f"repair of {source_path.name} needs to carry its cells through cell-by-cell, "
                 f"but the source cannot be read that way: {type(exc).__name__}"
             ) from exc
@@ -817,14 +819,14 @@ class RepairEngine:
         if len(projection_names) != len(source_names) or any(
             a != b for a, b in zip(projection_names, source_names, strict=True)
         ):
-            raise ValueError(
+            raise PolicyRefusalError(
                 f"repair of {source_path.name} refuses to carry cells: the connector reads "
                 f"{len(projection_names)} columns named {projection_names} while the file spells "
                 f"{source_names}; a positional carry would write repaired values into the wrong "
                 "column (duplicate or blank headers are the usual cause)"
             )
         if len(source_rows) != table.num_rows:
-            raise ValueError(
+            raise PolicyRefusalError(
                 f"repair refuses to carry cells: the source has {len(source_rows)} rows "
                 f"but the repaired projection has {table.num_rows}; a positional carry-over "
                 "would misalign rows"
