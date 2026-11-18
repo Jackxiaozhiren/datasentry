@@ -647,7 +647,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
     app.state.client = client
     app.state.scheduler = scheduler
 
-    @app.get("/health", response_model=HealthResponse, tags=["meta"])
+    @app.get("/health", tags=["meta"])
     def health() -> HealthResponse:
         return HealthResponse(
             ok=True,
@@ -668,7 +668,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
     def list_scan_ids() -> list[str]:
         return [scan.id for scan in client.list_scan_runs()]
 
-    @app.post("/scans", response_model=ScanResponse, tags=["scans"], status_code=201)
+    @app.post("/scans", tags=["scans"], status_code=201)
     def create_scan(req: ScanRequest) -> ScanResponse:
         from datasentry.scan_paths import resolve_allowed_scan_path
 
@@ -703,7 +703,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             raise HTTPException(status_code=404, detail="no scan progress yet")
         return latest
 
-    @app.get("/scans/{run_id}", response_model=ScanRun, tags=["scans"])
+    @app.get("/scans/{run_id}", tags=["scans"])
     def get_scan(run_id: str) -> ScanRun:
         try:
             scan = client.get_scan(run_id)
@@ -713,7 +713,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             raise HTTPException(status_code=404, detail=f"scan run not found: {run_id}")
         return scan
 
-    @app.get("/scans/{run_id}/issues", response_model=list[Issue], tags=["scans"])
+    @app.get("/scans/{run_id}/issues", tags=["scans"])
     def get_scan_issues(run_id: str) -> list[Issue]:
         return client.list_issues(scan_run_id=run_id)
 
@@ -795,7 +795,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
             raise HTTPException(status_code=404, detail="column profiles unavailable")
         return profiles
 
-    @app.get("/issues", response_model=list[Issue], tags=["issues"])
+    @app.get("/issues", tags=["issues"])
     def list_all_issues(
         severity_at_least: str | None = Query(default=None),
     ) -> list[Issue]:
@@ -805,7 +805,6 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
 
     @app.post(
         "/scans/{run_id}/repairs/propose",
-        response_model=RepairProposal | None,
         tags=["repairs"],
     )
     def repair_propose(run_id: str, req: ProposeRequest) -> RepairProposal | None:
@@ -835,7 +834,6 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
 
     @app.post(
         "/scans/{run_id}/repairs/apply",
-        response_model=RepairRun,
         tags=["repairs"],
     )
     def repair_apply(
@@ -852,7 +850,6 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
 
     @app.post(
         "/repairs/{run_id}/rollback",
-        response_model=RepairRun,
         tags=["repairs"],
     )
     def repair_rollback(
@@ -865,7 +862,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         except Exception as exc:
             raise _handle(exc) from exc
 
-    @app.get("/repairs", response_model=list[RepairRun], tags=["repairs"])
+    @app.get("/repairs", tags=["repairs"])
     def list_repair_runs() -> list[RepairRun]:
         return client.list_repair_runs()
 

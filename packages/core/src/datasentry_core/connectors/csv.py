@@ -232,7 +232,6 @@ class CsvDataHandle:
         elif method == "time_based":
             column = self._spec.options.get("time_column")
             if not isinstance(column, str) or not column:
-                method = "reservoir"
                 sql = f"SELECT * FROM data USING SAMPLE reservoir({n} ROWS) REPEATABLE ({seed})"
                 params = []
             else:

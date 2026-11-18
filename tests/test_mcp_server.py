@@ -116,7 +116,7 @@ class TestTools:
             result = _call(server, 4, "tools/list")["result"]
             tools = result["tools"]
             names = {t["name"] for t in tools}
-            assert {
+            assert names == {
                 "scan_file",
                 "issues_list",
                 "quality_score",
@@ -143,7 +143,7 @@ class TestTools:
                 "repair_verify",
                 "repair_diff",
                 "report_export",
-            } == names
+            }
             for tool in tools:
                 assert tool["inputSchema"]["type"] == "object"
         finally:
