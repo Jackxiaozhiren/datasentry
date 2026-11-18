@@ -110,7 +110,9 @@ The Registry publish step retries transient failures that can occur while a newl
 7. Run the complete CI gate and the **MCP Registry metadata** validation workflow.
 8. Confirm the wheel isolated-install smoke passes.
 9. Merge the release PR.
-10. Create the application tag on the merge commit, for example:
+10. Run the AC-11b pre-tag gate in the exact clean checkout that will be tagged (see
+    [AC-11b pre-tag gate](#ac-11b-pre-tag-gate) below). This must pass before the tag is created.
+11. Create the application tag on the merge commit, for example:
 
    ```bash
    git checkout main
@@ -119,9 +121,9 @@ The Registry publish step retries transient failures that can occur while a newl
    git push origin v1.0.4
    ```
 
-11. Watch **Publish to PyPI**. The first job must pass all preflight/build/wheel-smoke steps before upload.
-12. Confirm the dependent **Publish MCP metadata to official Registry** job also succeeds.
-13. Verify a truly external install:
+12. Watch **Publish to PyPI**. The first job must pass all preflight/build/wheel-smoke steps before upload.
+13. Confirm the dependent **Publish MCP metadata to official Registry** job also succeeds.
+14. Verify a truly external install:
 
     ```bash
     python -m venv /tmp/datasentry-pypi-smoke
@@ -129,9 +131,30 @@ The Registry publish step retries transient failures that can occur while a newl
     /tmp/datasentry-pypi-smoke/bin/datasentry --version
     ```
 
-14. Verify the released DataSentry server version appears under `io.github.Jackxiaozhiren/datasentry` in the official MCP Registry.
-15. Create/publish GitHub Release notes for the tag if the tag was created outside the Releases UI.
-16. Only after the external install succeeds should downstream examples/actions be updated to pin the new version.
+15. Verify the released DataSentry server version appears under `io.github.Jackxiaozhiren/datasentry` in the official MCP Registry.
+16. Create/publish GitHub Release notes for the tag if the tag was created outside the Releases UI.
+17. Only after the external install succeeds should downstream examples/actions be updated to pin the new version.
+
+## AC-11b pre-tag gate
+
+Detector drift can change which issues a scan reports without changing the stored run. The
+CI drift gate checks issue signatures on a throwaway workspace, which proves the source tree
+is self-consistent but produces no evidence tied to the release checkout. The pre-tag gate
+closes that gap: it runs in the exact clean workspace that will be tagged, retains a source
+fixture, re-scans it with the current detectors, and archives the diff under
+`.datasentry/{fixtures,rescan}/`.
+
+Run it from the release checkout (the script refuses a dirty tree):
+
+```bash
+bash scripts/ac11b_release_gate.sh "$PWD"
+```
+
+The script fails if no run can be retained (`covered=0`), if a re-scan is not comparable or
+not fixture-backed, if any run is uncovered, or if any issue set drifts
+(`rescan --fail-on-drift`). A passing run establishes AC-11b execution coverage and is a
+release artifact; it is **not** a claim that the tag, PyPI upload, or Registry publication
+succeeded — those remain separate checklist steps.
 
 ## Version-availability preflight
 
