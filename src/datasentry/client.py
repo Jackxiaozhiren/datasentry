@@ -32,6 +32,7 @@ from datasentry_core.connectors.spec import EXT_TO_SOURCE_TYPE as _EXT_TO_SOURCE
 from datasentry_core.detectors import DetectionContext, DetectorRegistry
 from datasentry_core.detectors.initial import register_default_detectors
 from datasentry_core.detectors.runner import ScanRunner
+from datasentry_core.errors import PolicyRefusalError
 from datasentry_core.llm.provider import LLMError
 from datasentry_core.models.contract import QualityGate, TableReference
 from datasentry_core.models.drift import DriftReport
@@ -1135,6 +1136,21 @@ class DataSentry:
             handle=handle,
         )
 
+    def _require_source_scan_completed(self, issue_id: str, scan_run_id: str) -> None:
+        """`O-2`：来源扫描不是 completed 的 issue 不能进修复链路。
+
+        一个扫描有多个检测器；前面检测器成功入库的 issue 在后面检测器 crash 时不会撤回，
+        于是 store 里挂着 `status="failed"` 的 scan run + 它的 issues。修复一个建立在
+        半途而废的扫描上的 issue，等于让用户拿不完整的证据做替换生产的数据的决定。
+        """
+        scan_run = self._store.get_scan_run(scan_run_id)
+        if scan_run is not None and scan_run.status != "completed":
+            raise PolicyRefusalError(
+                f"refusing to repair issue {issue_id}: its source scan ({scan_run_id}) "
+                f"has status={scan_run.status!r}, not 'completed' — a failed scan's "
+                "issues may be incomplete (O-2)"
+            )
+
     def repair_propose(
         self,
         issue_id: str,
@@ -1144,6 +1160,7 @@ class DataSentry:
         issue = self._store.get_issue_by_id(issue_id)
         if issue is None:
             raise KeyError(f"issue not found: {issue_id}")
+        self._require_source_scan_completed(issue_id, issue.scan_run_id)
         context = self.repair_open(source_path)
         try:
             proposal = RepairEngine().propose(issue, context)
@@ -1178,6 +1195,7 @@ class DataSentry:
         issue = self._store.get_issue_by_id(issue_id)
         if issue is None:
             raise KeyError(f"issue not found: {issue_id}")
+        self._require_source_scan_completed(issue_id, issue.scan_run_id)
         context = self.repair_open(source_path)
         try:
             engine = RepairEngine()
@@ -1200,6 +1218,7 @@ class DataSentry:
         issue = self._store.get_issue_by_id(issue_id)
         if issue is None:
             raise KeyError(f"issue not found: {issue_id}")
+        self._require_source_scan_completed(issue_id, issue.scan_run_id)
         context = self.repair_open(source_path)
         try:
             engine = RepairEngine()

@@ -8,6 +8,17 @@
 
 ### 变更（破坏性）
 
+- **来源扫描未跑完的 issue 不再进入修复链路（`O-2`）**。一次扫描由多个检测器组成：后面的检测器
+  crash 时，前面已入库的 issue 并不会撤回，于是 store 里挂着 `status="failed"` 的 scan run 和它的
+  issues，而 `repair_propose`/`repair_preview`/`repair_apply` 此前完全不看 run 的 status。
+  实测改前：一份 ns Parquet 的扫描以 `failed` 结束，仍能从那次 run 取出 issue 修复成功，
+  修复记录的 `source_scan_run_id` 正指向失败的扫描，而四个面都不说"这次修复建立在半途而废的审计上"。
+  现在三个入口共用 `_require_source_scan_completed()`，非 `completed` 就抛 `PolicyRefusalError`，
+  消息里点名实际的 status。**行为变更**（三面实测）：REST `/scans/{run}/repairs/propose|apply`
+  由 2xx 变 **422**（detail 给出拒绝理由）；CLI `repair preview|apply` 由 `0` 变 **退出码 3**
+  （envelope 里带 `error`）；MCP `repair_propose_batch` 由返回提案变**逐 issue error 条目**
+  （`failed=1`、`issues=[]`）。代价是用户必须重跑扫描才能修复该数据集——按项目 fail-closed 口径
+  有意选择的收紧。判据：`tests/test_failed_scan_refusal.py`（4 条，含"completed 扫描照常可修"的对照）。
 - **策略拒绝在 CLI / MCP / REST 三面按 kind 映射（阶段 3 第 1 项切片 b/c）**。新增
   `datasentry_core.errors`：四类 `ErrorKind`（用户错 / 数据源不可达 / 策略拒绝 / 内部故障）各带
   CLI 退出码、HTTP 状态码、MCP JSON-RPC code 一组映射，消息原文不变；基类继承 `ValueError`，
