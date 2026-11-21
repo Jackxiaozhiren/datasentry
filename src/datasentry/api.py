@@ -580,7 +580,7 @@ def create_app(project: str | Path | None = None, *, worker_token: str | None = 
         project = os.environ.get("DATASENTRY_PROJECT")
     if worker_token is None:
         worker_token = os.environ.get("DATASENTRY_WORKER_TOKEN")
-    client = sdk.DataSentry(project=project, enforce_scan_containment=True)
+    client = sdk.DataSentry(project=project, enforce_scan_containment=True, surface="rest")
     scheduler = _build_scheduler(client)
     worker = SchedulerWorker(scheduler)
     # V22（Step 115，ADR-115）：in-flight run 取消标记 registry（线程安全）。

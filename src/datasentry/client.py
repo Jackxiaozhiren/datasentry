@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
     from datasentry.pii_vault import PIIVault
     from datasentry_core.scoring.replay import ReplayReport
 
+from datasentry.adoption import record as _adoption_record
 from datasentry.repair_ai import AIRepairService
 from datasentry_core.connectors import (
     DataHandle,
@@ -111,12 +113,16 @@ class DataSentry:
         project: str | Path | None = None,
         *,
         enforce_scan_containment: bool = False,
+        surface: str = "cli",
     ) -> None:
         self._workspace = Path(project).expanduser() if project else Path.cwd()
         # D5-13: a face that takes paths from the network confines them to this workspace.
         # The CLI and the local scheduler stay on the operator's own trust boundary, so the
         # flag is opt-in per construction site instead of a rule inside scan_file.
         self._enforce_scan_containment = enforce_scan_containment
+        # R-14：决策日志要记「界面来源」。四端共用这一个门面，所以来源是**构造事实**
+        # 而不是各调用点各自声明；默认 cli（CLI 与本地调度器都在操作员自己的信任边界内）。
+        self._surface = surface
         self._store = MetadataStore.for_workspace(self._workspace)
         self._registry = self._registry_with_plugins()
         self._runner = ScanRunner(self._registry)
@@ -1151,6 +1157,22 @@ class DataSentry:
                 "issues may be incomplete (O-2)"
             )
 
+    def _record_adoption(self, action: str, issue: Issue | None = None, **extra: Any) -> None:
+        """R-14/R-16：本机决策日志（opt-in，见 `datasentry.adoption`）。
+
+        观测面不得反噬主流程：日志写不进去（磁盘满、权限）只吞 ``OSError``，
+        修复动作本身的成败不受影响。字段本身就过白名单，不靠事后脱敏。
+        """
+        fields: dict[str, Any] = {
+            "action": action,
+            "issue_type": issue.issue_type if issue is not None else "",
+            "issue_id": issue.id if issue is not None else "",
+            "severity": issue.severity.value if issue is not None else "",
+            **extra,
+        }
+        with contextlib.suppress(OSError):
+            _adoption_record(self._workspace, surface=self._surface, **fields)
+
     def repair_propose(
         self,
         issue_id: str,
@@ -1168,6 +1190,7 @@ class DataSentry:
             context.handle.close()
         if proposal is not None:
             self._store.save_repair_proposal(proposal)
+            self._record_adoption("propose", issue, rows_changed=proposal.estimated_rows_changed)
         return proposal
 
     def repair_propose_ai(
@@ -1242,6 +1265,7 @@ class DataSentry:
         finally:
             context.handle.close()
         self._store.save_repair_run(run)
+        self._record_adoption("approve", issue, rows_changed=run.rows_changed)
         return run
 
     def repair_rollback(self, run_id: str) -> RepairRun:
@@ -1251,6 +1275,8 @@ class DataSentry:
             raise KeyError(f"repair run not found: {run_id}")
         rolled = RepairEngine().rollback(run, self.workspace)
         self._store.save_repair_run(rolled)
+        # RepairRun 不带 issue 类型；回滚记录的用途是「发生过一次回滚」，不猜 issue 归属。
+        self._record_adoption("rollback", rows_changed=0)
         return rolled
 
     def list_repair_runs(self) -> list[RepairRun]:

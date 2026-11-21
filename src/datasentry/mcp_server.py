@@ -153,7 +153,7 @@ class McpServer:
     """MCP stdio 服务器：单工作区门面（与 REST create_app 同构）。"""
 
     def __init__(self, project: str | Path | None = None) -> None:
-        self._client = DataSentry(project=project, enforce_scan_containment=True)
+        self._client = DataSentry(project=project, enforce_scan_containment=True, surface="mcp")
         self._tools: dict[str, dict[str, Any]] = {}
         self._handlers: dict[str, Callable[..., Any]] = {}
         # R-10: set from the client's `initialize` capabilities, never assumed. Until a
