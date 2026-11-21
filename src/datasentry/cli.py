@@ -821,6 +821,10 @@ def _cmd_repair_propose(args: argparse.Namespace) -> int:
             proposal = client.repair_propose(args.issue_id, args.file)
     except (KeyError, ValueError) as exc:
         _emit(_envelope("repair propose", {"error": str(exc)}), args.format)
+        # 与 _cmd_repair_preview 一致：DataSentryError 读 kind 的 exit_code
+        # （PolicyRefusal→3），其余 ValueError 保持 EXIT_CONFIG(2)——策略拒绝不是参数错误。
+        if isinstance(exc, DataSentryError):
+            return exc.exit_code
         return EXIT_CONFIG
     except LLMError as exc:
         _emit(_envelope("repair propose", {"error": str(exc)}), args.format)

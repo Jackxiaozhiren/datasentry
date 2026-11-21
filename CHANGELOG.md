@@ -13,12 +13,21 @@
   issues，而 `repair_propose`/`repair_preview`/`repair_apply` 此前完全不看 run 的 status。
   实测改前：一份 ns Parquet 的扫描以 `failed` 结束，仍能从那次 run 取出 issue 修复成功，
   修复记录的 `source_scan_run_id` 正指向失败的扫描，而四个面都不说"这次修复建立在半途而废的审计上"。
-  现在三个入口共用 `_require_source_scan_completed()`，非 `completed` 就抛 `PolicyRefusalError`，
+  现在四个入口（`repair_propose` / `repair_propose_ai` / `repair_preview` / `repair_apply`）
+  共用 `_require_source_scan_completed()`，非 `completed` 就抛 `PolicyRefusalError`，
   消息里点名实际的 status。**行为变更**（三面实测）：REST `/scans/{run}/repairs/propose|apply`
   由 2xx 变 **422**（detail 给出拒绝理由）；CLI `repair preview|apply` 由 `0` 变 **退出码 3**
   （envelope 里带 `error`）；MCP `repair_propose_batch` 由返回提案变**逐 issue error 条目**
   （`failed=1`、`issues=[]`）。代价是用户必须重跑扫描才能修复该数据集——按项目 fail-closed 口径
-  有意选择的收紧。判据：`tests/test_failed_scan_refusal.py`（4 条，含"completed 扫描照常可修"的对照）。
+  有意选择的收紧。判据：`tests/test_failed_scan_refusal.py`（8 条，含"completed 扫描照常可修"
+  与"completed 仍走到 LLM 门"的对照）。
+- **`repair_propose_ai` 补齐 `O-2`，CLI `repair propose` 退出码对齐（同一缺口的收口）**。
+  AI 提案入口此前直连 `AIRepairService`，绕过了 `O-2` 校验；现在先取 issue 并复用同一
+  `_require_source_scan_completed()`，**校验置于 `AIRepairService` 之前**——否则未配置 LLM 时
+  会先抛 `LLMNotConfiguredError`，把"这次修复的前提不成立"说成"没配 LLM"。CLI 侧
+  `_cmd_repair_propose` 原先对 `ValueError` 一律返回 `EXIT_CONFIG`(2)，把策略拒绝报成参数错误；
+  现与 `_cmd_repair_preview` 一致改为读 `DataSentryError.exit_code`，`repair propose` 与
+  `repair propose --ai` 均为 **3**。issue 不存在时的既有报错顺序未改变。
 - **策略拒绝在 CLI / MCP / REST 三面按 kind 映射（阶段 3 第 1 项切片 b/c）**。新增
   `datasentry_core.errors`：四类 `ErrorKind`（用户错 / 数据源不可达 / 策略拒绝 / 内部故障）各带
   CLI 退出码、HTTP 状态码、MCP JSON-RPC code 一组映射，消息原文不变；基类继承 `ValueError`，

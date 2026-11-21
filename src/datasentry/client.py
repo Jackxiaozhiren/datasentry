@@ -1179,7 +1179,15 @@ class DataSentry:
 
         规则引擎兜底：LLM 只在检测器对应的操作集内选择（clip 边界 /
         rationale 可生成），候选经审计并落库（status=proposed）。
+
+        `O-2`：与其他三个修复入口一样，来源扫描不是 `completed` 的 issue 先被拒绝。
+        校验放在 `AIRepairService` 之前——否则未配置 LLM 时会先抛
+        `LLMNotConfiguredError`，把"这次修复的前提不成立"说成"没配 LLM"。
+        issue 不存在时仍由 service 报错，本方法不改变该处既有顺序。
         """
+        issue = self._store.get_issue_by_id(issue_id)
+        if issue is not None:
+            self._require_source_scan_completed(issue_id, issue.scan_run_id)
         service = AIRepairService(self._store)
         result = service.propose(issue_id, str(source_path))
         if result.llm_error is not None:
