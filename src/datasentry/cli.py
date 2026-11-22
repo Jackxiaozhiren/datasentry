@@ -462,6 +462,89 @@ def _cmd_issues_show(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_issues_confirm(args: argparse.Namespace) -> int:
+    """R-16：人工判定「真 / 假问题」→ 与 R-14 同一条本地日志。
+
+    未开启日志时**显式报错而非静默丢弃**：一个没落盘的判定比没有判定更糟。
+    """
+    from datasentry import adoption
+
+    client = DataSentry(args.project)
+    try:
+        workspace = client.workspace
+        issue = client.get_issue(args.issue_id)
+    finally:
+        client.close()
+    if issue is None:
+        _emit(
+            _envelope("issues confirm", {"error": f"issue not found: {args.issue_id}"}),
+            args.format,
+        )
+        return EXIT_CONFIG
+    if not adoption.enabled():
+        _emit(
+            _envelope(
+                "issues confirm",
+                {
+                    "recorded": False,
+                    "error": t(args.lang, "cli.adoption_disabled").format(
+                        env=adoption.ENV_ADOPTION_LOG
+                    ),
+                },
+            ),
+            args.format,
+        )
+        return EXIT_CONFIG
+    entry = adoption.record(
+        workspace,
+        action="confirm",
+        issue_type=issue.issue_type,
+        rows_changed=0,
+        issue_id=issue.id,
+        severity=issue.severity.value,
+        verdict=args.verdict,
+        surface="cli",
+    )
+    if args.format == "json":
+        _emit(_envelope("issues confirm", {"recorded": True, "entry": entry}), args.format)
+    else:
+        print(t(args.lang, "cli.adoption_recorded").format(issue=issue.id, verdict=args.verdict))
+    return EXIT_OK
+
+
+def _cmd_adoption_summary(args: argparse.Namespace) -> int:
+    """R-14：纯本地聚合，输出分母与口径说明；不联网、不上报、不读列值。"""
+    from datasentry import adoption
+
+    client = DataSentry(args.project)
+    try:
+        workspace = client.workspace
+    finally:
+        client.close()
+    summary = adoption.summarize(workspace)
+    if args.format == "json":
+        _emit(_envelope("adoption summary", summary), args.format)
+        return EXIT_OK
+    print(t(args.lang, "cli.adoption_title"))
+    print(
+        t(args.lang, "cli.adoption_counts").format(
+            proposals=summary["proposals"],
+            approvals=summary["approvals"],
+            rejections=summary["rejections"],
+            rollbacks=summary["rollbacks"],
+        )
+    )
+    print(
+        t(args.lang, "cli.adoption_rates").format(
+            rate=f"{summary['adoption_rate']:.2f}",
+            fpr=f"{summary['false_positive_rate']:.2f}",
+            confirmed=summary["confirmed"],
+        )
+    )
+    print(t(args.lang, "cli.adoption_scope").format(scope=summary["scope"]))
+    return EXIT_OK
+
+
 def _render_html_content(
     client: DataSentry, report: dict[str, object], selector: str, lang: str
 ) -> str:
@@ -1988,6 +2071,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_show = issues_sub.add_parser("show", help="issue detail")
     p_show.add_argument("issue_id", type=str)
     p_show.set_defaults(func=_cmd_issues_show)
+    p_confirm = issues_sub.add_parser(
+        "confirm", help="record a human true/false judgement (R-16, opt-in log)"
+    )
+    p_confirm.add_argument("issue_id", type=str)
+    p_confirm.add_argument(
+        "--verdict",
+        choices=("true", "false"),
+        required=True,
+        help="true = real problem; false = false positive",
+    )
+    p_confirm.set_defaults(func=_cmd_issues_confirm)
+
+    p_adoption = sub.add_parser(
+        "adoption", help="local adoption/confirmation log (R-14; opt-in, this machine only)"
+    )
+    adoption_sub = p_adoption.add_subparsers(dest="adoption_cmd", required=True)
+    p_adoption_summary = adoption_sub.add_parser(
+        "summary", help="local aggregate: denominator + scope statement"
+    )
+    p_adoption_summary.set_defaults(func=_cmd_adoption_summary)
 
     p_report = sub.add_parser("report", help="report export")
     report_sub = p_report.add_subparsers(dest="report_cmd", required=True)

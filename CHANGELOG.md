@@ -424,6 +424,19 @@
 
 ### 新增
 
+- **本机采纳日志（R-14）与 `issues confirm` 人工判定（R-16），默认 opt-in 关闭**。新增
+  `src/datasentry/adoption.py`：追加写 `<workspace>/.datasentry/adoption.jsonl`，**字段白名单**
+  （`ts`/`action`/`issue_type`/`rows_changed`/`surface`/`issue_id`/`severity`/`verdict`）——每个字段
+  只能是固定枚举、受限标识符、固定形状的 issue id 或非负整数，因此路径、列值、DSN、token、PII
+  **结构上**写不进去，而不是写进去再脱敏。只有 `DATASENTRY_ADOPTION_LOG=1` 才启用；未启用时
+  `record()` 返回 `None`，修复主流程零影响。新增命令：`datasentry issues confirm <issue_id>
+  --verdict true|false`（日志未开启时**显式 rc 2**，不静默丢弃判定）与 `datasentry adoption
+  summary`（纯本地聚合，输出分母与口径）。`false_positive_rate = confirmed-false / confirmed`，
+  **未判定不进任何分母**，口径写在 `summarize()` 的 `scope` 字段里。修复链三个动作
+  （propose / apply / rollback）落进同一条日志；`surface` 由构造点声明（默认 `cli`，
+  REST 为 `rest`、MCP 为 `mcp`）。判据：`tests/test_adoption_log.py`（13 条，含 opt-in 默认关、
+  白名单清空 DSN/邮箱/手机号、四种 surface 可区分、CLI 关闭时拒绝落盘）。
+
 - **MCP 新增只读 `repair_diff` 工具，三个 JSON 面共用一个组装函数（R-09）**。此前 REST
   `GET /repairs/{id}/diff` 与 CLI `repair diff --format json` 各写一份行→JSON 代码，MCP 面根本没有
   这个工具；新增第三份会等于把同一报告拼出第三种形状。现在三面都调用
