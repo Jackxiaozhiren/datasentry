@@ -176,6 +176,18 @@
 
 ### 修复
 
+- **`repair list` 的「changed rows」现在显示真实改动行数，不再是操作样本长度（追加 3p 展示收口）**。
+  `RepairRun.rows_changed` 是单一持久化的真实行数，`RepairRun.operations` 则是至多
+  `_OPERATION_LOG_CAP` 条的样本；此前表格这一列直接用 `len(operations)`，于是一条实际改了
+  22 行、只记录 1 条操作的修复被显示成「1」，与 JSON/报告面的 `rows_changed` 自相矛盾
+  （审计 `AUDIT_REPORT.md` §995「追加 3p」记录的口径不一致）。现在表格改用 `rows_changed`；
+  JSON 面同时给出 `rows_changed`（真实值）与 `operations_sampled`（样本长度）两个不同键。
+  **`rows_changed is None` 不写成 0**：模型注释明写「None 表示记录诞生于该字段之前，未知而非 0」，
+  此时表格显示 `N*` 并附脚注 `sample size only`，JSON 面如实给 `null`。**行为变更**：
+  历史修复记录在表格里多出脚注，带真实行数的记录列值可能变大（不再是样本数）。
+  判据：`tests/test_repair_list_rows_changed.py`（5 条，含真实行数优先于样本数、NULL 脚注、
+  无脚注对照，以及两次源码注入负向对照——删 JSON 字段 / 表格退回样本数均实测转红）。
+
 - **列画像的五个统计字段不再把文本极值原文写进报告（`B3-e`）**。`DatasetProfile` 会为 VARCHAR 列
   记录文本极值，`min`/`max` 完全可能是一条 DSN、一个邮箱或手机号；而 `column_profiles._fmt()`
   只对数值走 `float()` 格式化，非数值直接 `str(v)`，原文于是进入已落盘报告的 `profiles-data`
