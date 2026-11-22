@@ -14,7 +14,7 @@ import sqlite3
 import time
 
 #: 当前 schema 版本（PRAGMA user_version）
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 _SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -486,6 +486,11 @@ def migrate(conn: sqlite3.Connection) -> None:
     # NULL 而非 0：旧记录确实不知道。
     if version < 11:
         _ensure_column(conn, "repair_runs", "rows_changed", "rows_changed INTEGER")
+    # v11 → v12：scan_runs.stage_timings（R-15）——read/profile/detect/score 四阶段墙钟，
+    # JSON 对象。单独一列而不是塞进 reproducibility：ScanRun 里该字段 `exclude=True`，
+    # 默认 JSON/文本输出必须逐字节不变（R-15 验收）。
+    if version < 12:
+        _ensure_column(conn, "scan_runs", "stage_timings", "stage_timings TEXT")
     # v7 → v8：job_runs.status 增 cancelled（V22，Step 114，ADR-114）——
     # SQLite 无法 ALTER CHECK，重建表放宽约束（数据原样保留；无表引用
     # job_runs，DROP 安全；外键到 scheduled_jobs 由 RENAME 保留）。

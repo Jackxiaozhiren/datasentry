@@ -100,8 +100,8 @@ class MetadataStore:
                 INSERT INTO scan_runs (
                     id, dataset_id, source_path, status, config, fingerprint, quality_score,
                     quality_breakdown, issues_count, started_at, finished_at,
-                    error, reproducibility, llm_usage
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    error, reproducibility, llm_usage, stage_timings
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     scan_run.id,
@@ -126,6 +126,7 @@ class MetadataStore:
                     scan_run.error,
                     scan_run.reproducibility.model_dump_json(),
                     scan_run.llm_usage.model_dump_json(),
+                    json.dumps(scan_run.stage_timings_ms, sort_keys=True),
                 ),
             )
             for run in detector_runs:
@@ -443,6 +444,8 @@ class MetadataStore:
             error=d["error"],
             reproducibility=json.loads(d["reproducibility"]),
             llm_usage=json.loads(d["llm_usage"]),
+            # R-15：v12 之前的行没有这一列值（NULL）——空 dict 表示「未记录」，不是「零耗时」。
+            stage_timings_ms=json.loads(d["stage_timings"]) if d.get("stage_timings") else {},
         )
 
     def _issue_from_row(self, row: sqlite3.Row) -> Issue:

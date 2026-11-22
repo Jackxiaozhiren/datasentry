@@ -111,3 +111,6 @@ class ScanRun(BaseModel):
     error: str | None = None
     reproducibility: ReproducibilityInfo
     llm_usage: LLMUsageSummary = Field(default_factory=LLMUsageSummary)
+    #: R-15：read / profile / detect / score 四阶段墙钟（毫秒）。`exclude=True` 本身就是
+    #: 验收条件的一部分——默认 JSON/文本输出字节必须不变，只有显式读属性才看得到。
+    stage_timings_ms: dict[str, int] = Field(default_factory=dict, exclude=True)

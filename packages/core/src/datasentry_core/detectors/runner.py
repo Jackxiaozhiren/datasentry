@@ -203,7 +203,9 @@ class ScanRunner:
         config = config or ScanConfig()
         scan_run_id = f"scan_{uuid.uuid4().hex[:12]}"
         started_at = datetime.now(UTC)
+        detect_started = time.perf_counter()
         runs, issues = self.run(context, config, scan_run_id, on_progress)
+        detect_ms = int((time.perf_counter() - detect_started) * 1000)
         # Step 73/ADR-073：抽样扫描用 sampled 档指纹（变更检测语义），
         # 避免整文件 SHA-256（原 full 档在 1e6 行 CSV 上 ~1s 量级）
         fp_mode: FingerprintMode = (
@@ -225,10 +227,12 @@ class ScanRunner:
             except KeyError:
                 continue  # 契约规则 run（非注册检测器）不参与维度统计
             ran_dimensions.add(detector.quality_dimension)
+        score_started = time.perf_counter()
         try:
             quality_score = self._quality.score(issues, ran_dimensions=ran_dimensions)
         except ValueError:  # 无任何检测器运行（空白名单）→ 未评分
             quality_score = None
+        score_ms = int((time.perf_counter() - score_started) * 1000)
         source_path = context.handle.source_path
         scan_run = ScanRun(
             id=scan_run_id,
@@ -248,6 +252,9 @@ class ScanRunner:
                 seed=config.seed,
                 scanned_at=datetime.now(UTC),
             ),
+            # R-15：runner 只知道自己负责的两个阶段；read / profile 由调用方（client）
+            # 在自己的边界上计时后补齐，避免把打开数据源的开销算进 detect。
+            stage_timings_ms={"detect": detect_ms, "score": score_ms},
         )
         return scan_run, runs, issues
 

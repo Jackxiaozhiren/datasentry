@@ -8,6 +8,16 @@
 
 ### 变更（破坏性）
 
+- **扫描记录新增四阶段墙钟 `stage_timings_ms`（`R-15`），并把画像移到落库之前**。
+  `ScanRun` 新增 `read / profile / detect / score` 四阶段墙钟（毫秒，字段 `exclude=True`）：
+  runner 自己计 `detect` / `score`，`client.scan_file` 在自己的边界上计 `read` / `profile` 后合并，
+  不把打开数据源的开销算进 detect。落库走 schema v11→v12 新增的 `scan_runs.stage_timings`
+  列（JSON），回读时 NULL → `{}` 表示"未记录"而非"零耗时"。**对外输出字节不变**：该字段
+  `exclude=True`，默认 JSON/文本与 REST `GET /scans/{id}` 均无此字段（护栏测试钉住）。
+  **行为变更**：画像从 `save_scan` 之后移到之前——画像期间崩溃则本次 run 不落库
+  （此前是"run 已落库、sidecar 缺失"）；`_save_profile` 本身吞 `ValueError`/`AssertionError`，
+  常规失败路径不变。判据：`tests/test_stage_timings.py`（6 条，含字节护栏的反证、重载存活、
+  REST 面无泄漏）。判据之外另验证 v11 旧库升级后历史 run 可读且 stage_timings 为 `{}`。
 - **来源扫描未跑完的 issue 不再进入修复链路（`O-2`）**。一次扫描由多个检测器组成：后面的检测器
   crash 时，前面已入库的 issue 并不会撤回，于是 store 里挂着 `status="failed"` 的 scan run 和它的
   issues，而 `repair_propose`/`repair_preview`/`repair_apply` 此前完全不看 run 的 status。

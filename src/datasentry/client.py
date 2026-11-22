@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -586,6 +587,7 @@ class DataSentry:
             cached = self._incremental_cached(path, dataset_id, table_name)
             if cached is not None:
                 return cached
+        read_started = time.perf_counter()
         handle = default_registry().open(spec)
         try:
             context = DetectionContext(
@@ -596,9 +598,21 @@ class DataSentry:
                 config=config or ScanConfig(),
                 references=references,
             )
+            read_ms = int((time.perf_counter() - read_started) * 1000)
             scan_run, runs, issues = self._runner.run_scan(context, config, on_progress)
-            self._store.save_scan(scan_run, runs, issues)
+            # R-15：profile 挪到 save 之前，四阶段才能落进同一条 run record。
+            # 代价已称量：画像期间崩溃则本次 run 不落库（此前是「run 已落库、sidecar 缺失」）；
+            # `_save_profile` 本身吞 ValueError/AssertionError（画像属增值信息），
+            # 所以常规失败路径不变。
+            profile_started = time.perf_counter()
             self._save_profile(scan_run, handle)
+            profile_ms = int((time.perf_counter() - profile_started) * 1000)
+            scan_run.stage_timings_ms = {
+                **scan_run.stage_timings_ms,
+                "read": read_ms,
+                "profile": profile_ms,
+            }
+            self._store.save_scan(scan_run, runs, issues)
             return scan_run, runs, issues
         finally:
             handle.close()
