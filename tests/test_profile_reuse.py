@@ -233,3 +233,56 @@ class TestClientColumnReuse:
             assert cands is None
         finally:
             ds.close()
+
+
+class TestProfileWriteIsAtomic:
+    """`Q-5`（追加 3ev）：画像 JSON 的写入必须是"先暂存、再发布"，失败时既不截断也不留残骸。
+
+    就地 `write_text` 打开目标文件：进程写一半被杀（或磁盘满）就留下截断的 JSON，
+    下次 `load_profile` 直接抛。这里钉三件事——原错误照旧上抛、发布失败不留暂存件、
+    正常写入仍产出可读画像。补丁点随实现走：契约在 `datasentry_core.atomicio`。
+    """
+
+    def _csv(self, tmp_path: Path) -> Path:
+        csv = tmp_path / "data.csv"
+        csv.write_text("id,amount\n1,10.5\n2,7.5\n3,\n4,10.5\n", encoding="utf-8")
+        return csv
+
+    def test_a_failed_publish_leaves_no_staging_behind(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        csv = self._csv(tmp_path)
+
+        def boom(*args: object, **kwargs: object) -> None:
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr("datasentry_core.atomicio.os.replace", boom)
+        ds = DataSentry(project=ws)
+        try:
+            with pytest.raises(OSError) as caught:
+                ds.scan_file(str(csv))
+        finally:
+            ds.close()
+        assert caught.value.errno == 28, repr(caught.value)
+        residue = sorted(p.name for p in ws.rglob("*.tmp"))
+        assert not residue, f"the failed write left a staging file: {residue}"
+        published = (
+            sorted(p.name for p in (ws / "profiles").glob("*.json"))
+            if (ws / "profiles").is_dir()
+            else []
+        )
+        assert not published, f"a profile JSON was published anyway: {published}"
+
+    def test_a_successful_scan_still_writes_a_readable_profile(self, tmp_path: Path) -> None:
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        csv = self._csv(tmp_path)
+        ds = DataSentry(project=ws)
+        try:
+            run, _runs, _issues = ds.scan_file(str(csv))
+            profile = ds.load_profile(run.id)
+        finally:
+            ds.close()
+        assert profile is not None and profile["column_profiles"], profile
