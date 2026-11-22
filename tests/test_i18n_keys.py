@@ -15,7 +15,9 @@ import pytest
 from datasentry_core.reporting.i18n import L10N
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "datasentry"
-FACES = ("ui.py", "api.py")
+#: ``cli.py`` 的 ``t(args.lang, ...)`` 同构（第二个位置参数是字面量），一并纳入——
+#: 未知键在 CLI 上同样静默渲染成键名，而 r6 的教训是"没人测就等于没人管"。
+FACES = ("ui.py", "api.py", "cli.py")
 TRANSLATORS = {"t", "_t"}
 
 
