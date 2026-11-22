@@ -22,6 +22,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from datasentry_core.atomicio import atomic_write_text
+
 _LOCKS_VERSION = 1
 
 
@@ -66,6 +68,7 @@ class PluginLocks:
         return cls(locks=locks)
 
     def to_file(self, path: Path) -> None:
+        """原子写锁书：契约在 `datasentry_core.atomicio`（`Q-5`，阶段 3 第 9 项切片 a）。"""
         path.parent.mkdir(parents=True, exist_ok=True)
         payload: dict[str, Any] = {"version": _LOCKS_VERSION, "locks": {}}
         for name, lock in sorted(self.locks.items()):
@@ -74,7 +77,7 @@ class PluginLocks:
                 "files": dict(sorted(lock.files.items())),
                 "installed_at": lock.installed_at,
             }
-        path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+        atomic_write_text(path, json.dumps(payload, ensure_ascii=True, indent=2), mode=0o600)
 
     def set_plugin(self, name: str, lock: PluginLock) -> None:
         self.locks[name] = lock

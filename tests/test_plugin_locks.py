@@ -294,3 +294,117 @@ def test_pycache_does_not_break_integrity(tmp_path: Path) -> None:
     assert reloaded.list_plugins()["manifests"][0]["integrity"] == "ok"
     assert reloaded.list_plugins()["errors"] == []
     reloaded.close()
+
+
+class TestLockBookWriteIsAtomic:
+    """`Q-5`（追加 3ev）：锁书不能就地截断——发布失败时上一版必须还在，且不留暂存件。"""
+
+    def test_a_failed_publish_leaves_the_previous_book_intact(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        path = tmp_path / "plugin_locks.json"
+        locks = PluginLocks()
+        locks.set_plugin(
+            "alpha", PluginLock(version="1.0", files={"a.py": "abc"}, installed_at="t")
+        )
+        locks.to_file(path)
+        before = path.read_bytes()
+
+        def boom(*args: object, **kwargs: object) -> None:
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr("datasentry_core.atomicio.os.replace", boom)
+        with pytest.raises(OSError) as caught:
+            locks.to_file(path)
+        assert caught.value.errno == 28, repr(caught.value)
+        assert path.read_bytes() == before, "the book was truncated while its publish failed"
+        residue = [p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+        assert not residue, f"staging left behind: {residue}"
+
+    def test_the_book_round_trips_when_the_publish_succeeds(self, tmp_path: Path) -> None:
+        path = tmp_path / "plugin_locks.json"
+        locks = PluginLocks()
+        locks.set_plugin(
+            "alpha", PluginLock(version="1.0", files={"a.py": "abc"}, installed_at="t")
+        )
+        locks.to_file(path)
+        assert PluginLocks.from_file(path).locks["alpha"].files == {"a.py": "abc"}
+
+
+class TestFailedInstallRemovesWhatItCreated:
+    """`Q-5`（追加 3ev）：复制到一半失败的目录安装，不能留下没登记过的插件目录。
+
+    现状是 `shutil.copytree` 抛错后 `plugins/<name>/` 还在，而锁书里没有它：下一次安装会报
+    "already installed (uninstall first)"，而卸载看不见这个目录——用户被自己的失败安装卡住。
+    """
+
+    def _source(self, tmp_path: Path) -> Path:
+        src = tmp_path / "widedemo"
+        src.mkdir()
+        (src / "detector.py").write_text(_PLUGIN_SRC, encoding="utf-8")
+        return src
+
+    def test_a_half_copied_directory_install_is_cleaned_up(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        project = tmp_path / "proj"
+        project.mkdir()
+        src = self._source(tmp_path)
+        client = DataSentry(project)
+        target = project / "plugins" / "widedemo"
+        locks_path = project / ".datasentry" / "plugin_locks.json"
+        fired: list[bool] = []
+
+        def partial_copytree(source: object, destination: object, **kwargs: object) -> None:
+            dest = Path(destination)
+            dest.mkdir(parents=True, exist_ok=True)
+            (dest / "detector.py").write_text(_PLUGIN_SRC, encoding="utf-8")
+            fired.append(dest.is_dir())  # the plant must really produce the residue
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr("shutil.copytree", partial_copytree)
+        with pytest.raises(OSError) as caught:
+            client.install_plugin(src)
+        client.close()
+        assert caught.value.errno == 28, repr(caught.value)
+        assert fired == [True], "the injector never created the partial tree this row is about"
+        assert not target.exists(), f"a half install was left behind: {sorted(target.iterdir())}"
+        assert not locks_path.exists(), "the lock book would register a plugin that is not there"
+
+    def test_a_half_copied_single_file_install_is_cleaned_up(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The single-`.py` branch owns its own try/except; prove it is bound too."""
+        project = tmp_path / "proj"
+        project.mkdir()
+        src = tmp_path / "solo.py"
+        src.write_text(_PLUGIN_SRC, encoding="utf-8")
+        client = DataSentry(project)
+        target = project / "plugins" / "solo"
+        fired: list[bool] = []
+
+        def partial_copy2(source: object, destination: object, **kwargs: object) -> None:
+            dest = Path(destination)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(_PLUGIN_SRC, encoding="utf-8")
+            fired.append(dest.is_file())
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr("shutil.copy2", partial_copy2)
+        with pytest.raises(OSError) as caught:
+            client.install_plugin(src)
+        client.close()
+        assert caught.value.errno == 28, repr(caught.value)
+        assert fired == [True], "the injector never created the partial file this case is about"
+        assert not target.exists(), f"a half single-file install was left behind: {target}"
+
+    def test_a_full_directory_install_still_lands(self, tmp_path: Path) -> None:
+        project = tmp_path / "proj"
+        project.mkdir()
+        src = self._source(tmp_path)
+        client = DataSentry(project)
+        client.install_plugin(src)
+        target = project / "plugins" / "widedemo"
+        assert (target / "detector.py").is_file()
+        assert PluginLocks.from_file(project / ".datasentry" / "plugin_locks.json").locks
+        client.close()

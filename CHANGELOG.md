@@ -176,6 +176,18 @@
 
 ### 修复
 
+- **插件锁书、画像、失败安装三处就地写改为原子发布并收走残骸（`Q-5`）**。`PluginLocks.to_file`
+  与 `DataSentry._save_profile` 原用 `path.write_text(...)` 就地截断目标：写到一半被杀或磁盘满时，
+  锁书/画像 JSON 留下截断内容——坏锁书会让整个插件系统停摆，坏画像被 `load_profile` 当坏档。
+  现统一走 `atomic_write_text`（同目录暂存 + `os.replace`，契约在 `tests/test_atomicio.py`）。
+  `install_plugin` 另有一处：`shutil.copytree` / `copy2` 中途失败的半个插件目录不在锁书里，
+  卸载看不见它，下次同名安装报 "already installed"，用户被自己的失败安装卡住；现两条安装分支
+  均 `try/except BaseException`，失败时由 `_discard_failed_install` 收走本次创建的目录、原样上抛
+  原异常（清理本身失败只 `add_note`，绝不说成"已清理"）。**行为变更仅落在失败分支**：成功路径
+  产物形状不变；锁书/画像文件权限现由 umask 决定改为 0600（`atomic_write_text` 默认 `mode=0o600`）。
+  判据：`tests/test_plugin_locks.py`、`tests/test_profile_reuse.py`（新增 7 条故障注入 + 正常路径
+  对照），三处 writer 各做源码注入负向对照均精确转红，另补单文件安装分支的独立绑定。
+
 - **`repair list` 的「changed rows」现在显示真实改动行数，不再是操作样本长度（追加 3p 展示收口）**。
   `RepairRun.rows_changed` 是单一持久化的真实行数，`RepairRun.operations` 则是至多
   `_OPERATION_LOG_CAP` 条的样本；此前表格这一列直接用 `len(operations)`，于是一条实际改了

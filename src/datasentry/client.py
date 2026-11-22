@@ -17,7 +17,7 @@ import json
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 if TYPE_CHECKING:
     from datasentry.pii_vault import PIIVault
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 from datasentry.adoption import record as _adoption_record
 from datasentry.repair_ai import AIRepairService
+from datasentry_core.atomicio import atomic_write_text
 from datasentry_core.connectors import (
     DataHandle,
     DataSourceSpec,
@@ -263,9 +264,11 @@ class DataSentry:
             return
         path = self.profiles_dir / f"{scan_run.id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
+        # 原子发布（`Q-5`，阶段 3 第 9 项切片 a 后契约在 `datasentry_core.atomicio`）：
+        # 就地 `write_text` 会在写一半被杀时留下截断 JSON，而 `load_profile` 只会把它当坏档。
+        atomic_write_text(
+            path,
             json.dumps(profile.model_dump(mode="json"), ensure_ascii=False, indent=2),
-            encoding="utf-8",
         )
 
     def _column_reuse_candidates(
@@ -421,9 +424,12 @@ class DataSentry:
                     f"plugin {manifest.name!r} already installed at {target} (uninstall first)"
                 )
             files = [p for p in src.rglob("*") if p.is_file()]
-            shutil.copytree(src, target)
-            if not (target / PLUGIN_MANIFEST_FILE).is_file():
-                _write_placeholder_manifest(target, manifest)
+            try:
+                shutil.copytree(src, target)
+                if not (target / PLUGIN_MANIFEST_FILE).is_file():
+                    _write_placeholder_manifest(target, manifest)
+            except BaseException as failure:
+                self._discard_failed_install(target, failure)
         else:
             if src.suffix != ".py":
                 raise PluginManifestError(f"plugin file must be .py: {src}")
@@ -438,9 +444,12 @@ class DataSentry:
                     f"plugin {manifest.name!r} already installed at {target} (uninstall first)"
                 )
             target.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, target / src.name)
-            files = [target / src.name]
-            _write_placeholder_manifest(target, manifest)
+            try:
+                shutil.copy2(src, target / src.name)
+                files = [target / src.name]
+                _write_placeholder_manifest(target, manifest)
+            except BaseException as failure:
+                self._discard_failed_install(target, failure)
         self._locks.set_plugin(manifest.name, build_lock(target, version=manifest.version))
         self._locks.to_file(self._locks_path())
         return {
@@ -449,6 +458,26 @@ class DataSentry:
             "installed_to": str(target),
             "files": [str(f) for f in files],
         }
+
+    def _discard_failed_install(self, target: Path, failure: BaseException) -> NoReturn:
+        """收走本次安装自己创建的目录，然后原样上抛（`Q-5`，追加 3ev）。
+
+        复制中途失败时留下的半个插件目录不在锁书里，于是"卸载"看不见它，而下一次同名安装会报
+        "already installed (uninstall first)"——用户被自己的失败安装卡住。收不走就点名，
+        绝不把"没删成"说成"已清理"，也不让清理错误顶掉原来的失败：与
+        `secrets.write_secrets`（`Q-10`）和 `RepairEngine._discard_and_report` 同一规矩。
+        """
+        import shutil
+
+        try:
+            shutil.rmtree(target)
+        except FileNotFoundError:
+            pass
+        except OSError as cleanup_failure:
+            failure.add_note(
+                f"partial plugin install could not be removed: {target} ({cleanup_failure})"
+            )
+        raise failure
 
     def uninstall_plugin(self, name: str) -> dict[str, Any]:
         """卸载插件（Step 82/83）：删除 <workspace>/plugins/<name>/ + 锁条目。
