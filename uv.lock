@@ -499,7 +499,7 @@ wheels = [
 
 [[package]]
 name = "datasentry-ai"
-version = "2.0.0"
+version = "2.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "croniter" },
@@ -554,7 +554,7 @@ dev = [
 
 [[package]]
 name = "datasentry-core"
-version = "0.8.6"
+version = "0.9.0"
 source = { editable = "packages/core" }
 dependencies = [
     { name = "charset-normalizer" },
