@@ -1212,6 +1212,8 @@ def _cmd_repair_list(args: argparse.Namespace) -> int:
                 "proposal_id": r.proposal_id,
                 "dataset_id": r.dataset_id,
                 "status": r.status.value,
+                "rows_changed": r.rows_changed,
+                "operations_sampled": len(r.operations),
                 "fingerprint_before": r.fingerprint_before,
                 "fingerprint_after": r.fingerprint_after,
                 "created_at": r.created_at.isoformat(),
@@ -1222,11 +1224,21 @@ def _cmd_repair_list(args: argparse.Namespace) -> int:
     }
     if args.format != "json":
         rows = [f"{'run id':<18} {'dataset':<24} {'status':<12} {'changed rows':<12} {'created'}"]
+        starred = False
         for r in runs:
+            # `operations` is a capped sample; its length is not the row count. A `*`
+            # marks a record created before rows_changed was recorded (追加 3p).
+            if r.rows_changed is None:
+                starred = True
+                changed = f"{len(r.operations)}*"
+            else:
+                changed = str(r.rows_changed)
             rows.append(
                 f"{r.id:<18} {r.dataset_id:<24} {r.status.value:<12} "
-                f"{len(r.operations):<12} {r.created_at.strftime('%Y-%m-%d %H:%M')}"
+                f"{changed:<12} {r.created_at.strftime('%Y-%m-%d %H:%M')}"
             )
+        if starred:
+            rows.append("* sample size only: this run predates the recorded row count")
         rows.append(
             "summary: "
             f"{summary['applied']} applied / "
