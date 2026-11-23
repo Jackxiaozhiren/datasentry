@@ -38,80 +38,301 @@ BATCH_REPAIR_FORM_ID = "batch-repair-form"
 APPLY_DIFF_ROW_CAP = 50
 
 _CSS = """
-:root { color-scheme: light; }
-body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 2rem auto;
-       max-width: 960px; color: #1f2328; line-height: 1.5; }
-.stats { display: flex; gap: .6rem; margin: .5rem 0; }
-.stat { padding: .35rem .8rem; border-radius: .5rem; background: #f0f2f4;
-        border: 1px solid #d0d7de; font-weight: 600; }
-.stat-ok { background: #e8f5e9; border-color: #a5d6a7; }
-.stat-bad { background: #fde8e8; border-color: #f6b1b1; }
-.batch-banner { padding: 0.7rem 1rem; border-radius: 6px; margin-bottom: 1rem;
-                background: #e8f5e9; border: 1px solid #a5d6a7; }
-.batch-banner.warn { background: #fff3e0; border-color: #ffcc80; }
-.batch-banner ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
-.batch-banner li { font-size: 0.9rem; }
-.delta.pos { color: #1a7f37; font-weight: 600; }
-.delta.neg { color: #cf222e; font-weight: 600; }
-.delta.flat { color: #59636e; }
-.diff-del { background: #fde8e8; white-space: pre-wrap; }
-.diff-add { background: #e8f5e9; white-space: pre-wrap; }
+:root {
+  color-scheme: light;
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --raised: #eceff4;
+  --line: rgba(17, 24, 39, .09);
+  --line-strong: rgba(17, 24, 39, .16);
+  --ink: #111827;
+  --ink-2: #4b5565;
+  --ink-3: #6b7487;
+  --accent: #1d4ed8;
+  --accent-hover: #1a45bd;
+  --accent-soft: rgba(29, 78, 216, .10);
+  --pos: #15803d;
+  --neg: #b91c1c;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+          sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --ease: cubic-bezier(.22, 1, .36, 1);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.55;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  padding: 20px 12px;
+  border-right: 1px solid var(--line);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 20px;
+  font-size: 15px;
+  font-weight: 500;
+}
+.brand .rule { width: 2px; height: 14px; background: var(--accent); }
+.nav { display: grid; gap: 2px; }
+.nav a {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--ink-2);
+  transition: background-color 140ms var(--ease), color 140ms var(--ease);
+}
+.nav a:hover { background: var(--raised); color: var(--ink); text-decoration: none; }
+.nav a[aria-current="page"] { background: var(--raised); color: var(--ink); font-weight: 500; }
+
+.main { padding: 28px 40px 64px; max-width: 1440px; }
+h1 { margin: 0 0 4px; font-size: 28px; font-weight: 500; line-height: 1.2; }
+h2 {
+  margin: 40px 0 12px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  font-size: 15px;
+  font-weight: 500;
+}
+h3 { margin: 24px 0 8px; font-size: 14px; font-weight: 500; }
+p { margin: 8px 0; }
+
+table { border-collapse: collapse; width: 100%; margin: 12px 0;
+        font-variant-numeric: tabular-nums; }
+th {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line-strong);
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+td { padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tbody tr:hover td,
+table tr:hover td { background: rgba(255, 255, 255, .6); }
+
+table.kv th { width: 180px; font-weight: 400; color: var(--ink-3); }
+
+.meta { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.priority { font-weight: 500; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.badge::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.badge-ok { background: #ecf7f0; border-color: #cfe9d8; color: var(--pos); }
+.badge-err { background: #fdeceb; border-color: #f7d4d1; color: var(--neg); }
+.badge-flat { background: var(--raised); border-color: var(--line); color: var(--ink-2); }
+.badge-critical { background: #fdeceb; border-color: #f7d4d1; color: var(--neg); }
+.badge-high { background: #fdf0e7; border-color: #f6ddc9; color: #9a3412; }
+.badge-medium { background: #fdf6e3; border-color: #f3e4bd; color: #92400e; }
+.badge-low { background: var(--raised); border-color: var(--line); color: var(--ink-2); }
+.badge-info { background: rgba(29, 78, 216, .07); border-color: rgba(29, 78, 216, .18);
+              color: var(--accent); }
+
+.score { display: flex; align-items: baseline; gap: 8px; margin: 12px 0 8px; }
+.score .fig { font-size: 40px; font-weight: 500; line-height: 1; letter-spacing: -.02em;
+              font-variant-numeric: tabular-nums; }
+.score .k { font-size: 12px; color: var(--ink-3); }
+.score .of { font-size: 12px; color: var(--ink-3); }
+.dims { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; font-size: 12px;
+        color: var(--ink-3); }
+.dims b { color: var(--ink-2); font-weight: 500; font-variant-numeric: tabular-nums; }
+
+.stats { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 16px; }
+.stat { min-width: 128px; padding: 12px 16px; background: var(--surface);
+        border: 1px solid var(--line); border-radius: 12px; }
+.stat .k { display: block; font-size: 12px; color: var(--ink-3); }
+.stat .v { display: block; margin-top: 2px; font-size: 24px; font-weight: 500; line-height: 1.2;
+           font-variant-numeric: tabular-nums; }
+
+.severity-filters { display: flex; flex-wrap: wrap; gap: 4px; margin: 12px 0 4px; }
+.severity-filters a {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--ink-2);
+  font-size: 13px;
+  transition: background-color 140ms var(--ease), border-color 140ms var(--ease),
+              color 140ms var(--ease);
+}
+.severity-filters a:hover { background: var(--raised); color: var(--ink); text-decoration: none; }
+.severity-filters a.active { background: var(--surface); border-color: var(--line-strong);
+                             color: var(--ink); font-weight: 500; }
+
+form { margin: 16px 0; }
+form.panel { padding: 20px; background: var(--surface); border: 1px solid var(--line);
+             border-radius: 12px; }
+form label { display: block; margin: 0 0 6px; font-size: 13px; color: var(--ink-2); }
+form input[type=text], form input[type=number], form select, form textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  transition: border-color 140ms var(--ease);
+}
+form input:focus, form select:focus, form textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  outline: none;
+}
+form input[type=checkbox], td input[type=checkbox] { accent-color: var(--accent); }
+
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 16px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 140ms var(--ease), border-color 140ms var(--ease),
+              color 140ms var(--ease);
+}
+button:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+button:disabled { background: var(--raised); border-color: var(--line); color: var(--ink-3);
+                  cursor: not-allowed; }
+button.secondary { background: var(--surface); border-color: var(--line-strong);
+                  color: var(--ink); }
+button.secondary:hover { background: var(--raised); }
+form button { margin-top: 12px; }
+td form { margin: 0; }
+td button { margin-top: 0; }
+button.linklike {
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--accent);
+  font-weight: 400;
+}
+button.linklike:hover { background: none; color: var(--accent-hover); text-decoration: underline; }
+
+.issue-card {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 4px;
+  margin: 8px 0;
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.issue-card > input { grid-row: 1; grid-column: 1; margin: 4px 0 0; }
+.issue-card > h3, .issue-card > p, .issue-card > a { grid-column: 2; }
+.issue-card h3 { margin: 0; font-size: 14px; }
+
+.alert { margin: 16px 0; padding: 12px 16px; border: 1px solid; border-radius: 8px;
+         font-size: 13px; }
+.alert-ok { background: #ecf7f0; border-color: #cfe9d8; color: #14532d; }
+.alert-err { background: #fdeceb; border-color: #f7d4d1; color: #7f1d1d; }
+.batch-banner { margin: 16px 0; padding: 12px 16px; background: #ecf7f0; border: 1px solid #cfe9d8;
+                border-radius: 8px; color: #14532d; font-size: 13px; }
+.batch-banner.warn { background: #fdf6e3; border-color: #f3e4bd; color: #78350f; }
+.batch-banner ul { margin: 8px 0 0; padding-left: 20px; }
+.batch-banner li { font-size: 12px; }
+
+.delta { font-variant-numeric: tabular-nums; }
+.delta.pos, .delta-up { color: var(--pos); }
+.delta.neg, .delta-down { color: var(--neg); }
+.delta.flat { color: var(--ink-3); }
+
+.diff-del { background: #fdeceb; white-space: pre-wrap; }
+.diff-add { background: #ecf7f0; white-space: pre-wrap; }
 /* The box hugs the value's own leading/trailing blanks, so a whitespace repair is visible. */
-.diff-del code, .diff-add code { background: rgba(255, 255, 255, .75); white-space: pre-wrap; }
-.diff-side { font-weight: 600; white-space: nowrap; }
-h1 { border-bottom: 2px solid #0969da; padding-bottom: .3rem; }
-h2 { margin-top: 2rem; border-bottom: 1px solid #d0d7de; padding-bottom: .2rem; }
-table { border-collapse: collapse; width: 100%; margin: .5rem 0; }
-th, td { border: 1px solid #d0d7de; padding: .35rem .6rem; text-align: left; font-size: .9rem; }
-th { background: #f6f8fa; }
-nav { margin-bottom: 1.5rem; }
-nav a { margin-right: 1rem; }
-a { color: #0969da; }
-.badge { display: inline-block; padding: .1rem .45rem; border-radius: .6rem;
-         font-size: .75rem; font-weight: 600; color: #fff; background: #57606a; }
-.badge-ok { background: #1a7f37; }
-.badge-err { background: #cf222e; }
-.badge-flat { background: #57606a; }
-.badge-ok { background: #1a7f37; }
-.badge-err { background: #cf222e; }
-.badge-critical { background: #cf222e; }
-.badge-high { background: #bc4c00; }
-.badge-medium { background: #9a6700; }
-.badge-low { background: #57606a; }
-.badge-info { background: #8c959f; }
-.priority { font-weight: 600; }
-.score-ring { font-size: 2.5rem; font-weight: 700; color: #0969da; }
-.severity-filters { margin: 1rem 0; }
-.severity-filters a { margin-right: .8rem; text-decoration: none; padding: .2rem .6rem;
-                      border: 1px solid #d0d7de; border-radius: .4rem; }
-.severity-filters a.active { background: #0969da; color: #fff; border-color: #0969da; }
-form { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: .5rem;
-       padding: 1rem; margin: 1rem 0; }
-form label { display: block; margin: .6rem 0 .2rem; font-size: .85rem; font-weight: 600; }
-form input[type=text] { width: 100%; box-sizing: border-box; padding: .35rem; }
-button { background: #0969da; color: #fff; border: none; border-radius: .4rem;
-         padding: .45rem 1rem; cursor: pointer; margin-top: .8rem; }
-button.secondary { background: #57606a; }
-.issue-card { border: 1px solid #d0d7de; border-radius: .5rem; padding: .8rem 1rem;
-              margin: .6rem 0; }
-.issue-card h3 { margin: 0 0 .3rem; font-size: 1rem; }
-.meta { font-size: .8rem; color: #57606a; }
-pre { background: #f6f8fa; padding: .6rem; border-radius: .4rem; overflow-x: auto;
-      font-size: .8rem; }
-footer { margin-top: 3rem; font-size: .8rem; color: #57606a; border-top: 1px solid #d0d7de; }
-.alert { border-radius: .4rem; padding: .6rem 1rem; margin: .8rem 0; font-size: .9rem; }
-.alert-ok { background: #dafbe1; color: #1a7f37; }
-.alert-err { background: #ffebe9; color: #cf222e; }
-.trend-bars { margin: .6rem 0 1rem; }
-.trend-bar { background: #d0d7de; border-radius: .3rem; margin: .15rem 0; height: 1.1rem;
-             overflow: hidden; }
-.trend-bar span { display: block; background: #0969da; color: #fff; font-size: .7rem;
-                  line-height: 1.1rem; padding-left: .3rem; white-space: nowrap; }
-.trend-spark { display: block; margin: .4rem 0; }
-.trend-spark polyline { fill: none; stroke: #0969da; stroke-width: 1.5; }
-.trend-spark circle { fill: #0969da; }
-.delta-up { color: #1a7f37; font-weight: 600; }
-.delta-down { color: #cf222e; font-weight: 600; }
+.diff-del code, .diff-add code { background: rgba(255, 255, 255, .8); white-space: pre-wrap; }
+.diff-side { color: var(--ink-3); white-space: nowrap; }
+.examples ul { margin: 4px 0 12px; padding-left: 20px; }
+.examples li { font-size: 13px; }
+
+pre { margin: 8px 0; padding: 12px; background: var(--surface); border: 1px solid var(--line);
+      border-radius: 8px; overflow-x: auto; font-family: var(--mono); font-size: 12px; }
+code { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+.dim-strip { display: flex; gap: 2px; max-width: 96px; margin-top: 6px; }
+.dim-strip span { height: 4px; flex: 1 1 0; border-radius: 2px; background: var(--line-strong); }
+.dim-strip span.weak { background: var(--accent); }
+
+.chart-label { margin: 24px 0 0; font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+.trend-spark, .dim-lines { display: block; max-width: 100%; height: auto; margin: 4px 0 0; }
+.trend-spark polyline { fill: none; stroke: var(--accent); stroke-width: 2; }
+.trend-spark circle { fill: var(--accent); }
+.trend-spark .grid, .dim-lines .grid { stroke: var(--line-strong); stroke-width: 1; }
+.trend-spark text, .dim-lines text { fill: var(--ink-3); font-family: var(--mono);
+                                     font-size: 11px; }
+.dim-lines { margin-top: 8px; }
+.dim-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 8px 0 0;
+              font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+.dim-legend i { display: inline-block; width: 14px; margin-right: 6px;
+                border-top: 2px solid currentColor; vertical-align: middle; }
+
+footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--line);
+         font-size: 12px; color: var(--ink-3); }
+
+@media (max-width: 900px) {
+  body { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; padding: 12px 16px;
+             border-right: 0; border-bottom: 1px solid var(--line); }
+  .brand { padding: 0 0 12px; }
+  .nav { display: flex; flex-wrap: wrap; gap: 2px; }
+  .main { min-width: 0; overflow-x: auto; padding: 20px 16px 48px; }
+  h1 { font-size: 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
 """
 
 
@@ -119,7 +340,27 @@ def _severity_badge(severity: str) -> str:
     return f'<span class="badge badge-{escape(severity.lower())}">{escape(severity)}</span>'
 
 
+def _nav_link(href: str, label: str, name: str, active: str) -> str:
+    current = ' aria-current="page"' if active == name else ""
+    return f'<a href="{href}"{current}>{label}</a>'
+
+
 def _page(title: str, body: str, *, active: str = "", lang: str = "en") -> str:
+    """The shell every page shares: a quiet sidebar, a fluid main column.
+
+    `active` was passed by four callers and never read, so no page said where you were; it now
+    drives `aria-current`, which both the CSS and screen readers use.
+    """
+    nav = "".join(
+        [
+            _nav_link("/ui/", escape(t(lang, "ui.nav_home")), "home", active),
+            _nav_link("/ui/scans", escape(t(lang, "ui.nav_scans")), "scans", active),
+            _nav_link("/ui/trends", escape(t(lang, "ui.nav_trends")), "trends", active),
+            _nav_link("/ui/repairs", escape(t(lang, "ui.nav_repairs")), "repairs", active),
+            _nav_link("/ui/pii", escape(t(lang, "ui.nav_pii")), "pii", active),
+            _nav_link("/api/docs", escape(t(lang, "ui.nav_api_docs")), "api", active),
+        ]
+    )
     return "\n".join(
         [
             "<!DOCTYPE html>",
@@ -127,44 +368,49 @@ def _page(title: str, body: str, *, active: str = "", lang: str = "en") -> str:
             '<link rel="icon" href="data:,">',
             f"<title>{escape(title)} · DataSentry</title>",
             f"<style>{_CSS}</style></head><body>",
-            "<nav>"
-            f'<a href="/ui/">{escape(t(lang, "ui.nav_home"))}</a>'
-            f'<a href="/ui/scans">{escape(t(lang, "ui.nav_scans"))}</a>'
-            f'<a href="/ui/trends">{escape(t(lang, "ui.nav_trends"))}</a>'
-            f'<a href="/ui/repairs">{escape(t(lang, "ui.nav_repairs"))}</a>'
-            f'<a href="/ui/pii">{escape(t(lang, "ui.nav_pii"))}</a>'
-            f'<a href="/api/docs">{escape(t(lang, "ui.nav_api_docs"))}</a>'
-            "</nav>",
+            '<aside class="sidebar">'
+            '<div class="brand"><span class="rule"></span>DataSentry</div>'
+            f'<nav class="nav">{nav}</nav>'
+            "</aside>",
+            '<main class="main">',
             f"<h1>{escape(title)}</h1>",
             body,
             f"<footer>{escape(t(lang, 'ui.footer'))}</footer>",
+            "</main>",
             "</body></html>",
         ]
     )
 
 
-_DIM_COLORS = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
+_ACCENT = "#1d4ed8"
+# Six dimensions genuinely have to be told apart, so they keep distinct hues, but at the weight of
+# a technical drawing rather than a default chart palette. The dimension with the lowest mean takes
+# the accent, because that is the one pulling the score down.
+_DIM_TONES = ("#0f766e", "#a16207", "#52525b", "#8a5a3c", "#3f6212", "#5b6b7c")
 
 
 def _dim_strip(scan: ScanRun) -> str:
-    """V27：扫描列表行内六维迷你条（色同趋势图，悬停显示维度分数）。"""
+    """Six dimension cells beside the score: the weakest carries the accent, the rest stay quiet.
+
+    The strip used to draw one rainbow segment per dimension sized by its own value, which summed
+    past the box and read as a colour bar. Equal cells plus one marked cell answer the only
+    question the column asks: which dimension is holding the score down.
+    """
     if not scan.quality_score or not scan.quality_score.dimensions:
         return ""
-    dims_sorted = sorted(scan.quality_score.dimensions)
-    segments = []
-    for idx, dim in enumerate(dims_sorted):
-        value = scan.quality_score.dimensions[dim]
-        if value is None:
-            continue
-        segments.append(
-            f'<span style="display:inline-block;height:6px;flex:0 0 {value:.1f}%;'
-            f"background:{_DIM_COLORS[idx % len(_DIM_COLORS)]}"
-            f'" title="{escape(dim)} {value:.1f}"></span>'
-        )
-    if not segments:
+    scored = {
+        dim: value
+        for dim, value in sorted(scan.quality_score.dimensions.items())
+        if value is not None
+    }
+    if not scored:
         return ""
-    joined = "".join(segments)
-    return f'<div class="dim-strip" style="display:flex;gap:1px;max-width:120px">{joined}</div>'
+    weakest = min(scored, key=lambda dim: scored[dim])
+    cells = []
+    for dim, value in scored.items():
+        cls = ' class="weak"' if dim == weakest else ""
+        cells.append(f'<span{cls} title="{escape(dim)} {value:.1f}"></span>')
+    return f'<div class="dim-strip">{"".join(cells)}</div>'
 
 
 def _batch_banner(batch: dict[str, object] | None, *, lang: str = "en") -> str:
@@ -259,7 +505,7 @@ def render_home(
         _batch_banner(batch, lang=lang),
         _scan_table(scans, lang=lang),
         f"<h2>{escape(t(lang, 'ui.new_scan'))}</h2>",
-        '<form method="post" action="/ui/scans" id="scan-form">'
+        '<form method="post" action="/ui/scans" id="scan-form" class="panel">'
         f'<label for="path">{escape(t(lang, "ui.data_file_path"))}</label>'
         '<input type="text" id="path" name="path" required placeholder="data/customers.csv">'
         f'<button type="submit" id="scan-btn">{scan_label}</button>',
@@ -271,7 +517,7 @@ def render_home(
         _scan_progress_script(),
     ]
     # UI-01：/ui/scans 曾与 /ui/ 同标题同正文；列表路由现传独立标题。
-    return _page(title or t(lang, "ui.home_title"), "\n".join(body), lang=lang)
+    return _page(title or t(lang, "ui.home_title"), "\n".join(body), active="home", lang=lang)
 
 
 def _scan_progress_script() -> str:
@@ -340,76 +586,136 @@ def _direction_badge(direction: str, *, lang: str = "en") -> str:
     return f'<span class="badge badge-flat">{escape(t(lang, "ui.direction_flat"))}</span>'
 
 
+def _domain(values: list[float]) -> tuple[float, float]:
+    """A readable y-range: padded, but never so wide that a real change flattens into a line."""
+    low, high = min(values), max(values)
+    if high - low < 4:
+        mid = (high + low) / 2
+        return mid - 2, mid + 2
+    pad = (high - low) * 0.15
+    return low - pad, high + pad
+
+
 def _sparkline(scores: list[float]) -> str:
-    """内联 SVG 折线（零依赖，Step 67，ADR-067）：分数序列 → 迷你趋势线。"""
+    """The overall score over time: the one chart on a trend section that carries the accent."""
     if len(scores) < 2:
         return ""
-    width, height = 220, 40
-    low, high = min(scores), max(scores)
-    span = max(high - low, 1.0)
-    pad = 4
-    points = []
-    step = (width - 2 * pad) / max(len(scores) - 1, 1)
+    width, height, left, right, top, bottom = 800, 148, 40, 12, 12, 24
+    low, high = _domain(scores)
+    span = high - low
+    plot_w = width - left - right
+    plot_h = height - top - bottom
+    step = plot_w / (len(scores) - 1)
+    points: list[tuple[float, float]] = []
     for i, score in enumerate(scores):
-        x = pad + i * step
-        y = height - pad - ((score - low) / span) * (height - 2 * pad)
-        points.append(f"{x:.1f},{y:.1f}")
-    polyline = f'<polyline points="{" ".join(points)}"/>'
-    circles = "".join(
-        f'<circle cx="{points[i].split(",")[0]}" cy="{points[i].split(",")[1]}" r="2"/>'
-        for i in (0, len(points) - 1)
-    )
+        x = left + i * step
+        y = top + plot_h - ((score - low) / span) * plot_h
+        points.append((x, y))
+    grid = []
+    for frac in (0.0, 0.5, 1.0):
+        y = top + plot_h - frac * plot_h
+        value = low + frac * span
+        grid.append(
+            f'<line class="grid" x1="{left}" y1="{y:.1f}" '
+            f'x2="{width - right}" y2="{y:.1f}"/>'
+            f'<text x="{left - 8}" y="{y + 4:.1f}" text-anchor="end">{value:.0f}</text>'
+        )
+    polyline = f'<polyline points="{" ".join(f"{x:.1f},{y:.1f}" for x, y in points)}"/>'
+    dots = "".join(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="2.5"/>' for x, y in points)
+    label = " → ".join(f"{score:.1f}" for score in scores)
     return (
         f'<svg class="trend-spark" width="{width}" height="{height}" '
-        f'aria-label="score trend: {" → ".join(f"{s:.1f}" for s in scores)}">'
-        f"{polyline}{circles}</svg>"
+        f'viewBox="0 0 {width} {height}" role="img" aria-label="score trend: {label}">'
+        + "".join(grid)
+        + polyline
+        + dots
+        + "</svg>"
     )
 
 
 def _dimension_lines(points: list[ScanPoint]) -> str:
-    """六维质量折线（V25，内联 SVG 零依赖）：每个维度一条线，y 轴 0-100。
+    """六维质量折线（内联 SVG 零依赖）：每个维度一条线，y 轴按数据留白。
 
-    仅当至少一个点带维度分且维度 >1 时渲染；None 段跳过（断开）。
+    六条线必须能相互区分，所以保留不同色相，但压到技术图的轻重；均值最低的维度取强调色，
+    因为它是拖低总分的那一条。旧版把 0-100 当固定域，六条线全挤在顶部一厘米内。
     """
     dims: set[str] = set()
-    for p in points:
-        if p.dimensions:
-            dims.update(p.dimensions)
-    if not dims or not any(p.dimensions for p in points):
+    for point in points:
+        if point.dimensions:
+            dims.update(point.dimensions)
+    if not dims or not any(point.dimensions for point in points):
         return ""
     dims_sorted = sorted(dims)
     if len(points) < 2:
         return ""
-    width, height, pad = 480, 140, 8
-    step = (width - 2 * pad) / (len(points) - 1)
-    colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
-    lines_svg: list[str] = []
-    for idx, dim in enumerate(dims_sorted):
+
+    series: dict[str, list[float]] = {dim: [] for dim in dims_sorted}
+    for point in points:
+        for dim in dims_sorted:
+            value = (point.dimensions or {}).get(dim)
+            if value is not None:
+                series[dim].append(min(max(value, 0.0), 100.0))
+    if not any(series.values()):
+        return ""
+    means = {
+        dim: (sum(values) / len(values) if values else 100.0) for dim, values in series.items()
+    }
+    weakest = min(means, key=lambda dim: means[dim])
+
+    tones: dict[str, str] = {}
+    spare = iter(_DIM_TONES)
+    for dim in dims_sorted:
+        tones[dim] = _ACCENT if dim == weakest else next(spare, "#52525b")
+
+    width, height, left, right, top, bottom = 800, 188, 40, 12, 12, 24
+    every = [value for values in series.values() for value in values]
+    low, high = _domain(every)
+    span = high - low
+    plot_w = width - left - right
+    plot_h = height - top - bottom
+    step = plot_w / (len(points) - 1)
+
+    grid = []
+    for frac in (0.0, 0.5, 1.0):
+        y = top + plot_h - frac * plot_h
+        value = low + frac * span
+        grid.append(
+            f'<line class="grid" x1="{left}" y1="{y:.1f}" '
+            f'x2="{width - right}" y2="{y:.1f}"/>'
+            f'<text x="{left - 8}" y="{y + 4:.1f}" text-anchor="end">{value:.0f}</text>'
+        )
+
+    lines: list[str] = []
+    drawn: list[str] = []
+    for dim in dims_sorted:
         coords: list[str] = []
         for i, point in enumerate(points):
             value = (point.dimensions or {}).get(dim)
             if value is None:
                 continue
-            x = pad + i * step
-            y = height - pad - (min(max(value, 0.0), 100.0) / 100.0) * (height - 2 * pad)
+            clamped = min(max(value, 0.0), 100.0)
+            x = left + i * step
+            y = top + plot_h - ((clamped - low) / span) * plot_h
             coords.append(f"{x:.1f},{y:.1f}")
         if len(coords) < 2:
             continue
-        color = colors[idx % len(colors)]
-        lines_svg.append(
+        drawn.append(dim)
+        weight = 2 if dim == weakest else 1.5
+        lines.append(
             f'<polyline points="{" ".join(coords)}" fill="none" '
-            f'stroke="{color}" stroke-width="1.6" opacity="0.9"/>'
+            f'stroke="{tones[dim]}" stroke-width="{weight}"/>'
         )
-    if not lines_svg:
+    if not lines:
         return ""
-    legend = " ".join(
-        f'<span style="color:{colors[i % len(colors)]}">▬ {escape(d)}</span>'
-        for i, d in enumerate(dims_sorted)
+
+    legend = "".join(
+        f'<span style="color:{tones[dim]}"><i></i>{escape(dim)}</span>' for dim in drawn
     )
     return (
         f'<svg class="dim-lines" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}" role="img" aria-label="quality dimensions over time">'
-        + "".join(lines_svg)
+        + "".join(grid)
+        + "".join(lines)
         + "</svg>"
         f'<p class="meta dim-legend">{legend}</p>'
     )
@@ -483,14 +789,12 @@ def render_trends(trends: list[DatasetTrend], *, lang: str = "en") -> str:
     """跨扫描趋势页（Step 45，18.2 V1）。trends 来自 trends.build_trends。"""
     if not trends:
         body = [f'<p class="meta">{escape(t(lang, "ui.no_trend_data"))}</p>']
-        return _page(t(lang, "ui.trends_title"), "\n".join(body), lang=lang)
+        return _page(t(lang, "ui.trends_title"), "\n".join(body), active="trends", lang=lang)
     sections: list[str] = []
     for trend in trends:
         points = trend.points
         rows = []
-        bars = []
         for index, point in enumerate(points):
-            width = max(0.0, min(100.0, point.score))
             prior = points[index - 1] if index else None
             rows.append(
                 "<tr>"
@@ -502,10 +806,6 @@ def render_trends(trends: list[DatasetTrend], *, lang: str = "en") -> str:
                 + _issues_delta_cell(point, prior)
                 + "</tr>"
             )
-            bars.append(
-                f'<div class="trend-bar"><span style="width:{width:.1f}%">'
-                f"{point.score:.1f}</span></div>"
-            )
         latest = trend.latest_score
         sections.append(
             "<section>"
@@ -516,13 +816,12 @@ def render_trends(trends: list[DatasetTrend], *, lang: str = "en") -> str:
             f"{escape(t(lang, 'ui.latest_score'))} "
             f"{latest:.1f} · {escape(t(lang, 'ui.latest_issues'))} {trend.latest_issues}</p>"
             + _compare_link(points, lang)
+            + f'<p class="chart-label">{escape(t(lang, "ui.score"))}</p>'
             + _sparkline([p.score for p in points])
+            + f'<p class="chart-label">{escape(t(lang, "ui.chart_dimensions"))}</p>'
             + _dimension_lines(points)
             + _dimension_table(points, lang=lang)
-            + '<div class="trend-bars">'
-            + "".join(bars)
-            + "</div>"
-            "<table><tr>"
+            + "<table><tr>"
             f"<th>{escape(t(lang, 'ui.run_id'))}</th><th>{escape(t(lang, 'ui.finished'))}</th>"
             f"<th>{escape(t(lang, 'ui.score'))}</th>"
             f"<th>{escape(t(lang, 'ui.delta'))}</th>"
@@ -531,7 +830,7 @@ def render_trends(trends: list[DatasetTrend], *, lang: str = "en") -> str:
             f"</tr>{''.join(rows)}</table>"
             "</section>"
         )
-    return _page(t(lang, "ui.trends_title"), "\n".join(sections), lang=lang)
+    return _page(t(lang, "ui.trends_title"), "\n".join(sections), active="trends", lang=lang)
 
 
 def _sampling_enabled(config: ScanConfig) -> bool:
@@ -560,7 +859,7 @@ def render_batch_repair(
         prop = proposals.get(issue.id)
         err = errors.get(issue.id)
         if prop is not None:
-            badge = f'<td class="badge badge-ok">{escape(t(lang, "ui.proposed"))}</td>'
+            badge = f'<td><span class="badge badge-ok">{escape(t(lang, "ui.proposed"))}</span></td>'
             cells = (
                 f"<td>{escape(prop.operation)}</td>"
                 f"<td>{escape(', '.join(prop.target_columns))}</td>"
@@ -572,11 +871,13 @@ def render_batch_repair(
                 f'value="{escape(issue.id)}" class="apply-check"></td>'
             )
         elif err:
-            badge = f'<td class="badge badge-critical">{escape(t(lang, "ui.error"))}</td>'
+            badge = (
+                f'<td><span class="badge badge-critical">{escape(t(lang, "ui.error"))}</span></td>'
+            )
             cells = f'<td colspan="4" class="meta">{escape(err)}</td>'
             check = "<td></td>"
         else:
-            badge = f'<td class="badge">{escape(t(lang, "ui.unsupported"))}</td>'
+            badge = f'<td><span class="badge">{escape(t(lang, "ui.unsupported"))}</span></td>'
             cells = f'<td colspan="4" class="meta">{escape(t(lang, "ui.no_proposal_hint"))}</td>'
             check = "<td></td>"
         title_cell = escape(mask_text_pii(translate_title(lang, issue.title, issue.issue_type)))
@@ -598,15 +899,15 @@ def render_batch_repair(
         '<p class="meta">'
         f'<a href="/ui/scans/{escape(run_id)}">{escape(t(lang, "ui.back_to_scan"))}</a></p>',
         summary,
-        '<form method="post" '
+        '<form method="post" class="panel" '
         f'action="/ui/scans/{escape(run_id)}/repairs/batch-apply" '
         'id="batch-apply-form">'
         f'<input type="hidden" name="source_path" value="{escape(source_path)}">'
         f'<p class="meta">{escape(t(lang, "ui.batch_apply_note"))}</p>'
         "<table><tr><th>"
         '<input type="checkbox" id="select-all" aria-label="select all">'
-        "</th><th>issue</th><th>title</th><th>status</th><th>operation</th>"
-        "<th>columns</th><th>risk</th><th>rows</th><th></th></tr>" + "".join(rows) + "</table>"
+        "</th><th>Issue</th><th>Title</th><th>Status</th><th>Operation</th>"
+        "<th>Columns</th><th>Risk</th><th>Rows</th><th></th></tr>" + "".join(rows) + "</table>"
         f'<button type="submit" id="batch-apply-btn" disabled>'
         f"{escape(t(lang, 'ui.batch_apply'))}</button>"
         "</form>"
@@ -660,12 +961,13 @@ def render_batch_rollback(
         err = errors.get(run.id)
         if err is None:
             status_cell = (
-                f'<td class="badge">{escape(t(lang, "ui.repair_status_rolled_back"))}</td>'
+                f'<td><span class="badge">'
+                f"{escape(t(lang, 'ui.repair_status_rolled_back'))}</span></td>"
                 "<td>—</td>"
             )
         else:
             status_cell = (
-                f'<td class="badge badge-critical">{escape(t(lang, "ui.error"))}</td>'
+                f'<td><span class="badge badge-critical">{escape(t(lang, "ui.error"))}</span></td>'
                 f'<td colspan="2" class="meta">{escape(err)}</td>'
             )
         rows.append(
@@ -682,7 +984,7 @@ def render_batch_rollback(
             f"<td>{escape(run_id)}</td>"
             "<td>—</td>"
             "<td>—</td>"
-            f'<td class="badge badge-critical">{escape(t(lang, "ui.error"))}</td>'
+            f'<td><span class="badge badge-critical">{escape(t(lang, "ui.error"))}</span></td>'
             f'<td colspan="2" class="meta">{escape(errors[run_id])}</td>'
             "</tr>"
         )
@@ -692,8 +994,8 @@ def render_batch_rollback(
         '<p class="meta">'
         f'<a href="/ui/repairs">{escape(t(lang, "ui.repairs_title"))}</a>'
         f" · <a href='/ui/scans'>{escape(t(lang, 'ui.nav_scans'))}</a></p>",
-        "<table><tr><th>run id</th><th>dataset</th><th>operation</th><th>status</th>"
-        "<th>rows</th></tr>" + "".join(rows) + "</table>",
+        "<table><tr><th>Run id</th><th>Dataset</th><th>Operation</th><th>Status</th>"
+        "<th>Rows</th></tr>" + "".join(rows) + "</table>",
     ]
     return _page(
         t(lang, "ui.batch_rollback_title"),
@@ -718,7 +1020,8 @@ def render_repairs(
             rows_changed = len(run.operations)
             if run.status == RepairRunStatus.APPLIED:
                 status_cell = (
-                    f'<td class="badge badge-ok">{escape(t(lang, "ui.repair_status_applied"))}</td>'
+                    f'<td><span class="badge badge-ok">'
+                    f"{escape(t(lang, 'ui.repair_status_applied'))}</span></td>"
                     "<td>"
                     f'<form method="post" action="/ui/repairs/{escape(run.id)}/rollback">'
                     f'<button class="linklike" type="submit">'
@@ -732,13 +1035,15 @@ def render_repairs(
                 )
             elif run.status == RepairRunStatus.ROLLED_BACK:
                 status_cell = (
-                    f'<td class="badge">{escape(t(lang, "ui.repair_status_rolled_back"))}</td>'
+                    f'<td><span class="badge">'
+                    f"{escape(t(lang, 'ui.repair_status_rolled_back'))}</span></td>"
                     "<td></td><td></td>"
                 )
             else:
                 failed_badge = escape(t(lang, "ui.repair_status_failed"))
                 status_cell = (
-                    f'<td class="badge badge-critical">{failed_badge}</td><td></td><td></td>'
+                    f'<td><span class="badge badge-critical">{failed_badge}</span></td>'
+                    "<td></td><td></td>"
                 )
             rows.append(
                 f'<tr id="{escape(run.id)}">'
@@ -751,8 +1056,8 @@ def render_repairs(
                 "</tr>"
             )
         body = (
-            "<table><tr><th>run id</th><th>dataset</th><th>operation</th><th>rows</th>"
-            "<th>status</th><th></th><th></th><th>created</th></tr>" + "".join(rows) + "</table>"
+            "<table><tr><th>Run id</th><th>Dataset</th><th>Operation</th><th>Rows</th>"
+            "<th>Status</th><th></th><th></th><th>Created</th></tr>" + "".join(rows) + "</table>"
         )
     return _page(
         t(lang, "ui.repairs_title"),
@@ -775,9 +1080,9 @@ def render_repair_artifact(
     ops = ", ".join(sorted({str(op.operation) for op in run.operations})) or "—"
     rows_changed = len(run.operations)
     head = (
-        "<table>"
-        f"<tr><th>run id</th><td>{escape(run.id)}</td></tr>"
-        f"<tr><th>dataset</th><td>{escape(run.dataset_id)}</td></tr>"
+        '<table class="kv">'
+        f"<tr><th>Run id</th><td>{escape(run.id)}</td></tr>"
+        f"<tr><th>Dataset</th><td>{escape(run.dataset_id)}</td></tr>"
         f"<tr><th>{escape(t(lang, 'ui.artifact_ops'))}</th><td>{escape(ops)}</td></tr>"
         f"<tr><th>{escape(t(lang, 'ui.artifact_columns'))}</th>"
         f"<td>{escape(', '.join(columns))}</td></tr>"
@@ -882,7 +1187,7 @@ def render_batch_apply(
             ops = ", ".join(sorted({str(op.operation) for op in run.operations})) or "—"
             rows_changed = len(run.operations)
             status_cell = (
-                f'<td class="badge badge-ok">{escape(t(lang, "ui.applied"))}</td>'
+                f'<td><span class="badge badge-ok">{escape(t(lang, "ui.applied"))}</span></td>'
                 f'<td><a href="/ui/repairs/{escape(run.id)}/artifact">{escape(run.id)}</a></td>'
                 f"<td>{escape(ops)}</td>"
                 f"<td>{rows_changed}</td>"
@@ -903,7 +1208,7 @@ def render_batch_apply(
             )
         else:
             status_cell = (
-                f'<td class="badge badge-critical">{escape(t(lang, "ui.error"))}</td>'
+                f'<td><span class="badge badge-critical">{escape(t(lang, "ui.error"))}</span></td>'
                 f'<td colspan="4" class="meta">{escape(err or "")}</td>'
             )
             check = "<td></td>"
@@ -919,20 +1224,23 @@ def render_batch_apply(
     failed_n = len(errors)
     body = [
         '<div class="stats">'
-        f'<span class="stat stat-ok">{escape(t(lang, "ui.applied"))}: {applied_n}</span>'
-        f'<span class="stat">{escape(t(lang, "ui.skipped"))}: {skipped_n}</span>'
-        f'<span class="stat stat-bad">{escape(t(lang, "ui.error"))}: {failed_n}</span>'
+        f'<div class="stat"><span class="k">{escape(t(lang, "ui.applied"))}</span>'
+        f'<span class="v">{applied_n}</span></div>'
+        f'<div class="stat"><span class="k">{escape(t(lang, "ui.skipped"))}</span>'
+        f'<span class="v">{skipped_n}</span></div>'
+        f'<div class="stat"><span class="k">{escape(t(lang, "ui.error"))}</span>'
+        f'<span class="v">{failed_n}</span></div>'
         "</div>"
         f'<p class="meta">{escape(t(lang, "ui.batch_apply_summary"))}: '
         f"{len(issues)} issues · {escape(source_path)}</p>",
         '<p class="meta">'
         f'<a href="/ui/scans/{escape(run_id)}">{escape(t(lang, "ui.back_to_scan"))}</a></p>',
-        '<form method="post" '
+        '<form method="post" class="panel" '
         f'action="/ui/scans/{escape(run_id)}/repairs/batch-rollback" '
         'id="batch-rollback-form">'
         f'<p class="meta">{escape(t(lang, "ui.batch_rollback_note"))}</p>'
-        "<table><tr><th></th><th>issue</th><th>title</th><th>status</th><th>run id</th>"
-        "<th>operation</th><th>rows</th><th></th></tr>" + "".join(rows) + "</table>"
+        "<table><tr><th></th><th>Issue</th><th>Title</th><th>Status</th><th>Run id</th>"
+        "<th>Operation</th><th>Rows</th><th></th></tr>" + "".join(rows) + "</table>"
         f'<button type="submit" id="batch-rollback-btn" disabled>'
         f"{escape(t(lang, 'ui.rollback_selected'))}</button>"
         "</form>"
@@ -996,10 +1304,10 @@ def render_scan_detail(
     if scan.quality_score:
         for name, value in scan.quality_score.dimensions.items():
             if value is not None:
-                dims.append(f"{name}={value:.1f}")
+                dims.append(f"<span>{escape(name)} <b>{value:.1f}</b></span>")
     body = [
         '<p class="meta">'
-        f"{escape(scan.id)} · {escape(scan.dataset_id)} · "
+        f"{escape(scan.dataset_id)} · "
         f"{scan.fingerprint.row_count} rows × {scan.fingerprint.column_count} cols · "
         f"{escape(scan.status)}"
         + (
@@ -1009,8 +1317,8 @@ def render_scan_detail(
             else ""
         )
         + "</p>",
-        '<div class="score-ring">' + overall + "</div>",
-        '<p class="meta">' + " &middot; ".join(dims) + "</p>",
+        f'<div class="score"><span class="fig">{overall}</span><span class="of">/ 100</span></div>',
+        '<p class="dims">' + "".join(dims) + "</p>",
         f"<h2>{escape(t(lang, 'ui.issues_title'))}</h2>",
         '<div class="severity-filters">'
         '<a href="." class="'
@@ -1023,7 +1331,7 @@ def render_scan_detail(
             for level in ("critical", "high", "medium", "low", "info")
         )
         + "</div>",
-        '<form method="post" '
+        '<form method="post" class="panel" '
         f'action="/ui/scans/{escape(scan.id)}/repairs/batch-propose" '
         f'id="{BATCH_REPAIR_FORM_ID}">'
         + _source_path_field(
@@ -1050,7 +1358,7 @@ def render_scan_detail(
         f'<a href="/scans/{escape(scan.id)}/report.html">'
         f"{escape(t(lang, 'ui.interactive_report'))}</a></p>",
     ]
-    return _page(f"Scan {scan.id}", "\n".join(body), lang=lang)
+    return _page(f"Scan {scan.id}", "\n".join(body), active="scans", lang=lang)
 
 
 def _source_path_field(
@@ -1175,7 +1483,7 @@ def render_workbench(
         )
     body.append(
         f"<h2>{escape(t(lang, 'ui.workbench_title'))}</h2>"
-        '<form method="post">'
+        '<form method="post" class="panel">'
         + _source_path_field(
             known_sources,
             source_path,
@@ -1189,7 +1497,7 @@ def render_workbench(
         f"{escape(t(lang, 'ui.apply_repair'))}</button>"
         "</form>"
     )
-    return _page(t(lang, "ui.workbench_title"), "\n".join(body), lang=lang)
+    return _page(t(lang, "ui.workbench_title"), "\n".join(body), active="scans", lang=lang)
 
 
 def _fixed_repair_context(
@@ -1320,7 +1628,10 @@ def _issue_diff_table(
     def section(title: str, rows: str) -> str:
         return (
             f"<h3>{escape(title)}</h3>"
-            "<table><tr><th>type</th><th>columns</th><th>ref</th><th>cur</th><th>Δ</th>"
+            "<table><tr><th>Type</th><th>Columns</th>"
+            f"<th>{escape(t(lang, 'ui.compare_reference_short'))}</th>"
+            f"<th>{escape(t(lang, 'ui.compare_current_short'))}</th>"
+            f"<th>{escape(t(lang, 'ui.delta'))}</th>"
             "<th></th></tr>"
             + (
                 rows
@@ -1405,10 +1716,24 @@ def render_compare(
             f"<td>{escape(str(c.before))}</td><td>{escape(str(c.after))}</td></tr>"
         )
 
+    if (
+        score_delta is not None
+        and reference.quality_score
+        and current.quality_score
+        # The score is the headline of a comparison, so it gets a figure instead of a meta line.
+        and score_delta
+    ):
+        tone = "pos" if score_delta > 0 else "neg"
+    else:
+        tone = "flat"
     score_line = (
-        f"<p class='meta'>{escape(t(lang, 'ui.score_delta'))}: "
-        f"<strong>{'+' if (score_delta or 0) > 0 else ''}{score_delta:.1f}</strong>"
-        f" ({reference.quality_score.overall:.1f} → {current.quality_score.overall:.1f})</p>"
+        '<div class="score">'
+        f'<span class="k">{escape(t(lang, "ui.score_delta"))}</span>'
+        f'<span class="fig delta {tone}">'
+        f"{'+' if (score_delta or 0) > 0 else ''}{score_delta:.1f}</span>"
+        f'<span class="of">{reference.quality_score.overall:.1f} → '
+        f"{current.quality_score.overall:.1f}</span>"
+        "</div>"
         if score_delta is not None and reference.quality_score and current.quality_score
         else ""
     )
@@ -1428,9 +1753,10 @@ def render_compare(
         f"<th>{escape(t(lang, 'ui.compare_current_short'))}</th>"
         f"<th>{escape(t(lang, 'ui.delta'))}</th></tr>" + "".join(dim_rows) + "</table>",
         f"<h2>{escape(t(lang, 'ui.severity_delta'))}</h2>",
-        "<table><tr><th></th><th>ref</th><th>cur</th><th>Δ</th></tr>"
-        + "".join(severity_rows)
-        + "</table>",
+        "<table><tr><th></th>"
+        f"<th>{escape(t(lang, 'ui.compare_reference_short'))}</th>"
+        f"<th>{escape(t(lang, 'ui.compare_current_short'))}</th>"
+        f"<th>{escape(t(lang, 'ui.delta'))}</th></tr>" + "".join(severity_rows) + "</table>",
         _issue_diff_table(
             issues_ref,
             issues_cur,
@@ -1441,8 +1767,8 @@ def render_compare(
             lang=lang,
         ),
         f"<h2>{escape(t(lang, 'ui.column_drifts'))}</h2>",
-        "<table><tr><th>column</th><th>type</th><th>metric</th><th>value / threshold</th>"
-        "<th>direction</th><th></th></tr>"
+        "<table><tr><th>Column</th><th>Type</th><th>Metric</th><th>Value / threshold</th>"
+        "<th>Direction</th><th></th></tr>"
         + (
             "".join(drift_rows)
             if drift_rows
@@ -1450,7 +1776,7 @@ def render_compare(
         )
         + "</table>",
         f"<h2>{escape(t(lang, 'ui.schema_changes'))}</h2>",
-        "<table><tr><th>type</th><th>column</th><th>before</th><th>after</th></tr>"
+        "<table><tr><th>Type</th><th>Column</th><th>Before</th><th>After</th></tr>"
         + (
             "".join(schema_rows)
             if schema_rows
@@ -1593,4 +1919,4 @@ def render_pii(
         )
     if error:
         body.append(f'<div class="alert alert-err">{escape(error)}</div>')
-    return _page(t(lang, "ui.pii_title"), "\n".join(body), lang=lang)
+    return _page(t(lang, "ui.pii_title"), "\n".join(body), active="pii", lang=lang)
