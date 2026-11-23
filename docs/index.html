@@ -3,39 +3,246 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>DataSentry — Automatically find, explain, and safely fix bad data</title>
+  <title>DataSentry — Find bad data and fix it without gambling</title>
   <meta name="description" content="DataSentry is a local-first data quality copilot with deterministic detection, evidence-backed issues, and human-approved reversible repairs.">
-  <meta name="theme-color" content="#0d1117">
-  <meta property="og:title" content="DataSentry — Find and safely fix bad data">
+  <meta name="theme-color" content="#f5f7fa">
+  <meta property="og:title" content="DataSentry — Find bad data, fix it with evidence">
   <meta property="og:description" content="Detect → Explain → Repair → Verify. Local-first, evidence-driven data quality with reversible repairs.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://jackxiaozhiren.github.io/datasentry/">
   <style>
-    :root{--bg:#0d1117;--panel:#161b22;--panel2:#0f1520;--text:#e6edf3;--muted:#8b949e;--border:#30363d;--blue:#2f81f7;--green:#3fb950;--code:#010409}
-    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}a{color:#58a6ff;text-decoration:none}a:hover{text-decoration:underline}.wrap{max-width:1080px;margin:auto;padding:0 24px}.nav{height:64px;display:flex;align-items:center;border-bottom:1px solid var(--border);background:rgba(13,17,23,.94);position:sticky;top:0;z-index:10;backdrop-filter:blur(12px)}.nav .wrap{width:100%;display:flex;align-items:center}.brand{display:flex;gap:10px;align-items:center;font-weight:700;color:var(--text)}.brand img{width:30px;height:30px}.links{margin-left:auto;display:flex;gap:20px;font-size:14px}.hero{text-align:center;padding:84px 0 56px;background:radial-gradient(circle at 50% 0,rgba(47,129,247,.22),transparent 48%)}.hero img{width:104px}.hero h1{font-size:48px;line-height:1.08;margin:18px 0 12px;letter-spacing:-1.5px}.hero .lead{font-size:21px;max-width:760px;margin:0 auto;color:#c9d1d9}.hero .sub{max-width:720px;margin:14px auto 28px;color:var(--muted)}.actions{display:flex;justify-content:center;gap:12px;flex-wrap:wrap}.btn{padding:10px 18px;border-radius:8px;border:1px solid var(--border);font-weight:650;color:var(--text);background:var(--panel)}.btn.primary{background:#238636;border-color:#2ea043;color:white}.btn:hover{text-decoration:none;filter:brightness(1.08)}.proof{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;margin-top:28px;color:var(--muted);font-size:14px}.proof b{color:var(--text)}section{padding:64px 0;border-top:1px solid var(--border)}h2{font-size:30px;line-height:1.2;margin:0 0 12px}h3{margin-top:0}.intro{color:var(--muted);max-width:760px;margin:0 0 30px}.loop{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.step,.card{border:1px solid var(--border);background:var(--panel);border-radius:12px;padding:20px}.step strong{display:block;font-size:18px;margin-bottom:6px}.step span,.card p{color:var(--muted)}.n{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--blue);color:#fff;font-weight:800;margin-bottom:12px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.card code{color:#79c0ff}.demo{overflow:hidden;border:1px solid var(--border);border-radius:12px;background:#fff}.demo iframe{display:block;width:100%;height:570px;border:0}.terminal{background:var(--code);border:1px solid var(--border);border-radius:12px;padding:22px;overflow:auto;color:#c9d1d9}.terminal .p{color:#7ee787}.terminal .c{color:var(--muted)}.two{display:grid;grid-template-columns:1.1fr .9fr;gap:24px;align-items:start}.facts{list-style:none;padding:0;margin:0}.facts li{padding:12px 0;border-bottom:1px solid var(--border)}.facts li:last-child{border-bottom:0}.note{border-left:3px solid var(--green);padding:10px 14px;background:var(--panel2);color:#c9d1d9}.cta{text-align:center}.cta p{color:var(--muted)}footer{padding:38px 0;color:var(--muted);font-size:14px;text-align:center;border-top:1px solid var(--border)}@media(max-width:760px){.links{display:none}.hero{padding-top:60px}.hero h1{font-size:38px}.loop,.grid,.two{grid-template-columns:1fr}.demo iframe{height:460px}}
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fa;
+      --surface: #ffffff;
+      --raised: #eceff4;
+      --line: rgba(17, 24, 39, .09);
+      --ink: #111827;
+      --ink-2: #4b5565;
+      --ink-3: #6b7487;
+      --accent: #1d4ed8;
+      --accent-hover: #1a43b6;
+      --on-accent: #ffffff;
+      --positive: #15803d;
+      --negative: #b91c1c;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 400 16px/1.6 var(--sans);
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+    .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+    .nav {
+      height: 64px;
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      background: var(--bg);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .nav .wrap { width: 100%; display: flex; align-items: center; }
+    .brand { display: flex; gap: 8px; align-items: center; font-size: 17px; font-weight: 500; color: var(--ink); }
+    .brand:hover { text-decoration: none; }
+    .brand img { width: 24px; height: 24px; display: block; }
+    .links { margin-left: auto; display: flex; gap: 24px; font-size: 14px; }
+    .links a { color: var(--ink-2); }
+    .links a:hover { color: var(--ink); text-decoration: none; }
+
+    .hero { padding: 96px 0 80px; }
+    .hero-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; }
+    .hero h1 { font-size: 52px; line-height: 1.08; margin: 0 0 24px; font-weight: 500; letter-spacing: -0.02em; }
+    .hero .lead { font-size: 19px; line-height: 1.5; max-width: 34rem; margin: 0 0 16px; color: var(--ink-2); }
+    .hero .sub { font-size: 14px; max-width: 34rem; margin: 0 0 32px; color: var(--ink-3); }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      min-height: 44px;
+      padding: 0 20px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--ink);
+      background: var(--surface);
+      transition: background-color 160ms cubic-bezier(.22, 1, .36, 1), border-color 160ms cubic-bezier(.22, 1, .36, 1), color 160ms cubic-bezier(.22, 1, .36, 1);
+    }
+    .btn:hover { background: var(--raised); text-decoration: none; }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+    .btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+    .proof {
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+      margin-top: 32px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      font-size: 13px;
+      color: var(--ink-3);
+    }
+    .proof b { font-weight: 500; color: var(--ink-2); }
+
+    .preview {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 24px;
+    }
+    .preview-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .preview-head .file { font-size: 15px; font-weight: 500; }
+    .preview-head .run { font-size: 12px; color: var(--ink-3); }
+    .preview-score { display: flex; align-items: baseline; gap: 12px; padding: 20px 0 12px; }
+    .preview-score .figure { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 44px; line-height: 1; font-weight: 500; }
+    .preview-score .caption { font-size: 13px; color: var(--ink-3); }
+    .score-track { height: 6px; border-radius: 4px; background: var(--raised); overflow: hidden; }
+    .score-track span { display: block; height: 100%; width: 97.8%; background: var(--accent); }
+    .preview-stats { display: flex; gap: 32px; padding: 20px 0; border-bottom: 1px solid var(--line); }
+    .preview-stats .stat .value { display: block; font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 20px; }
+    .preview-stats .stat .label { display: block; font-size: 12px; color: var(--ink-3); }
+    .findings { margin: 0; padding: 8px 0 0; list-style: none; }
+    .findings li {
+      display: grid;
+      grid-template-columns: 44px 1fr auto;
+      gap: 12px;
+      align-items: baseline;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+    }
+    .findings li:last-child { border-bottom: 0; padding-bottom: 4px; }
+    .findings .sev { font-family: var(--mono); font-size: 12px; }
+    .findings .sev.high { color: var(--negative); }
+    .findings .sev.medium { color: var(--ink-3); }
+    .findings .id { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+    .evidence-tag { display: inline-block; padding-left: 8px; border-left: 2px solid var(--accent); font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+
+    section { padding: 64px 0; border-top: 1px solid var(--line); }
+    h2 { font-size: 28px; line-height: 1.2; margin: 0 0 12px; font-weight: 500; letter-spacing: -0.01em; }
+    .intro { color: var(--ink-2); max-width: 48rem; margin: 0 0 32px; }
+    .loop { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .step, .card { border: 1px solid var(--line); background: var(--surface); border-radius: 16px; padding: 24px; }
+    .step .n { display: inline-block; padding-left: 8px; border-left: 2px solid var(--accent); font-family: var(--mono); font-size: 12px; color: var(--ink-3); margin-bottom: 16px; }
+    .step strong { display: block; font-size: 16px; font-weight: 500; margin-bottom: 8px; }
+    .step span.copy, .card p { color: var(--ink-2); font-size: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    .card h3 { margin: 0 0 8px; font-size: 16px; font-weight: 500; }
+    .card p { margin: 0; }
+    .card code, .facts code { font-family: var(--mono); font-size: 12px; background: var(--raised); padding: 2px 6px; border-radius: 4px; }
+
+    .demo-frame { overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+    .demo-frame iframe { display: block; width: 100%; height: 576px; border: 0; }
+    .two { display: grid; grid-template-columns: 1.1fr .9fr; gap: 32px; align-items: start; }
+    .terminal {
+      background: var(--raised);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 24px;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.8;
+      color: var(--ink);
+      margin: 0;
+    }
+    .terminal .p { color: var(--accent); }
+    .terminal .c { color: var(--ink-3); }
+    .facts { list-style: none; padding: 0; margin: 0; }
+    .facts li { padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+    .facts li:last-child { border-bottom: 0; }
+    .facts strong { font-weight: 500; }
+    .note {
+      margin-top: 24px;
+      padding: 12px 16px;
+      border-left: 2px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      background: var(--surface);
+      color: var(--ink-2);
+      font-size: 14px;
+    }
+    .cta h2 { margin-bottom: 16px; }
+    .cta p { color: var(--ink-2); margin: 0 0 24px; }
+    footer { padding: 40px 0; color: var(--ink-3); font-size: 13px; border-top: 1px solid var(--line); }
+    footer .wrap { display: flex; gap: 24px; flex-wrap: wrap; }
+
+    @media (max-width: 900px) {
+      .hero-grid { grid-template-columns: 1fr; gap: 48px; }
+      .hero { padding: 64px 0 56px; }
+      .hero h1 { font-size: 40px; }
+      .loop, .grid, .two { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 560px) {
+      .wrap { padding: 0 20px; }
+      .links a[href^="#"] { display: none; }
+      .brand { flex-shrink: 0; }
+      .links a { white-space: nowrap; }
+      .hero h1 { font-size: 36px; }
+      .demo-frame iframe { height: 400px; }
+      .findings li { grid-template-columns: 40px 1fr; }
+      .findings .id { grid-column: 2; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .btn { transition: none; }
+    }
   </style>
 </head>
 <body>
-  <div class="nav"><div class="wrap"><a class="brand" href="#top"><img src="assets/logo.svg" alt="DataSentry logo">DataSentry</a><div class="links"><a href="#why">Why</a><a href="#demo">Demo</a><a href="#start">Quick start</a><a href="#agents">MCP</a><a href="https://github.com/Jackxiaozhiren/datasentry">GitHub</a></div></div></div>
+  <div class="nav"><div class="wrap"><a class="brand" href="#top"><img src="assets/logo.svg" alt="">DataSentry</a><div class="links"><a href="#why">Why</a><a href="#demo">Demo</a><a href="#start">Quick start</a><a href="#agents">MCP</a><a href="https://github.com/Jackxiaozhiren/datasentry">GitHub</a></div></div></div>
 
   <main id="top">
-    <div class="hero"><div class="wrap">
-      <img src="assets/logo.svg" alt="DataSentry">
-      <h1>Find bad data.<br>Fix it without gambling.</h1>
-      <p class="lead">DataSentry automatically detects data-quality problems, explains the evidence, and turns fixes into a previewable, verifiable, reversible workflow.</p>
-      <p class="sub">The deterministic core runs locally. LLMs are optional. AI may propose a repair; humans approve state-changing actions.</p>
-      <div class="actions"><a class="btn primary" href="#start">Scan your first file</a><a class="btn" href="#demo">See a live report</a><a class="btn" href="https://github.com/Jackxiaozhiren/datasentry">View on GitHub</a></div>
-      <div class="proof"><span><b>39</b> detectors</span><span><b>6</b> quality dimensions</span><span><b>95%</b> coverage</span><span><b>Apache-2.0</b></span></div>
+    <div class="hero"><div class="wrap hero-grid">
+      <div>
+        <h1>Find bad data<br>Fix it without gambling</h1>
+        <p class="lead">DataSentry automatically detects data-quality problems, explains the evidence, and turns fixes into a previewable, verifiable, reversible workflow.</p>
+        <p class="sub">The deterministic core runs locally. LLMs are optional. AI may propose a repair; humans approve state-changing actions.</p>
+        <div class="actions"><a class="btn primary" href="#start">Scan your first file</a><a class="btn" href="#demo">See a live report</a></div>
+        <div class="proof"><span><b>39</b> detectors</span><span><b>6</b> quality dimensions</span><span><b>Apache-2.0</b></span></div>
+      </div>
+      <div class="preview" aria-label="DataSentry quality report preview">
+        <div class="preview-head"><span class="file">orders.csv</span><span class="run mono">scan_5ae8cc6b7194</span></div>
+        <div class="preview-score"><span class="figure">97.8</span><span class="caption">overall score · 200 rows × 4 columns</span></div>
+        <div class="score-track" role="img" aria-label="overall score 97.8 out of 100"><span></span></div>
+        <div class="preview-stats">
+          <div class="stat"><span class="value">11</span><span class="label">issues</span></div>
+          <div class="stat"><span class="value">39</span><span class="label">detector runs</span></div>
+          <div class="stat"><span class="value">4</span><span class="label">dimensions scored</span></div>
+        </div>
+        <ul class="findings">
+          <li><span class="sev high">high</span><span>Datetime anomaly in order_date</span><span class="id">iss_bf32838d6434</span></li>
+          <li><span class="sev medium">medium</span><span>Duplicate values in order_id</span><span class="id">iss_67a3d5623413</span></li>
+          <li><span class="sev medium">medium</span><span>String format issue in amount</span><span class="id">iss_193df8080be3</span></li>
+        </ul>
+        <p class="evidence-tag">generated by DataSentry · llm_used: false</p>
+      </div>
     </div></div>
 
     <section id="why"><div class="wrap">
       <h2>One loop, not another dashboard</h2>
       <p class="intro">Data quality is only useful when a finding can move from suspicion to evidence to a safe correction. DataSentry is organized around that complete workflow.</p>
       <div class="loop">
-        <div class="step"><span class="n">1</span><strong>Detect</strong><span>Scan files, databases, and cloud objects with evidence-driven detectors.</span></div>
-        <div class="step"><span class="n">2</span><strong>Explain</strong><span>Inspect samples, ratios, confidence, severity, and six-dimension scoring.</span></div>
-        <div class="step"><span class="n">3</span><strong>Repair</strong><span>Generate a proposal, preview it, and apply it to a copy—not the source.</span></div>
-        <div class="step"><span class="n">4</span><strong>Verify</strong><span>Re-scan the repaired data, detect regressions, inspect diffs, or roll back.</span></div>
+        <div class="step"><span class="n">01</span><strong>Detect</strong><span class="copy">Scan files, databases, and cloud objects with evidence-driven detectors.</span></div>
+        <div class="step"><span class="n">02</span><strong>Explain</strong><span class="copy">Inspect samples, ratios, confidence, severity, and six-dimension scoring.</span></div>
+        <div class="step"><span class="n">03</span><strong>Repair</strong><span class="copy">Generate a proposal, preview it, and apply it to a copy—not the source.</span></div>
+        <div class="step"><span class="n">04</span><strong>Verify</strong><span class="copy">Re-scan the repaired data, detect regressions, inspect diffs, or roll back.</span></div>
       </div>
     </div></section>
 
@@ -49,7 +256,8 @@
     <section id="demo"><div class="wrap">
       <h2>See the actual report</h2>
       <p class="intro">This embedded report is generated by DataSentry from a small synthetic order dataset with injected quality problems. It is not a separate marketing mockup.</p>
-      <div class="demo"><iframe src="demo/orders-report.html" title="DataSentry live quality report"></iframe></div>
+      <p><span class="evidence-tag">scan_5ae8cc6b7194</span></p>
+      <div class="demo-frame"><iframe src="demo/orders-report.html" title="DataSentry live quality report"></iframe></div>
     </div></section>
 
     <section id="start"><div class="wrap">
@@ -96,12 +304,12 @@
     </div></section>
 
     <section class="cta"><div class="wrap">
-      <h2>Catch bad data before it becomes a production incident.</h2>
+      <h2>Catch bad data before it becomes a production incident</h2>
       <p>Try the project, inspect the evidence, and tell us where the workflow breaks for your data.</p>
-      <div class="actions"><a class="btn primary" href="https://github.com/Jackxiaozhiren/datasentry">GitHub repository</a><a class="btn" href="https://pypi.org/project/datasentry-ai/">PyPI</a><a class="btn" href="https://github.com/Jackxiaozhiren/datasentry/blob/main/ROADMAP.md">Roadmap</a></div>
+      <div class="actions"><a class="btn primary" href="https://github.com/Jackxiaozhiren/datasentry">GitHub repository</a><a class="btn" href="https://pypi.org/project/datasentry-ai/">PyPI</a></div>
     </div></section>
   </main>
 
-  <footer><div class="wrap">DataSentry · Apache-2.0 · Local-first data quality with evidence and reversible repair.</div></footer>
+  <footer><div class="wrap"><span>DataSentry · Apache-2.0 · Local-first data quality with evidence and reversible repair.</span><a href="https://github.com/Jackxiaozhiren/datasentry/blob/main/ROADMAP.md">Roadmap</a></div></footer>
 </body>
 </html>
